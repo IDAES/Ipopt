@@ -2353,9 +2353,7 @@ PREDEFINED             = IPOPT_HAS_ASL \
                          HAVE_DLFCN_H \
                          HAVE_DRAND48 \
                          HAVE_PARDISO \
-                         HAVE_SNPRINTF \
-                         HAVE_VA_COPY \
-                         HAVE_VSNPRINTF \
+                         IPOPT_HAS_VA_COPY \
                          HAVE_WSMP \
                          F77_FUNC(x)=x \
                          IPOPT_LAPACK_FUNC(x)=x \

@@ -931,7 +931,7 @@ bool TNLP::get_curr_violations(
          // orig_d_L is unscaled, but we need the scaled one below (because d is scaled)
          if( orignlp->NLP_scaling()->have_d_scaling() )
          {
-            d_L = orignlp->NLP_scaling()->apply_vector_scaling_d_NonConst(d_L);
+            d_L = orignlp->NLP_scaling()->apply_vector_scaling_d_LU_NonConst(*orignlp->Pd_L(), d_L, *orignlp->d_space());
          }
       }
       else // if no relaxation, then orig_d_L() returns NULL, use d_L instead
@@ -966,7 +966,7 @@ bool TNLP::get_curr_violations(
          // orig_d_U is unscaled, but we need the scaled one below (because d is scaled)
          if( orignlp->NLP_scaling()->have_d_scaling() )
          {
-            d_U = orignlp->NLP_scaling()->apply_vector_scaling_d_NonConst(d_U);
+            d_U = orignlp->NLP_scaling()->apply_vector_scaling_d_LU_NonConst(*orignlp->Pd_U(), d_U, *orignlp->d_space());
          }
       }
       else // if no relaxation, then orig_d_U() returns NULL, use d_U instead

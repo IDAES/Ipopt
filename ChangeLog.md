@@ -7,16 +7,58 @@ More detailed information about incremental changes can be found in the
 
 ## 3.14
 
-### 3.14.17 (2024-xx-yy)
+### 3.14.20 (2025-xx-yy)
+
+- Fixed issue where Ipopt exceptions could not been caught from other libraries
+  on macOS with clang when Ipopt or the other library was build with `-fvisibility=hidden`.
+- Call MPI_Init() with NULL instead of dummy arguments to fix SIGSEGV with MPICH >= 4.3.1
+  [#846, by Shengqi Chen].
+- Fixed a use-after-free in Spral interface where attempting to solve a second system with
+  the same structurally singular matrix would end up trying to use an old numeric factorization
+  using data from an already freed symbolic factorization [#848, by Kevin Kofler].
+
+### 3.14.19 (2025-07-30)
+
+- Fixed call to `getenv_s` on Windows, introduced with 3.14.17.
+  This invalid use of this call made the Pardiso interfaces unusable on Windows.
+
+### 3.14.18 (2025-07-28)
+
+- Restricted workaround for using Pardiso to Intel MKL 2025.0.x.
+  Intel MKL 2025.1.0 has the corresponding issue fixed. [#799]
+- Fixed that Jipopt::finalize_solution did not store final objective value correctly
+  [#820, by Kevin Kofler]. Instead, the value of the last iterate evaluation was returned,
+  which was often the same.
+- Added IpoptApplication::Version() (C++ interface), GetIpoptVersion (C interface), and
+  Ipopt::GetVersion() (Java interface) to retrieve version of Ipopt library [#824].
+- Fixed possible missing initialization of delta_x and delta_s in PDPerturbationHandler
+  in case ConsiderNewSystem failed [#834].
+- Undefine `max` if defined after include of windows.h in IpUtils.cpp [#834].
+- Added missing initialization of Filter Acceptor in case restoration phase is called
+  when the fallback mechanism of BacktrackingLinearSearch has been activated [#834,#837].
+  If this happened in the first iteration, it led to the use of uninitialized values.
+- Added missing return if symbolic factorization with MA57 (ma57ad, ma57as) failed [#834].
+- Fixed application of scaling when computing violations of inequality constraints in
+  `TNLP::get_curr_violations()`. Added `OrigIpoptNLP::d_space()`.
+- Fixed signature of call to MKL's Pardiso: the DPARM argument does not exist in this
+  version of Pardiso.
+
+### 3.14.17 (2024-12-14)
 
 - Added `Ipopt::RegisterInterruptHandler()` and `Ipopt::UnregisterInterruptHandler()`
   to `IpUtils.hpp` to wrap handling of interrupt signals.
   Added parameter `checkinterrupt` (default false) to `AmplTNLP` constructor
   to enable check for interrupt signal in `intermediate_callback`.
-- The `ipopt` and `ipopt_sens` executables can now be interrupted by SIGINT/SIGHUP
-  (POSIX systems) or SIGINT/SIGTERM/SIGABRT (Windows systems).
+- The `ipopt` and `ipopt_sens` executables and scalable problems C++ examples can now be
+  interrupted by SIGINT/SIGHUP (systems with sigaction()) or SIGINT/SIGTERM/SIGABRT (Windows systems).
 - New option `mumps_mpi_communicator` to specify the MPI communicator when using
   an MPI-enabled build of MUMPS [#790, by Alex Tyler Chapman].
+- Updated build system to current autotools versions; initial support for icx/ifx and flang
+- Removed use of `vsprintf` and `sprintf`. Added `IpoptData::Append_info_string(std::string,double)`.
+- Removed use of `strcpy`, `strncpy`, `strdup`, and `sscanf`.
+- Using `fopen_s` and `getenv_s` instead of `fopen` and `getenv`, respectively, if available.
+- Added workaround for using Pardiso from Intel MKL 2025.0.1 [#799].
+  This requires checking the MKL version at runtime and can be disabled by defining `IPOPT_NO_MKLVERSIONCHECK`.
 
 ### 3.14.16 (2024-04-22)
 

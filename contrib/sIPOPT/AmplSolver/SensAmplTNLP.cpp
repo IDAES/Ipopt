@@ -295,9 +295,8 @@ bool SensAmplTNLP::get_var_con_metadata(
       //exc.ReportException(*jnlst_);
       // const std::string exc_mess = exc.Message();
       const std::string exc_mess = exc.Message();
-      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run sIPOPT "
-                     "because of incorrect AMPL suffix!\n"
-                     "      Message: %s\n\n", exc_mess.c_str());
+      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run sIPOPT because of incorrect AMPL suffix!\n"
+                                                  "      Message: %s\n\n", exc_mess.c_str());
       options_->SetStringValue("sens_internal_abort", "yes");
       bool ignore_suffix_error;
       options_->GetBoolValue("ignore_suffix_error", ignore_suffix_error, "");
@@ -319,9 +318,8 @@ bool SensAmplTNLP::get_var_con_metadata(
    catch( SUFFIX_EMPTY& exc )
    {
       const std::string exc_mess = exc.Message();
-      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run reduced hessian computation "
-                     "because of incorrect AMPL suffix!\n"
-                     "      Message: %s\n\n", exc_mess.c_str());
+      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run reduced hessian computation because of incorrect AMPL suffix!\n"
+                                                  "      Message: %s\n\n", exc_mess.c_str());
       options_->SetStringValue("sens_internal_abort", "yes");
       bool ignore_suffix_error;
       options_->GetBoolValue("ignore_suffix_error", ignore_suffix_error, "");

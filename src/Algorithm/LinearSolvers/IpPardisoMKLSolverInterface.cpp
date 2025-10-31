@@ -47,9 +47,26 @@ extern "C"
       const ipindex*   MSGLVL,
       ipnumber*        B,
       ipnumber*        X,
-      ipindex*         E,
-      ipnumber*        DPARM
+      ipindex*         E
    );
+
+#ifndef IPOPT_NO_MKLVERSIONCHECK
+   typedef struct
+   {
+      int   MajorVersion;
+      int   MinorVersion;
+      int   UpdateVersion;
+      int   PatchVersion;
+      char* ProductStatus;
+      char* Build;
+      char* Processor;
+      char* Platform;
+   } MKLVersion;
+
+   void MKL_Get_Version(
+      MKLVersion* ver
+   );
+#endif
 }
 
 namespace Ipopt
@@ -72,7 +89,6 @@ PardisoMKLSolverInterface::PardisoMKLSolverInterface()
 
    PT_ = new void* [64];
    IPARM_ = new Index[64];
-   DPARM_ = new Number[64];
 }
 
 PardisoMKLSolverInterface::~PardisoMKLSolverInterface()
@@ -90,13 +106,12 @@ PardisoMKLSolverInterface::~PardisoMKLSolverInterface()
       Index idmy = 0;
       Number ddmy = 0.;
       IPOPT_LAPACK_FUNC(pardiso, PARDISO)(PT_, &MAXFCT_, &MNUM_, &MTYPE_, &PHASE, &N, &ddmy, &idmy, &idmy, &idmy, &NRHS, IPARM_, &MSGLVL_, &ddmy,
-                                          &ddmy, &ERROR, DPARM_);
+                                          &ddmy, &ERROR);
       DBG_ASSERT(ERROR == 0);
    }
 
    delete[] PT_;
    delete[] IPARM_;
-   delete[] DPARM_;
    delete[] a_;
 }
 
@@ -207,7 +222,7 @@ bool PardisoMKLSolverInterface::InitializeImpl(
       Index idmy = 0;
       Number ddmy = 0.;
       IPOPT_LAPACK_FUNC(pardiso, PARDISO)(PT_, &MAXFCT_, &MNUM_, &MTYPE_, &PHASE, &N, &ddmy, &idmy, &idmy, &idmy, &NRHS, IPARM_, &MSGLVL_, &ddmy,
-                                          &ddmy, &ERROR, DPARM_);
+                                          &ddmy, &ERROR);
       DBG_ASSERT(ERROR == 0);
    }
 
@@ -233,7 +248,7 @@ bool PardisoMKLSolverInterface::InitializeImpl(
    IPARM_[5] = 1;// Overwrite right-hand side
    IPARM_[7] = max_iterref_steps;
    IPARM_[9] = 12;// pivot perturbation (as higher as less perturbation)
-   IPARM_[10] = 2;// enable scaling (recommended for interior-point indefinite matrices)
+   IPARM_[10] = 2;// enable scaling (recommended for interior-point indefinite matrices)  //FIXME there is no value 2 for this option
    IPARM_[12] = (int)match_strat_;// enable matching (recommended, as above)
    IPARM_[20] = 3;// bunch-kaufman pivoting
    IPARM_[23] = 1;// parallel fac
@@ -243,6 +258,25 @@ bool PardisoMKLSolverInterface::InitializeImpl(
    IPARM_[27] = 1; // Use single precision
 #else
    IPARM_[27] = 0; // Use double precision
+#endif
+
+   // MKL 2025.0.1 does not work correctly with IPARM_[20] = 3 and IPARM_[7] > 0
+   // workaround: change to IPARM_[20] = 1 (the default)
+   // MKL 2025.1.0 has this fixed
+   // https://github.com/coin-or/Ipopt/issues/799
+   // https://community.intel.com/t5/Intel-oneAPI-Math-Kernel-Library/Pardiso-bunch-kaufman-pivoting-option-3-different-in-MKL-2025-0/m-p/1648273
+#ifndef IPOPT_NO_MKLVERSIONCHECK
+   if( IPARM_[7] > 0 )
+   {
+      MKLVersion mklver;
+      MKL_Get_Version(&mklver);
+      if( mklver.MajorVersion == 2025 && mklver.UpdateVersion == 0 )
+      {
+         IPARM_[20] = 1;
+         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
+                        "Pivoting for symmetric indefinite matrices (IPARM(20)) set to 1 to workaround issue with MKL 2025.0.1\n");
+      }
+   }
 #endif
 
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
@@ -356,23 +390,33 @@ void write_iajaa_matrix(
    int          sol_cnt
 )
 {
+#ifdef IPOPT_HAS_GETENV_S
+   size_t required_size;
+   getenv_s(&required_size, NULL, 0, "IPOPT_WRITE_MAT");
+   if( required_size > 0 )
+#else
    if( getenv("IPOPT_WRITE_MAT") )
+#endif
    {
       /* Write header */
       char mat_name[128];
-      char mat_pref[32];
 
       Index NNZ = ia[N] - 1;
       Index i;
 
-      if( getenv("IPOPT_WRITE_PREFIX") )
+#ifdef IPOPT_HAS_GETENV_S
+      char mat_pref[32];
+      if( getenv_s(&required_size, mat_pref, sizeof(mat_pref), "IPOPT_WRITE_PREFIX") != 0 )
       {
-         strcpy(mat_pref, getenv("IPOPT_WRITE_PREFIX"));
+         memcpy(mat_pref, "mat-ipopt", 10);
       }
-      else
+#else
+      const char* mat_pref = getenv("IPOPT_WRITE_PREFIX");
+      if( mat_pref == NULL )
       {
-         strcpy(mat_pref, "mat-ipopt");
+         mat_pref = "mat-ipopt";
       }
+#endif
 
       Snprintf(mat_name, 127, "%s_%03d-%02d.iajaa", mat_pref, iter_cnt, sol_cnt);
 
@@ -405,23 +449,32 @@ void write_iajaa_matrix(
    }
 
    /* additional matrix format */
+#ifdef IPOPT_HAS_GETENV_S
+   getenv_s(&required_size, NULL, 0, "IPOPT_WRITE_MAT_MTX");
+   if( required_size > 0 )
+#else
    if( getenv("IPOPT_WRITE_MAT_MTX") )
+#endif
    {
       /* Write header */
       char mat_name[128];
-      char mat_pref[32];
 
       Index i;
       Index j;
 
-      if( getenv("IPOPT_WRITE_PREFIX") )
+#ifdef IPOPT_HAS_GETENV_S
+      char mat_pref[32];
+      if( getenv_s(&required_size, mat_pref, sizeof(mat_pref), "IPOPT_WRITE_PREFIX") != 0 )
       {
-         strcpy(mat_pref, getenv("IPOPT_WRITE_PREFIX"));
+         memcpy(mat_pref, "mat-ipopt", 10);
       }
-      else
+#else
+      const char* mat_pref = getenv("IPOPT_WRITE_PREFIX");
+      if( mat_pref == NULL )
       {
-         strcpy(mat_pref, "mat-ipopt");
+         mat_pref = "mat-ipopt";
       }
+#endif
 
       Snprintf(mat_name, 127, "%s_%03d-%02d.mtx", mat_pref, iter_cnt, sol_cnt);
 
@@ -471,10 +524,10 @@ ESymSolverStatus PardisoMKLSolverInterface::Factorization(
          PHASE = 11;
 
          Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                        "Calling Pardiso for symbolic factorization.\n");
+                        "Calling Pardiso for symbolic factorization (PHASE=%d).\n", PHASE);
          IPOPT_LAPACK_FUNC(pardiso, PARDISO)(PT_, &MAXFCT_, &MNUM_, &MTYPE_,
                                              &PHASE, &N, a_, ia, ja, &PERM,
-                                             &NRHS, IPARM_, &MSGLVL_, &B, &X, &ERROR, DPARM_);
+                                             &NRHS, IPARM_, &MSGLVL_, &B, &X, &ERROR);
          if( HaveIpData() )
          {
             IpData().TimingStats().LinearSystemSymbolicFactorization().End();
@@ -509,7 +562,7 @@ ESymSolverStatus PardisoMKLSolverInterface::Factorization(
          IpData().TimingStats().LinearSystemFactorization().Start();
       }
       Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                     "Calling Pardiso for factorization.\n");
+                     "Calling Pardiso for factorization (PHASE=%d).\n", PHASE);
       // Dump matrix to file, and count number of solution steps.
       if( HaveIpData() )
       {
@@ -528,7 +581,7 @@ ESymSolverStatus PardisoMKLSolverInterface::Factorization(
 
       IPOPT_LAPACK_FUNC(pardiso, PARDISO)(PT_, &MAXFCT_, &MNUM_, &MTYPE_,
                                           &PHASE, &N, a_, ia, ja, &PERM,
-                                          &NRHS, IPARM_, &MSGLVL_, &B, &X, &ERROR, DPARM_);
+                                          &NRHS, IPARM_, &MSGLVL_, &B, &X, &ERROR);
       if( HaveIpData() )
       {
          IpData().TimingStats().LinearSystemFactorization().End();
@@ -642,6 +695,9 @@ ESymSolverStatus PardisoMKLSolverInterface::Solve(
    Index NRHS = nrhs;
    Number* X = new Number[nrhs * dim_];
 
+   Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
+                  "Calling Pardiso to solve (PHASE=%d).\n", PHASE);
+
    Number* ORIG_RHS = new Number[nrhs * dim_];
    Index ERROR;
    // Initialize solution with zero and save right hand side
@@ -665,21 +721,7 @@ ESymSolverStatus PardisoMKLSolverInterface::Solve(
       rhs_vals[i] = ORIG_RHS[i];
    }
    IPOPT_LAPACK_FUNC(pardiso, PARDISO)(PT_, &MAXFCT_, &MNUM_, &MTYPE_, &PHASE, &N, a_, ia, ja, &PERM, &NRHS, IPARM_, &MSGLVL_, rhs_vals, X,
-                                       &ERROR, DPARM_);
-
-   if( ERROR <= -100 && ERROR >= -102 )
-   {
-      Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                     "Iterative solver in Pardiso did not converge (ERROR = %" IPOPT_INDEX_FORMAT ")\n", ERROR);
-      Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                     "  Decreasing drop tolerances from DPARM_[4] = %e and DPARM_[5] = %e\n", DPARM_[4], DPARM_[5]);
-      PHASE = 23;
-      DPARM_[4] /= 2.0;
-      DPARM_[5] /= 2.0;
-      Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                     "                               to DPARM_[4] = %e and DPARM_[5] = %e\n", DPARM_[4], DPARM_[5]);
-      ERROR = 0;
-   }
+                                       &ERROR);
 
    delete[] X;
    delete[] ORIG_RHS;

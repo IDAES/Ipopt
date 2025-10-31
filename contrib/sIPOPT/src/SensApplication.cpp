@@ -192,10 +192,9 @@ SensAlgorithmExitStatus SensApplication::Run()
    {
       if( n_sens_steps_ <= 0 )
       {
-         jnlst_->Printf(J_WARNING, J_MAIN, "\n"
-                        "The run_sens option was set to true, but the specified\n"
-                        "number of sensitivity steps was set to zero.\n"
-                        "Computation is aborted.\n\n");
+         jnlst_->Printf(J_WARNING, J_MAIN, "\nThe run_sens option was set to true, but the specified\n"
+                                           "number of sensitivity steps was set to zero.\n"
+                                           "Computation is aborted.\n\n");
       }
    }
 
@@ -272,15 +271,13 @@ SensAlgorithmExitStatus SensApplication::Run()
 
       if( compute_red_hessian_ && redhess_internal_abort )
       {
-         jnlst_->Printf(J_WARNING, J_MAIN, "\nReduced hessian was not computed "
-                        "because an error occurred.\n"
-                        "See exception message above for details.\n\n");
+         jnlst_->Printf(J_WARNING, J_MAIN, "\nReduced hessian was not computed because an error occurred.\n"
+                                           "See exception message above for details.\n\n");
       }
       if( run_sens_ && sens_internal_abort )
       {
-         jnlst_->Printf(J_WARNING, J_MAIN, "\nsIPOPT was not called "
-                        "because an error occurred.\n"
-                        "See exception message above for details.\n\n");
+         jnlst_->Printf(J_WARNING, J_MAIN, "\nsIPOPT was not called because an error occurred.\n"
+                                           "See exception message above for details.\n\n");
       }
 
       ip_nlp_->FinalizeSolution(status, *ip_data_->curr()->x(), *zL, *zU, *c, *d, *yc, *yd, obj, GetRawPtr(ip_data_),

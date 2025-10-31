@@ -19,12 +19,8 @@
 #include <csignal>
 #include <limits>
 
-// The special treatment of vsnprintf on SUN has been suggested by Lou Hafer 2010/07/04
-#if defined(HAVE_VSNPRINTF) && defined(__SUNPRO_CC)
-namespace std
-{
-#include <iso/stdio_c99.h>
-}
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define vsnprintf _vsnprintf
 #endif
 
 // The following code has been copied from CoinUtils' CoinTime
@@ -54,6 +50,9 @@ namespace std
 /* for some unfathomable reason (to me) rpcndr.h (pulled in by windows.h) does a
    '#define small char' */
 #undef small
+#endif
+#ifdef max
+#undef max
 #endif
 #define TWO_TO_THE_THIRTYTWO 4294967296.0
 #define DELTA_EPOCH_IN_SECS  11644473600.0
@@ -117,7 +116,7 @@ Number IpRandom01()
 # ifdef IPOPT_HAS_RAND
    return Number(rand()) / Number(RAND_MAX);
 # else
-#  ifdef HAVE_STD__RAND
+#  ifdef IPOPT_HAS_STD__RAND
    return Number(std::rand()) / Number(RAND_MAX);
 #  else
 #   error "don't have function for random number generator"
@@ -134,7 +133,7 @@ void IpResetRandom01()
 # ifdef IPOPT_HAS_RAND
    srand(1);
 # else
-#  ifdef HAVE_STD__RAND
+#  ifdef IPOPT_HAS_STD__RAND
    std::srand(1);
 #  else
 #   error "don't have function for random number generator"
@@ -235,7 +234,7 @@ bool RegisterInterruptHandler(
    handle_interrupt_ = handle_interrupt;
    interrupt_flag_ = interrupt_flag;
 
-#ifdef _POSIX_C_SOURCE
+#ifdef IPOPT_HAS_SIGACTION
    struct sigaction sa;
    sa.sa_handler = &sighandler;
    sa.sa_flags = SA_RESTART;
@@ -249,13 +248,11 @@ bool RegisterInterruptHandler(
       return false;
    }
 
-#elif defined(_WIN32)
+#else
    signal(SIGINT, sighandler);
    signal(SIGTERM, sighandler);
    signal(SIGABRT, sighandler);
 
-#else
-   return false;
 #endif
 
    return true;
@@ -268,7 +265,7 @@ bool UnregisterInterruptHandler(void)
       return false;
    }
 
-#ifdef _POSIX_C_SOURCE
+#ifdef IPOPT_HAS_SIGACTION
    struct sigaction sa;
    sa.sa_handler = SIG_DFL;
    sa.sa_flags = SA_RESTART;
@@ -282,13 +279,11 @@ bool UnregisterInterruptHandler(void)
       return false;
    }
 
-#elif defined(_WIN32)
+#else
    signal(SIGINT, SIG_DFL);
    signal(SIGTERM, SIG_DFL);
    signal(SIGABRT, SIG_DFL);
 
-#else
-   return false;
 #endif
 
    registered_handler = false;
@@ -313,47 +308,10 @@ int Snprintf(
    ...
 )
 {
-#if defined(HAVE_VSNPRINTF) && defined(__SUNPRO_CC)
-   std::va_list ap;
-#else
    va_list ap;
-#endif
    va_start(ap, format);
    int ret;
-#ifdef IPOPT_HAS_VA_COPY
-   va_list apcopy;
-   va_copy(apcopy, ap);
-# ifdef HAVE_VSNPRINTF
-#  ifdef __SUNPRO_CC
-   ret = std::vsnprintf(str, size, format, apcopy);
-#  else
-   ret = vsnprintf(str, size, format, apcopy);
-#  endif
-# else
-#  ifdef HAVE__VSNPRINTF
-   ret = _vsnprintf(str, size, format, apcopy);
-#  else
-   ret = vsprintf(str, format, apcopy);
-   (void) size;
-#  endif
-# endif
-   va_end(apcopy);
-#else
-# ifdef HAVE_VSNPRINTF
-#  ifdef __SUNPRO_CC
-   ret = std::vsnprintf(str, size, format, ap);
-#  else
    ret = vsnprintf(str, size, format, ap);
-#  endif
-# else
-#  ifdef HAVE__VSNPRINTF
-   ret = _vsnprintf(str, size, format, ap);
-#  else
-   ret = vsprintf(str, format, ap);
-   (void) size;
-#  endif
-# endif
-#endif
    va_end(ap);
    return ret;
 }

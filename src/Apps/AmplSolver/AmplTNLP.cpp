@@ -14,13 +14,6 @@
 
 #include <cstring>
 
-// strdup is named _strdup on Windows
-#ifdef _WIN32
-#define ipopt_strdup _strdup
-#else
-#define ipopt_strdup strdup
-#endif
-
 /* AMPL includes */
 #include "asl.h"
 #include "asl_pfgh.h"
@@ -1083,7 +1076,7 @@ void AmplTNLP::write_solution_file(
    // We need to copy the message into a non-const char array to make
    // it work with the AMPL C function.
    char* cmessage = new char[message.length() + 1];
-   strcpy(cmessage, message.c_str());
+   memcpy(cmessage, message.c_str(), message.length() + 1);
 
    write_sol(cmessage, x_sol_, lambda_sol_, (Option_Info* )Oinfo_ptr_);
 
@@ -1320,8 +1313,8 @@ AmplOptionsList::AmplOption::AmplOption(
    : ipopt_option_name_(ipopt_option_name),
      type_(type)
 {
-   description_ = new char[description.size() + 1];
-   strcpy(description_, description.c_str());
+   description_ = new char[description.length() + 1];
+   memcpy(description_, description.c_str(), description.length() + 1);
 }
 
 AmplOptionsList::~AmplOptionsList()
@@ -1370,8 +1363,8 @@ void* AmplOptionsList::Keywords(
    for( std::map<std::string, SmartPtr<const AmplOption> >::iterator iter = ampl_options_map_.begin();
         iter != ampl_options_map_.end(); ++iter )
    {
-      keywords[ioption].name = new char[iter->first.size() + 1];
-      strcpy(keywords[ioption].name, iter->first.c_str());
+      keywords[ioption].name = new char[iter->first.length() + 1];
+      memcpy(keywords[ioption].name, iter->first.c_str(), iter->first.length() + 1);
       keywords[ioption].desc = iter->second->Description();
       switch( iter->second->Type() )
       {
@@ -1704,6 +1697,7 @@ AmplTNLP::get_options(
    const char* sname;
    const char* bsname;
    const char* opname;
+   size_t len;
    if( ampl_option_string )
    {
       opname = ampl_option_string;
@@ -1731,12 +1725,15 @@ AmplTNLP::get_options(
 
    DBG_ASSERT(!Oinfo_ptr_);
    Option_Info* Oinfo = new Option_Info;
-   Oinfo->sname = new char[strlen(sname) + 1];
-   strcpy(Oinfo->sname, sname);
-   Oinfo->bsname = new char[strlen(bsname) + 1];
-   strcpy(Oinfo->bsname, bsname);
-   Oinfo->opname = new char[strlen(opname) + 1];
-   strcpy(Oinfo->opname, opname);
+   len = strlen(sname);
+   Oinfo->sname = new char[len + 1];
+   memcpy(Oinfo->sname, sname, len + 1);
+   len = strlen(bsname);
+   Oinfo->bsname = new char[len + 1];
+   memcpy(Oinfo->bsname, bsname, len + 1);
+   len = strlen(opname);
+   Oinfo->opname = new char[len + 1];
+   memcpy(Oinfo->opname, opname, len + 1);
    Oinfo->keywds = keywds;
    Oinfo->n_keywds = (int)n_options;
    // Set the default for the remaining entries
@@ -1795,7 +1792,7 @@ AmplSuffixHandler::~AmplSuffixHandler()
       Index n = (Index) suffix_ids_.size();
       for( Index i = 0; i < n; i++ )
       {
-         free(suftab_[i].name);
+         delete[] suftab_[i].name;
          suftab_[i].name = NULL;
       }
    }
@@ -1814,7 +1811,8 @@ void AmplSuffixHandler::PrepareAmplForSuffixes(
    suftab_ = new SufDecl[n];
    for( Index i = 0; i < n; i++ )
    {
-      suftab_[i].name = ipopt_strdup(suffix_ids_[i].c_str());
+      suftab_[i].name = new char[suffix_ids_[i].length() + 1];
+      memcpy(suftab_[i].name, suffix_ids_[i].c_str(), suffix_ids_[i].length() + 1);
       suftab_[i].table = 0;
 
       if( suffix_sources_[i] == Variable_Source )

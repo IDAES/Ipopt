@@ -57,11 +57,8 @@ bool LoqoMuOracle::CalculateMu(
                   "  Barrier parameter proposed by LOQO rule is %lf\n", mu);
 
    /*
-   char ssigma[40];
-   sprintf(ssigma, " sigma=%8.2e", sigma);
-   IpData().Append_info_string(ssigma);
-   sprintf(ssigma, " xi=%8.2e ", IpCq().curr_centrality_measure());
-   IpData().Append_info_string(ssigma);
+   IpData().Append_info_string(" sigma", sigma);
+   IpData().Append_info_string(" xi", IpCq().curr_centrality_measure());
    */
 
    new_mu = Max(Min(mu_max, mu), mu_min);

@@ -63,9 +63,7 @@ static void MPIinit(void)
    MPI_Initialized(&mpi_initialized);
    if( !mpi_initialized )
    {
-      int argc = 1;
-      char** argv = NULL;
-      MPI_Init(&argc, &argv);
+      MPI_Init(NULL, NULL);
    }
 }
 
@@ -92,19 +90,18 @@ MumpsSolverInterface::MumpsSolverInterface()
    DBG_START_METH("MumpsSolverInterface::MumpsSolverInterface()",
                   dbg_verbosity);
 
-   //initialize mumps
-   MUMPS_STRUC_C* mumps_ = static_cast<MUMPS_STRUC_C*>(calloc(1, sizeof(MUMPS_STRUC_C)));
-   mumps_->job = -1; //initialize mumps
-   mumps_->par = 1; //working host for sequential version
-   mumps_->sym = 2; //general symmetric matrix
-
-   mumps_ptr_ = (void*) mumps_;
+   mumps_ptr_ = NULL;
 }
 
 MumpsSolverInterface::~MumpsSolverInterface()
 {
    DBG_START_METH("MumpsSolverInterface::~MumpsSolverInterface()",
                   dbg_verbosity);
+
+   if( mumps_ptr_ == NULL )
+   {
+      return;
+   }
 
 #ifndef IPOPT_MUMPS_NOMUTEX
    const std::lock_guard<std::mutex> lock(mumps_call_mutex);
@@ -172,11 +169,14 @@ void MumpsSolverInterface::RegisterOptions(
       "Threshold to consider a pivot at zero in detection of linearly dependent constraints with MUMPS.",
       0.0,
       "This is CNTL(3) in MUMPS.", true);
+#ifndef COIN_USE_MUMPS_MPI_H
    roptions->AddIntegerOption(
       "mumps_mpi_communicator",
       "MPI communicator used for matrix operations",
       USE_COMM_WORLD,
-      "This sets the MPI communicator. MPI_COMM_WORLD is the default. Any other value should be the return value from MPI_Comm_c2f.", true);
+      "This sets the MPI communicator. MPI_COMM_WORLD is the default. Any other value should be the return value from MPI_Comm_c2f. "
+      "This option is only available if MUMPS's libseq/mpi.h is not used.", true);
+#endif
 }
 
 /// give name of MUMPS with version info
@@ -196,8 +196,7 @@ bool MumpsSolverInterface::InitializeImpl(
    options.GetNumericValue("mumps_pivtol", pivtol_, prefix);
    if( options.GetNumericValue("mumps_pivtolmax", pivtolmax_, prefix) )
    {
-      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"mumps_pivtolmax\": This value must be between "
-                       "mumps_pivtol and 1.");
+      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"mumps_pivtolmax\": This value must be between mumps_pivtol and 1.");
    }
    else
    {
@@ -214,23 +213,42 @@ bool MumpsSolverInterface::InitializeImpl(
    options.GetIntegerValue("mumps_scaling", mumps_scaling_, prefix);
    options.GetNumericValue("mumps_dep_tol", mumps_dep_tol_, prefix);
 
-   MUMPS_STRUC_C* mumps_ = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
-
-   Index mpi_comm;
-   options.GetIntegerValue("mumps_mpi_communicator", mpi_comm, prefix);
-   mumps_->comm_fortran = static_cast<int>(mpi_comm);
-
-#ifndef IPOPT_MUMPS_NOMUTEX
-   const std::lock_guard<std::mutex> lock(mumps_call_mutex);
-#endif
-
-   mumps_c(mumps_);
-
    // Reset all private data
    initialized_ = false;
    pivtol_changed_ = false;
    refactorize_ = false;
    have_symbolic_factorization_ = false;
+
+   // allocate and initialize MUMPS, if not done before
+   MUMPS_STRUC_C* mumps_;
+   if( mumps_ptr_ == NULL )
+   {
+      mumps_ = static_cast<MUMPS_STRUC_C*>(calloc(1, sizeof(MUMPS_STRUC_C)));
+
+      mumps_->job = -1; //initialize mumps
+      mumps_->par = 1; //working host for sequential version
+      mumps_->sym = 2; //general symmetric matrix
+
+      Index mpi_comm;
+#ifndef COIN_USE_MUMPS_MPI_H
+      options.GetIntegerValue("mumps_mpi_communicator", mpi_comm, prefix);
+#else
+      mpi_comm = USE_COMM_WORLD;
+#endif
+      mumps_->comm_fortran = static_cast<int>(mpi_comm);
+
+#ifndef IPOPT_MUMPS_NOMUTEX
+      const std::lock_guard<std::mutex> lock(mumps_call_mutex);
+#endif
+
+      mumps_c(mumps_);
+
+      mumps_ptr_ = (void*) mumps_;
+   }
+   else
+   {
+      mumps_ = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
+   }
 
    if( !warm_start_same_structure_ )
    {

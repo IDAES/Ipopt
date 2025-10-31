@@ -375,16 +375,14 @@ bool SpralSolverInterface::InitializeImpl(
             switch_[i] = SWITCH_AT_START;
             scaling_type_ = scaling_val_[i];
             current_level_ = i;
-            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: Enabled "
-                           "scaling level %d on initialization\n", current_level_);
+            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: Enabled scaling level %d on initialization\n", current_level_);
          }
          else if( switch_val[i] == "at_start_reuse" )
          {
             switch_[i] = SWITCH_AT_START_REUSE;
             scaling_type_ = scaling_val_[i];
             current_level_ = i;
-            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: Enabled "
-                           "scaling level %d on initialization\n", current_level_);
+            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: Enabled scaling level %d on initialization\n", current_level_);
          }
          else if( switch_val[i] == "on_demand" )
          {
@@ -464,17 +462,13 @@ ESymSolverStatus SpralSolverInterface::InitializeStructure(
    // Correct scaling and ordering if necessary.
    if( control_.ordering == 2 && control_.scaling != 3 )
    {
-      Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface, "
-                     "matching-based ordering was used, but matching-based scaling was "
-                     "not. Setting scaling using the matching-based ordering.\n");
+      Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface, matching-based ordering was used, but matching-based scaling was not. Setting scaling using the matching-based ordering.\n");
       control_.scaling = scaling_type_ = 3;
    }
 
    if( control_.ordering != 2 && control_.scaling == 3 )
    {
-      Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface, "
-                     "matching-based scaling was used, but matching-based ordering was "
-                     "not. Setting ordering using the matching-based algorithm.\n");
+      Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface, matching-based scaling was used, but matching-based ordering was not. Setting ordering using the matching-based algorithm.\n");
       control_.ordering = 2;
    }
 
@@ -498,8 +492,7 @@ ESymSolverStatus SpralSolverInterface::InitializeStructure(
 
       if( info.flag < 0 )
       {
-         Jnlst().Printf(J_STRONGWARNING, J_LINEAR_ALGEBRA, "In SpralSolverInterface::InitializeStructure: "
-                        "Unhandled error. info.flag = %d.\n", info.flag);
+         Jnlst().Printf(J_STRONGWARNING, J_LINEAR_ALGEBRA, "In SpralSolverInterface::InitializeStructure: Unhandled error. info.flag = %d.\n", info.flag);
          return SYMSOLVER_FATAL_ERROR;
       }
    }
@@ -539,6 +532,10 @@ ESymSolverStatus SpralSolverInterface::MultiSolve(
 
       if( control_.ordering == 2 && control_.scaling == 3 && rescale_ )
       {
+         // Fully invalidate the previous factorization. Otherwise, spral_ssids_analyse_ptr32 is going to
+         // free only the old akeep_, but does not see the old fkeep_ that shares some of its data.
+         spral_ssids_free(&akeep_, &fkeep_);
+
          if( HaveIpData() )
          {
             IpData().TimingStats().LinearSystemSymbolicFactorization().Start();
@@ -556,15 +553,13 @@ ESymSolverStatus SpralSolverInterface::MultiSolve(
 
          if ( info.flag == 6 || info.flag == -5 )
          {
-            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: "
-                           "Singular system, estimated rank %d of %d\n", info.matrix_rank, ndim_);
+            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: Singular system, estimated rank %d of %d\n", info.matrix_rank, ndim_);
             return SYMSOLVER_SINGULAR;
          }
 
          if ( info.flag < 0 )
          {
-            Jnlst().Printf(J_STRONGWARNING, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: "
-                           "Unhandled error. info.flag = %d.\n", info.flag);
+            Jnlst().Printf(J_STRONGWARNING, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: Unhandled error. info.flag = %d.\n", info.flag);
             return SYMSOLVER_FATAL_ERROR;
          }
       }
@@ -578,29 +573,24 @@ ESymSolverStatus SpralSolverInterface::MultiSolve(
 
       spral_ssids_factor_ptr32(false, ia, ja, val_, scaling_, akeep_, &fkeep_, &control_, &info);
 
-      Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: delays %d, nfactor %" PRId64 ", "
-                     "nflops %" PRId64 ", maxfront %d\n", info.num_delay, info.num_factor, info.num_flops,
-                     info.maxfront);
+      Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: delays %d, nfactor %" PRId64 ", nflops %" PRId64 ", maxfront %d\n", info.num_delay, info.num_factor, info.num_flops, info.maxfront);
 
       if( HaveIpData() )
       {
          IpData().TimingStats().LinearSystemFactorization().End();
          Number t2 = IpData().TimingStats().LinearSystemFactorization().TotalWallclockTime();
-         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SpralSolverInterface::Factorization: "
-                        "spral_factor_solve took %10.3f\n", t2 - t1);
+         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SpralSolverInterface::Factorization: spral_factor_solve took %10.3f\n", t2 - t1);
       }
 
       if( info.flag == 7 || info.flag == 6 || info.flag == -5 )
       {
-         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: "
-                        "Singular system, estimated rank %d of %d\n", info.matrix_rank, ndim_);
+         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: Singular system, estimated rank %d of %d\n", info.matrix_rank, ndim_);
          return SYMSOLVER_SINGULAR;
       }
 
       if( info.flag < 0 )
       {
-         Jnlst().Printf(J_STRONGWARNING, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: "
-                        "Unhandled error. info.flag = %d.\n", info.flag);
+         Jnlst().Printf(J_STRONGWARNING, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: Unhandled error. info.flag = %d.\n", info.flag);
          if( info.flag == -53 )
          {
             Jnlst().Printf(J_STRONGWARNING, J_LINEAR_ALGEBRA, "Maybe one forgot to set environment variable OMP_CANCELLATION to TRUE.\n");
@@ -657,8 +647,7 @@ ESymSolverStatus SpralSolverInterface::MultiSolve(
                   // Number of delays has signficantly increased, so trigger.
                   current_level_ = i;
                   scaling_type_ = scaling_val_[i];
-                  Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: "
-                                 "Enabling scaling %d due to excess delays\n", i);
+                  Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: Enabling scaling %d due to excess delays\n", i);
                   rescale_ = true;
                }
 
@@ -668,8 +657,7 @@ ESymSolverStatus SpralSolverInterface::MultiSolve(
 
       if( check_NegEVals && info.num_neg != numberOfNegEVals )
       {
-         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: "
-                        "info.num_neg = %d, but numberOfNegEVals = %" IPOPT_INDEX_FORMAT "\n", info.num_neg, numberOfNegEVals);
+         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: info.num_neg = %d, but numberOfNegEVals = %" IPOPT_INDEX_FORMAT "\n", info.num_neg, numberOfNegEVals);
          return SYMSOLVER_WRONG_INERTIA;
       }
 
@@ -691,6 +679,13 @@ ESymSolverStatus SpralSolverInterface::MultiSolve(
    }
    else
    {
+      if( !fkeep_ )
+      {
+         Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "In SpralSolverInterface::Factorization: "
+                                                      "Attempting to solve again after failed factorization of singular system\n");
+         return SYMSOLVER_SINGULAR;
+      }
+
       if( HaveIpData() )
       {
          IpData().TimingStats().LinearSystemBackSolve().Start();
@@ -720,8 +715,7 @@ bool SpralSolverInterface::IncreaseQuality()
             rescale_ = true;
             current_level_ = i;
             scaling_type_ = scaling_val_[i];
-            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: Enabling scaling "
-                           "%d due to failure of iterative refinement\n", current_level_);
+            Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "SPRAL: Enabling scaling %d due to failure of iterative refinement\n", current_level_);
             break;
          default:
             ;
@@ -734,8 +728,7 @@ bool SpralSolverInterface::IncreaseQuality()
    }
 
    pivtol_changed_ = true;
-   Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "Increasing pivot tolerance "
-                  "for SPRAL from %7.2e ", control_.u);
+   Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "Increasing pivot tolerance for SPRAL from %7.2e ", control_.u);
    control_.u = Min(umax_, std::pow(control_.u, 0.75));
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA, "to %7.2e.\n", control_.u);
    return true;

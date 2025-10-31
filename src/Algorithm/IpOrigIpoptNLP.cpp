@@ -312,8 +312,7 @@ bool OrigIpoptNLP::InitializeStructures(
                         && IsValid(jac_d_space_) && IsValid(h_space_) && IsValid(scaled_jac_c_space_) && IsValid(scaled_jac_d_space_)
                         && IsValid(scaled_h_space_));
 
-      DBG_ASSERT(retValue && "Model cannot return null vector or matrix prototypes or spaces,"
-                 " please return zero length vectors instead");
+      DBG_ASSERT(retValue && "Model cannot return null vector or matrix prototypes or spaces, please return zero length vectors instead");
    }
    else
    {

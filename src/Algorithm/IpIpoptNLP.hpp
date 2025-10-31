@@ -144,7 +144,7 @@ public:
    /** Upper bounds on x */
    virtual SmartPtr<const Vector> x_U() const = 0;
 
-   /** Permutation matrix (x_U_ -> x */
+   /** Permutation matrix (x_U_ -> x) */
    virtual SmartPtr<const Matrix> Px_U() const = 0;
 
    /** Lower bounds on d */

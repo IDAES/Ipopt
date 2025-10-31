@@ -539,25 +539,21 @@ bool OptionsList::GetNumericValue(
    {
       // Some people like to use 'd' instead of 'e' in floating point
       // numbers.  Therefore, we change a 'd' to an 'e'
-      char* buffer = new char[strvalue.length() + 1];
-      strcpy(buffer, strvalue.c_str());
       for( size_t i = 0; i < strvalue.length(); ++i )
       {
-         if( buffer[i] == 'd' || buffer[i] == 'D' )
+         if( strvalue[i] == 'd' || strvalue[i] == 'D' )
          {
-            buffer[i] = 'e';
+            strvalue[i] = 'e';
          }
       }
       char* p_end;
-      Number retval = strtod(buffer, &p_end);
+      Number retval = strtod(strvalue.c_str(), &p_end);
       if( *p_end != '\0' && !isspace(*p_end) )
       {
-         delete[] buffer;
          std::string msg = "Option \"" + tag + "\": Double value expected, but non-numeric value \"" + strvalue
                            + "\" found.\n";
          THROW_EXCEPTION(OPTION_INVALID, msg);
       }
-      delete[] buffer;
       value = retval;
       return true;
    }
@@ -746,25 +742,21 @@ bool OptionsList::ReadFromStream(
          {
             // Some people like to use 'd' instead of 'e' in floating
             // point numbers.  Therefore, we change a 'd' to an 'e'
-            char* buffer = new char[value.length() + 1];
-            strcpy(buffer, value.c_str());
             for( size_t i = 0; i < value.length(); ++i )
             {
-               if( buffer[i] == 'd' || buffer[i] == 'D' )
+               if( value[i] == 'd' || value[i] == 'D' )
                {
-                  buffer[i] = 'e';
+                  value[i] = 'e';
                }
             }
             char* p_end;
-            Number retval = strtod(buffer, &p_end);
+            Number retval = strtod(value.c_str(), &p_end);
             if( *p_end != '\0' && !isspace(*p_end) )
             {
-               delete[] buffer;
                std::string msg = "Option \"" + tag + "\": Double value expected, but non-numeric option value \""
                                  + value + "\" found.\n";
                THROW_EXCEPTION(OPTION_INVALID, msg);
             }
-            delete [] buffer;
             bool result = SetNumericValue(tag, retval, allow_clobber);
             ASSERT_EXCEPTION(result, OPTION_INVALID,
                              "Error setting numeric value read from file.");

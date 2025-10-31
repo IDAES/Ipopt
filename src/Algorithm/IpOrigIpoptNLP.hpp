@@ -282,6 +282,12 @@ public:
    {
       return x_space_;
    }
+
+   /// @since 3.14.18
+   virtual SmartPtr<const VectorSpace> d_space() const
+   {
+      return d_space_;
+   }
    ///@}
 
    /** Accessor method for vector/matrix spaces pointers */

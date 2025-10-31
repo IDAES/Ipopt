@@ -417,9 +417,7 @@ char PenaltyLSAcceptor::UpdateForNextIteration(
    if( last_nu_ != nu_ )
    {
       info_alpha_primal_char = 'n';
-      char snu[40];
-      sprintf(snu, " nu=%8.2e", nu_);
-      IpData().Append_info_string(snu);
+      IpData().Append_info_string(" nu", nu_);
    }
    else
    {

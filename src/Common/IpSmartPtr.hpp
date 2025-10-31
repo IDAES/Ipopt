@@ -641,6 +641,7 @@ void SmartPtr<T>::ReleasePointer_()
       if( ptr_->ReferenceCount() == 0 )
       {
          delete ptr_;
+         ptr_ = 0;
       }
    }
 }

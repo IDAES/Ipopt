@@ -76,8 +76,8 @@ and the columns of output are defined as,
     | N   | penalty value updated in merit function method w/ second order correction |
     | R   | Restoration phase just started |
     | w   | in watchdog procedure |
-    | s   | step accepted in soft restoration phase |
-    | t/T | tiny step accepted without line search |
+    | s/S | step accepted in soft restoration phase (S: original backtracking globalization also satisfied) |
+    | t/T | tiny step accepted without line search (T: two consecutive tiny steps) |
     | r   | some previous iterate restored |
 
 - ls:  The number of backtracking line search steps (does not include

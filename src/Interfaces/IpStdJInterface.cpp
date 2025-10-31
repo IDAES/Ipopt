@@ -665,7 +665,7 @@ void Jipopt::finalize_solution(
       env->SetNumberArrayRegion(mult_gj, 0, m, const_cast<Number*>(lambda));
    }
 
-   env->GetNumberArrayRegion(fj, 0, 1, &obj_value);
+   env->SetNumberArrayRegion(fj, 0, 1, &obj_value);
 }
 
 /* Intermediate Callback method for the user. */
@@ -1141,6 +1141,22 @@ extern "C"
       env->ReleaseStringUTFChars(jparname, pparameterValue);
 
       return ret;
+   }
+
+   JNIEXPORT void JNICALL Java_org_coinor_Ipopt_GetVersion(
+      JNIEnv*   env,
+      jobject /*obj_this*/,
+      jintArray jversion
+   )
+   {
+      int version[3];
+      IpoptApplication::Version(version[0], version[1], version[2]);
+
+      /* int[] -> jint[] */
+      jint versionj[3] = { version[0], version[1], version[2] };
+
+      /* jint[] -> jintArray */
+      env->SetIntArrayRegion(jversion, 0, 3, versionj);
    }
 
 } // extern "C"

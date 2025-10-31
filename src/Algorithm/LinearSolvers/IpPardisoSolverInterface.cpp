@@ -403,11 +403,19 @@ bool PardisoSolverInterface::InitializeImpl(
    if( pardiso_exist_parallel )
    {
       // Obtain the numbers of processors from the value of OMP_NUM_THREADS
+#ifdef IPOPT_HAS_GETENV_S
+      char var[10];
+      size_t required_size;
+      getenv_s(&required_size, var, sizeof(var), "OMP_NUM_THREADS");
+      if( required_size > 0 )
+#else
       char* var = getenv("OMP_NUM_THREADS");
       if( var != NULL )
+#endif
       {
-         sscanf(var, "%d", &num_procs);
-         if( num_procs < 1 )
+         char* endptr;
+         num_procs = strtol(var, &endptr, 10);
+         if( *endptr != '\0' || num_procs < 1 )
          {
             Jnlst().Printf(J_ERROR, J_LINEAR_ALGEBRA,
                            "Invalid value for OMP_NUM_THREADS (\"%s\").\n", var);
@@ -596,23 +604,33 @@ void write_iajaa_matrix(
    int          sol_cnt
 )
 {
+#ifdef IPOPT_HAS_GETENV_S
+   size_t required_size;
+   getenv_s(&required_size, NULL, 0, "IPOPT_WRITE_MAT");
+   if( required_size > 0 )
+#else
    if( getenv("IPOPT_WRITE_MAT") )
+#endif
    {
       /* Write header */
       char mat_name[128];
-      char mat_pref[32];
 
       Index NNZ = ia[N] - 1;
       Index i;
 
-      if( getenv("IPOPT_WRITE_PREFIX") )
+#ifdef IPOPT_HAS_GETENV_S
+      char mat_pref[32];
+      if( getenv_s(&required_size, mat_pref, sizeof(mat_pref), "IPOPT_WRITE_PREFIX") != 0 )
       {
-         strcpy(mat_pref, getenv("IPOPT_WRITE_PREFIX"));
+         memcpy(mat_pref, "mat-ipopt", 10);
       }
-      else
+#else
+      const char* mat_pref = getenv("IPOPT_WRITE_PREFIX");
+      if( mat_pref == NULL )
       {
-         strcpy(mat_pref, "mat-ipopt");
+         mat_pref = "mat-ipopt";
       }
+#endif
 
       Snprintf(mat_name, 127, "%s_%03d-%02d.iajaa", mat_pref, iter_cnt, sol_cnt);
 
@@ -645,23 +663,32 @@ void write_iajaa_matrix(
    }
 
    /* additional matrix format */
+#ifdef IPOPT_HAS_GETENV_S
+   getenv_s(&required_size, NULL, 0, "IPOPT_WRITE_MAT_MTX");
+   if( required_size > 0 )
+#else
    if( getenv("IPOPT_WRITE_MAT_MTX") )
+#endif
    {
       /* Write header */
       char mat_name[128];
-      char mat_pref[32];
 
       Index i;
       Index j;
 
-      if( getenv("IPOPT_WRITE_PREFIX") )
+#ifdef IPOPT_HAS_GETENV_S
+      char mat_pref[32];
+      if( getenv_s(&required_size, mat_pref, sizeof(mat_pref), "IPOPT_WRITE_PREFIX") != 0 )
       {
-         strcpy(mat_pref, getenv("IPOPT_WRITE_PREFIX"));
+         memcpy(mat_pref, "mat-ipopt", 10);
       }
-      else
+#else
+      const char* mat_pref = getenv("IPOPT_WRITE_PREFIX");
+      if( mat_pref == NULL )
       {
-         strcpy(mat_pref, "mat-ipopt");
+         mat_pref = "mat-ipopt";
       }
+#endif
 
       Snprintf(mat_name, 127, "%s_%03d-%02d.mtx", mat_pref, iter_cnt, sol_cnt);
 

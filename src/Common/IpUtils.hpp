@@ -102,8 +102,8 @@ IPOPTLIB_EXPORT Number WallclockTime();
 
 /** register handler for interrupt signals
  *
- * On POSIX systems, catches SIGHUP and SIGINT signals.
- * On Windows, catches SIGTERM, SIGABRT, SIGBREAK, and SIGINT signals.
+ * On systems with sigaction(), catches SIGHUP and SIGINT signals.
+ * Otherwise, catches SIGTERM, SIGABRT, SIGINT signals via signal().
  *
  * @return whether registering the handler was successful
  * @since 3.14.17
@@ -116,7 +116,7 @@ IPOPTLIB_EXPORT bool RegisterInterruptHandler(
 
 /** unregister previously registered handler for interrupt signals
  *
- * @return whether registering the handler was successful
+ * @return whether unregistering the handler was successful
  * @since 3.14.17
  */
 IPOPTLIB_EXPORT bool UnregisterInterruptHandler(void);

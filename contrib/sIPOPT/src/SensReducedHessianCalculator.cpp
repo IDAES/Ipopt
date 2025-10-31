@@ -64,10 +64,10 @@ bool ReducedHessianCalculator::ComputeReducedHessian()
    if( have_x_scaling || have_c_scaling || have_d_scaling )
    {
       Jnlst().Printf(J_WARNING, J_MAIN, "\n"
-                     "-------------------------------------------------------------------------------\n"
-                     "                              *** WARNING ***\n"
-                     "-------------------------------------------------------------------------------\n"
-                     "You are using the reduced hessian feature with scaling of\n");
+                                        "-------------------------------------------------------------------------------\n"
+                                        "                              *** WARNING ***\n"
+                                        "-------------------------------------------------------------------------------\n"
+                                        "You are using the reduced hessian feature with scaling of\n");
       if( have_x_scaling )
       {
          Jnlst().Printf(J_WARNING, J_MAIN, "*** variables\n");
@@ -81,9 +81,9 @@ bool ReducedHessianCalculator::ComputeReducedHessian()
          Jnlst().Printf(J_WARNING, J_MAIN, "*** inequality constraints\n");
       }
       Jnlst().Printf(J_WARNING, J_MAIN, "enabled.\n"
-                     "A correct unscaled solution of the reduced hessian cannot be guaranteed in this\n"
-                     "case. Please consider rerunning with scaling turned off.\n"
-                     "-------------------------------------------------------------------------------\n\n");
+                                        "A correct unscaled solution of the reduced hessian cannot be guaranteed in this\n"
+                                        "case. Please consider rerunning with scaling turned off.\n"
+                                        "-------------------------------------------------------------------------------\n\n");
 
    }
 

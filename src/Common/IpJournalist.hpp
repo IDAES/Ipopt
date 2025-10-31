@@ -566,7 +566,7 @@ private:
    /** pointer to output stream for the output destination */
    std::ostream* os_;
 
-   /** buffer for sprintf.  Being generous in size here... */
+   /** buffer for vsnprintf.  Being generous in size here... */
    char buffer_[32768];
 };
 

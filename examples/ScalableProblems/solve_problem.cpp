@@ -5,6 +5,7 @@
 // Authors:  Andreas Waechter            IBM    2004-11-05
 
 #include "IpIpoptApplication.hpp"
+#include "IpUtils.hpp"
 #include "RegisteredTNLP.hpp"
 
 #include <cstdio>
@@ -202,7 +203,11 @@ int main(
    app->Options()->SetNumericValue("max_wall_time", runtime);
 #endif
 
+   Ipopt::RegisterInterruptHandler(NULL, &tnlp->interrupted_, 5);
+
    status = app->OptimizeTNLP(GetRawPtr(tnlp));
+
+   Ipopt::UnregisterInterruptHandler();
 
    return (int) status;
 }

@@ -332,8 +332,7 @@ bool Ma57TSolverInterface::InitializeImpl(
    options.GetNumericValue("ma57_pivtol", pivtol_, prefix);
    if( options.GetNumericValue("ma57_pivtolmax", pivtolmax_, prefix) )
    {
-      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"pivtolmax\": This value must be between "
-                       "pivtol and 1.");
+      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"pivtolmax\": This value must be between pivtol and 1.");
    }
    else if( pivtol_ > pivtolmax_ )
    {
@@ -576,6 +575,7 @@ ESymSolverStatus Ma57TSolverInterface::SymbolicFactorization(
    {
       Jnlst().Printf(J_ERROR, J_LINEAR_ALGEBRA,
                      "*** Error from MA57AD *** INFO(0) = %" IPOPT_INDEX_FORMAT "\n", wd_info_[0]);
+      return SYMSOLVER_FATAL_ERROR;
    }
 
    wd_lfact_ = 0;

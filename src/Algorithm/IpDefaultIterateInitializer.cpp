@@ -290,7 +290,7 @@ bool DefaultIterateInitializer::SetInitialIterates()
    bool call_least_square_mults = true;
    if( least_square_init_duals_ )
    {
-      // We try to compute a least square estimate of all multiplers,
+      // We try to compute a least square estimate of all multipliers,
       // and if successful,we make sure they are sufficiently positive
       SmartPtr<Vector> zL_new = IpData().trial()->z_L()->MakeNew();
       SmartPtr<Vector> zU_new = IpData().trial()->z_U()->MakeNew();

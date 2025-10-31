@@ -416,7 +416,7 @@ static char* f2cstr(
    cstr = (char*) malloc(sizeof(char) * (len + 1));
    if( cstr != NULL )
    {
-      strncpy(cstr, FSTR, len);
+      memcpy(cstr, FSTR, len);
       cstr[len] = '\0';
    }
 

@@ -289,8 +289,7 @@ void RegisteredOption::OutputLatexDescription(
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                    "\\end{itemize}\n");
    }
-   jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, ""
-                "\n");
+   jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
 }
 
 void RegisteredOption::MakeValidLatexString(

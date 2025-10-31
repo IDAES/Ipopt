@@ -197,8 +197,7 @@ bool Ma27TSolverInterface::InitializeImpl(
    options.GetNumericValue("ma27_pivtol", pivtol_, prefix);
    if( options.GetNumericValue("ma27_pivtolmax", pivtolmax_, prefix) )
    {
-      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"ma27_pivtolmax\": This value must be between "
-                       "ma27_pivtol and 1.");
+      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"ma27_pivtolmax\": This value must be between ma27_pivtol and 1.");
    }
    else
    {

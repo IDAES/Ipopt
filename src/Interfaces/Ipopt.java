@@ -124,6 +124,11 @@ public abstract class Ipopt
       double   compl_g[]
    );
 
+   /* Native function should not be used directly */
+   private native void GetVersion(
+      int version[]
+   );
+
    /** Use C index style for iRow and jCol vectors */
    public final static int C_STYLE = 0;
 
@@ -205,13 +210,6 @@ public abstract class Ipopt
          {
             try
             {
-               /* This loads the Ipopt library with RTLD_LOCAL, which means that symbols loaded are not made available for future dlopen() calls.
-                * This causes a problem when using MKL, which loads an additional library at runtime, e.g., libmkl_avx2, because this lib references
-                * to symbols that could be resolved in previously load MKL libraries - but are not because of RTLD_LOCAL.
-                * TODO should one add some kind of workaround to load the Ipopt lib with RTLD_GLOBAL?, e.g.,
-                *     https://stackoverflow.com/questions/5425034/java-load-shared-libraries-with-dependencies
-                *     https://github.com/victor-paltz/global-load-library
-                */
                System.loadLibrary(c);
                loadedlib = true;
                break;
@@ -226,6 +224,13 @@ public abstract class Ipopt
       }
       else
       {
+         /* This loads the Ipopt library with RTLD_LOCAL, which means that symbols loaded are not made available for future dlopen() calls.
+          * This causes a problem when using MKL, which loads an additional library at runtime, e.g., libmkl_avx2, because this lib references
+          * to symbols that could be resolved in previously load MKL libraries - but are not because of RTLD_LOCAL.
+          * TODO should one add some kind of workaround to load the Ipopt lib with RTLD_GLOBAL?, e.g.,
+          *     https://stackoverflow.com/questions/5425034/java-load-shared-libraries-with-dependencies
+          *     https://github.com/victor-paltz/global-load-library
+          */
          System.loadLibrary("ipopt");
       }
    }
@@ -850,5 +855,20 @@ public abstract class Ipopt
       int[] pos_nonlin_vars)
    {
       return false;
+   }
+
+   /** Get version of Ipopt library.
+    *
+    * Gives the value of IPOPT_VERSION_MAJOR, IPOPT_VERSION_MINOR, and IPOPT_VERSION_RELEASE
+    * that were used when the Ipopt library was build.
+    *
+    * @param version int[3] to store major, minor, and release version number
+    * @since 3.14.18
+    */
+   public void getVersion(
+      int[] version
+   )
+   {
+      GetVersion(version);
    }
 }

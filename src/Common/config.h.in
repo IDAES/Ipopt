@@ -6,7 +6,7 @@
 /* Define to 1 if your C++ compiler doesn't accept -c and -o together. */
 #undef CXX_NO_MINUS_C_MINUS_O
 
-/* Define to dummy `main' function (if any) required to link to the Fortran
+/* Define to dummy 'main' function (if any) required to link to the Fortran
    libraries. */
 #undef F77_DUMMY_MAIN
 
@@ -20,7 +20,7 @@
 /* Define to 1 if your Fortran compiler doesn't accept -c and -o together. */
 #undef F77_NO_MINUS_C_MINUS_O
 
-/* Define if F77 and FC dummy `main' functions are identical. */
+/* Define if F77 and FC dummy 'main' functions are identical. */
 #undef FC_DUMMY_MAIN_EQ_F77
 
 /* Define to 1 if you have the <cfloat> header file. */
@@ -47,7 +47,7 @@
 /* Define to 1 if you have the <math.h> header file. */
 #undef HAVE_MATH_H
 
-/* Define to 1 if you have the `MPI_Initialized' function. */
+/* Define to 1 if you have the 'MPI_Initialized' function. */
 #undef HAVE_MPI_INITIALIZED
 
 /* Define to 1 if you have the <stdint.h> header file. */
@@ -74,14 +74,8 @@
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
 
-/* Define to 1 if you have the `vsnprintf' function. */
-#undef HAVE_VSNPRINTF
-
 /* Define to 1 if windows.h is available. */
 #undef HAVE_WINDOWS_H
-
-/* Define to 1 if you have the `_vsnprintf' function. */
-#undef HAVE__VSNPRINTF
 
 /* Library Visibility Attribute */
 #undef HSLLIB_EXPORT
@@ -107,6 +101,12 @@
 /* Define to 1 if function feenableexcept is available */
 #undef IPOPT_HAS_FEENABLEEXCEPT
 
+/* Define to 1 if function fopen_s is available */
+#undef IPOPT_HAS_FOPEN_S
+
+/* Define to 1 if function getenv_s is available */
+#undef IPOPT_HAS_GETENV_S
+
 /* Define to 1 if HSL is available. */
 #undef IPOPT_HAS_HSL
 
@@ -125,6 +125,9 @@
 
 /* Define to 1 if function rand is available */
 #undef IPOPT_HAS_RAND
+
+/* Define to 1 if function sigaction is available */
+#undef IPOPT_HAS_SIGACTION
 
 /* Define to 1 if the Spral package is available */
 #undef IPOPT_HAS_SPRAL
@@ -214,10 +217,10 @@
 /* Library Visibility Attribute */
 #undef SIPOPTLIB_EXPORT
 
-/* The size of `int *', as computed by sizeof. */
+/* The size of 'int *', as computed by sizeof. */
 #undef SIZEOF_INT_P
 
-/* Define to 1 if all of the C90 standard headers exist (not just the ones
+/* Define to 1 if all of the C89 standard headers exist (not just the ones
    required in a freestanding environment). This macro is provided for
    backward compatibility; new code need not use it. */
 #undef STDC_HEADERS

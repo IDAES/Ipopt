@@ -15,6 +15,10 @@ using namespace Ipopt;
 class RegisteredTNLP: public TNLP
 {
 public:
+   RegisteredTNLP()
+      : interrupted_(false)
+   { }
+
    /** Initialize internal parameters.
     *
     *  @return false, if N has an invalid value
@@ -22,6 +26,28 @@ public:
    virtual bool InitializeProblem(
       Index N  /**< determines problems size */
    ) = 0;
+
+   bool intermediate_callback(
+      AlgorithmMode              /*mode*/,
+      Index                      /*iter*/,
+      Number                     /*obj_value*/,
+      Number                     /*inf_pr*/,
+      Number                     /*inf_du*/,
+      Number                     /*mu*/,
+      Number                     /*d_norm*/,
+      Number                     /*regularization_size*/,
+      Number                     /*alpha_du*/,
+      Number                     /*alpha_pr*/,
+      Index                      /*ls_trials*/,
+      const IpoptData*           /*ip_data*/,
+      IpoptCalculatedQuantities* /*ip_cq*/
+   )
+   {
+      /* returning false makes Ipopt stop */
+      return !interrupted_;
+   }
+
+   bool interrupted_;
 };
 
 class RegisteredTNLPs

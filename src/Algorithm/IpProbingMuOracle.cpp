@@ -125,11 +125,8 @@ bool ProbingMuOracle::CalculateMu(
    IpData().set_delta_aff(step);
    IpData().SetHaveAffineDeltas(true);
 
-   char ssigma[40];
-   sprintf(ssigma, " sigma=%8.2e", sigma);
-   IpData().Append_info_string(ssigma);
-   //sprintf(ssigma, " xi=%8.2e ", IpCq().curr_centrality_measure());
-   //IpData().Append_info_string(ssigma);
+   IpData().Append_info_string(" sigma", sigma);
+   //IpData().Append_info_string(" xi", IpCq().curr_centrality_measure());
 
    new_mu = Max(Min(mu, mu_max), mu_min);
    return true;

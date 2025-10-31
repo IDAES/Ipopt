@@ -2476,7 +2476,7 @@ Possible values:
 \anchor OPT_mumps_mpi_communicator
 <strong>mumps_mpi_communicator</strong> (<em>advanced</em>): MPI communicator used for matrix operations
 <blockquote>
- This sets the MPI communicator. MPI_COMM_WORLD is the default. Any other value should be the return value from MPI_Comm_c2f. The valid range for this integer option is unrestricted and its default value is -987654.
+ This sets the MPI communicator. MPI_COMM_WORLD is the default. Any other value should be the return value from MPI_Comm_c2f. The valid range for this integer option is unrestricted and its default value is -987654. This option is only available if MUMPS's libseq/mpi.h is not used.
 </blockquote>
 
 

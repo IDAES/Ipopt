@@ -57,6 +57,11 @@
 #define IPOPT_C_FINITE std::isfinite
 #endif
 
+#ifdef _MSC_VER
+#define IPOPT_HAS_RAND 1
+#define IPOPT_HAS_VA_COPY 1
+#endif
+
 #define IPOPT_BLAS_FUNC(name,NAME)    F77_FUNC(name,NAME)
 #define IPOPT_LAPACK_FUNC(name,NAME)  F77_FUNC(name,NAME)
 #define IPOPT_PARDISO_FUNC(name,NAME) F77_FUNC(name,NAME)

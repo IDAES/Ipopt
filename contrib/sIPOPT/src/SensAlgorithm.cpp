@@ -7,8 +7,8 @@
 #include "SensAlgorithm.hpp"
 #include "SensUtils.hpp"
 #include "IpSmartPtr.hpp"
-
 #include "IpVector.hpp"
+#include "IpUtils.hpp"
 
 namespace Ipopt
 {
@@ -243,7 +243,7 @@ SensAlgorithmExitStatus SensAlgorithm::ComputeSensitivityMatrix(void)
             }
          }
 
-         sprintf(buffer, "Column %" IPOPT_INDEX_FORMAT, idx_ipopt[Scol]);
+         Snprintf(buffer, sizeof(buffer), "Column %" IPOPT_INDEX_FORMAT, idx_ipopt[Scol]);
 
          sens_step_calc_->SetSchurDriver(driver_vec_[0]);
 

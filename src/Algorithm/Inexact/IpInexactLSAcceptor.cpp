@@ -473,15 +473,11 @@ char InexactLSAcceptor::UpdateForNextIteration(
    if( last_nu_ != nu_ )
    {
       info_alpha_primal_char = 'n';
-      char snu[40];
-      sprintf(snu, " nu=%8.2e", nu_);
-      IpData().Append_info_string(snu);
+      IpData().Append_info_string(" nu", nu_);
    }
    if( flexible_penalty_function_ && last_nu_low_ != nu_low_ )
    {
-      char snu[40];
-      sprintf(snu, " nl=%8.2e", nu_low_);
-      IpData().Append_info_string(snu);
+      IpData().Append_info_string(" nl", nu_low_);
       if( info_alpha_primal_char == 'k' )
       {
          info_alpha_primal_char = 'l';

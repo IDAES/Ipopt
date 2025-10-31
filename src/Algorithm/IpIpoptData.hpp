@@ -13,6 +13,9 @@
 #include "IpRegOptions.hpp"
 #include "IpTimingStatistics.hpp"
 
+#include <sstream>
+#include <iomanip>
+
 namespace Ipopt
 {
 
@@ -518,6 +521,16 @@ public:
    )
    {
       info_string_ += add_str;
+   }
+   /// @since 3.14.17
+   void Append_info_string(
+      const std::string& add_str,
+      double             value
+   )
+   {
+      std::ostringstream sstream;
+      sstream << add_str << '=' << std::setw(8) << std::setprecision(2) << std::scientific << value;
+      info_string_ += sstream.str();
    }
    const std::string& info_string() const
    {

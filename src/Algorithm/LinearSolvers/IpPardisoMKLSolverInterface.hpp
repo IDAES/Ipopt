@@ -165,8 +165,6 @@ private:
    Index MTYPE_;
    /** Parameter and info array for Pardiso. */
    Index* IPARM_;
-   /** Parameter and info array for Pardiso. */
-   Number* DPARM_;
    /** Message level. */
    Index MSGLVL_;
    ///@}
