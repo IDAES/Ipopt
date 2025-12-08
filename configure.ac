@@ -402,21 +402,6 @@ if test "$enable_java" != no ; then
 fi
 
 if test "$enable_java" != no ; then
-  AC_MSG_CHECKING([if javac supports -h])
-  echo "public abstract class conftest { private native boolean test(); }" > conftest.java
-  AS_ECHO(["$as_me:${as_lineno-$LINENO}: $JAVAC conftest.java -h conftest.header"]) >&AS_MESSAGE_LOG_FD
-  "$JAVAC" conftest.java -h conftest.header >&AS_MESSAGE_LOG_FD
-  if test -e conftest.header/conftest.h ; then
-    AC_MSG_RESULT([yes])
-  else
-    AC_MSG_RESULT([no])
-    echo "configure: failed program was:" >&AS_MESSAGE_LOG_FD
-    cat conftest.java >&AS_MESSAGE_LOG_FD
-    enable_java=no
-  fi
-fi
-
-if test "$enable_java" != no ; then
   # look for jni header: required to compile C++ part of Java interface
   AX_JNI_INCLUDE_DIR
   if test -z "$JNI_INCLUDE_DIRS" ; then
@@ -490,6 +475,8 @@ if test $use_linearsolverloader = yes; then
 fi
 
 AC_CHECK_HEADER([windows.h],AC_DEFINE(HAVE_WINDOWS_H,[1],[Define to 1 if windows.h is available.]))
+
+AC_CHECK_HEADER([dlfcn.h])
 
 ########################################################################
 ##                             sIpopt                                 ##
@@ -626,7 +613,6 @@ AC_CONFIG_FILES([Makefile
   test/run_unitTests
   doc/Doxyfile
   examples/Cpp_example/Makefile
-  examples/recursive_nlp/Makefile
   examples/hs071_cpp/Makefile
   examples/hs071_c/Makefile
   examples/ScalableProblems/Makefile
