@@ -283,7 +283,7 @@ Prebuild HSL libraries are available from https://licences.stfc.ac.uk/products/S
 \subsection DOWNLOAD_MUMPS MUMPS Linear Solver
 
 You can also use the (public domain) sparse linear solver MUMPS. Please
-visit the [MUMPS home page](http://mumps.enseeiht.fr/) for more
+visit the [MUMPS home page](https://mumps-solver.org/) for more
 information about the solver. MUMPS is provided as Fortran 90 and C
 source code. You need to have a Fortran 90 compiler (e.g., the
 GNU compiler gfortran) to be able to use it.

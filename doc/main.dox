@@ -138,7 +138,7 @@ required:
 
     -   HSL_MA97 from the [HSL Mathematical Software Library](http://www.hsl.rl.ac.uk)
 
-    -   [MUMPS](http://mumps.enseeiht.fr) (MUltifrontal Massively Parallel sparse direct Solver)
+    -   [MUMPS](https://mumps-solver.org) (MUltifrontal Massively Parallel sparse direct Solver)
 
     -   PARDISO (Parallel Sparse Direct Solver) from [Pardiso Project](http://www.pardiso-project.org)
         or Intel MKL. Note that current versions from Pardiso Project typically
@@ -261,9 +261,9 @@ maintained by other people, among them are:
     It is also possible to use Ipopt via [CppADs Python interface](https://bradbell.github.io/cppad_py/doc/xsrst/cppad_py.html).
     An example is available [here](https://bradbell.github.io/cppad_py/doc/xsrst/mixed_optimize_fixed_2_py.html).
 
--   [csipopt](https://github.com/cureos/csipopt)
+-   [IpoptNet](https://github.com/sfiruch/ipopt-net)
 
-    Interfacing Ipopt from .NET languages such as **C#**, **F#** and **Visual Basic.NET**.
+    A modern .NET interface providing both a high-level modeling API with automatic differentiation and a low-level native wrapper.
 
 -   [cyipopt](https://github.com/mechmotum/cyipopt)
 

@@ -66,7 +66,7 @@ Ipopt requires at least one of the following solvers for systems of linear equat
 - [Parallel Sparse Direct Linear Solver](http://www.pardiso-project.org) (Pardiso).
   Note, that the Intel Math Kernel Library (MKL) also includes a version of Pardiso, but the one from Pardiso Project often offers better performance.
 - [Sparse Parallel Robust Algorithms Library](https://github.com/ralna/spral) (SPRAL).
-- [MUltifrontal Massively Parallel sparse direct Solver](http://mumps.enseeiht.fr/) (MUMPS).
+- [MUltifrontal Massively Parallel sparse direct Solver](https://mumps-solver.org/) (MUMPS).
   It is highly recommended to use project [ThirdParty-Mumps](https://github.com/coin-or-tools/ThirdParty-Mumps) to build a MUMPS library for use by Ipopt.
 - [Watson Sparse Matrix Package](http://www.research.ibm.com/projects/wsmp)
 
