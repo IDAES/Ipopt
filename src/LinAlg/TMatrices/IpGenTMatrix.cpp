@@ -38,7 +38,7 @@ void GenTMatrix::SetValues(
    const Number* Values
 )
 {
-   IpBlasDcopy(Nonzeros(), Values, 1, values_, 1);
+   IpBlasCopy(Nonzeros(), Values, 1, values_, 1);
    initialized_ = true;
    ObjectChanged();
 }
@@ -65,6 +65,11 @@ void GenTMatrix::MultVectorImpl(
       y.Set(0.0);  // In case y hasn't been initialized yet
    }
 
+   if( Nonzeros() == 0 )
+   {
+      return;
+   }
+
    // See if we can understand the data
    const DenseVector* dense_x = static_cast<const DenseVector*>(&x);
    DBG_ASSERT(dynamic_cast<const DenseVector*>(&x));
@@ -77,6 +82,8 @@ void GenTMatrix::MultVectorImpl(
       const Index* jcols = Jcols();
       const Number* val = values_;
       Number* yvals = dense_y->Values();
+      DBG_ASSERT(yvals != NULL);
+
       yvals--;
       if( dense_x->IsHomogeneous() )
       {
@@ -125,6 +132,11 @@ void GenTMatrix::TransMultVectorImpl(
       y.Set(0.0);  // In case y hasn't been initialized yet
    }
 
+   if( Nonzeros() == 0 )
+   {
+      return;
+   }
+
    // See if we can understand the data
    const DenseVector* dense_x = static_cast<const DenseVector*>(&x);
    DBG_ASSERT(dynamic_cast<const DenseVector*>(&x));
@@ -137,6 +149,7 @@ void GenTMatrix::TransMultVectorImpl(
       const Index* jcols = Jcols();
       const Number* val = values_;
       Number* yvals = dense_y->Values();
+      DBG_ASSERT(yvals != NULL);
       yvals--;
 
       if( dense_x->IsHomogeneous() )
@@ -167,7 +180,7 @@ void GenTMatrix::TransMultVectorImpl(
 bool GenTMatrix::HasValidNumbersImpl() const
 {
    DBG_ASSERT(initialized_);
-   Number sum = IpBlasDasum(Nonzeros(), values_, 1);
+   Number sum = IpBlasAsum(Nonzeros(), values_, 1);
    return IsFiniteNumber(sum);
 }
 
@@ -178,17 +191,23 @@ void GenTMatrix::ComputeRowAMaxImpl(
 {
    DBG_ASSERT(initialized_);
 
+   if( NRows() == 0 )
+   {
+      return;
+   }
+
    DenseVector* dense_vec = static_cast<DenseVector*>(&rows_norms);
    DBG_ASSERT(dynamic_cast<DenseVector*>(&rows_norms));
 
    const Index* irows = Irows();
    const Number* val = values_;
    Number* vec_vals = dense_vec->Values();
-   vec_vals--;
+   DBG_ASSERT(vec_vals != NULL);
 
+   vec_vals--;
    for( Index i = 0; i < Nonzeros(); i++ )
    {
-      vec_vals[irows[i]] = Max(vec_vals[irows[i]], fabs(val[i]));
+      vec_vals[irows[i]] = Max(vec_vals[irows[i]], std::abs(val[i]));
    }
 }
 
@@ -199,17 +218,23 @@ void GenTMatrix::ComputeColAMaxImpl(
 {
    DBG_ASSERT(initialized_);
 
+   if( NCols() == 0 )
+   {
+      return;
+   }
+
    DenseVector* dense_vec = static_cast<DenseVector*>(&cols_norms);
    DBG_ASSERT(dynamic_cast<DenseVector*>(&cols_norms));
 
    const Index* jcols = Jcols();
    const Number* val = values_;
    Number* vec_vals = dense_vec->Values();
-   vec_vals--;
+   DBG_ASSERT(vec_vals != NULL);
 
+   vec_vals--; // to deal with 1-based indexing in jcols, I believe
    for( Index i = 0; i < Nonzeros(); i++ )
    {
-      vec_vals[jcols[i]] = Max(vec_vals[jcols[i]], fabs(val[i]));
+      vec_vals[jcols[i]] = Max(vec_vals[jcols[i]], std::abs(val[i]));
    }
 }
 
@@ -226,14 +251,14 @@ void GenTMatrix::PrintImplOffset(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sGenTMatrix \"%s\" of dimension %d by %d with %d nonzero elements:\n", prefix.c_str(), name.c_str(), NRows(),
+                        "%sGenTMatrix \"%s\" of dimension %" IPOPT_INDEX_FORMAT " by %" IPOPT_INDEX_FORMAT " with %" IPOPT_INDEX_FORMAT " nonzero elements:\n", prefix.c_str(), name.c_str(), NRows(),
                         NCols(), Nonzeros());
    if( initialized_ )
    {
       for( Index i = 0; i < Nonzeros(); i++ )
       {
          jnlst.PrintfIndented(level, category, indent,
-                              "%s%s[%5d,%5d]=%23.16e  (%d)\n", prefix.c_str(), name.c_str(), Irows()[i] + offset, Jcols()[i], values_[i], i);
+                              "%s%s[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "]=%23.16e  (%" IPOPT_INDEX_FORMAT ")\n", prefix.c_str(), name.c_str(), Irows()[i] + offset, Jcols()[i], values_[i], i);
       }
    }
    else

@@ -10,6 +10,7 @@
 #include "IpJournalist.hpp"
 #include "IpRestoPhase.hpp"
 #include "IpAlgTypes.hpp"
+#include "IpOrigIpoptNLP.hpp"
 
 #include <cmath>
 #include <limits>
@@ -17,7 +18,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -27,6 +28,7 @@ BacktrackingLineSearch::BacktrackingLineSearch(
    const SmartPtr<ConvergenceCheck>&       conv_check
 )
    : LineSearch(),
+     in_watchdog_(false),
      acceptor_(acceptor),
      resto_phase_(resto_phase),
      conv_check_(conv_check)
@@ -52,37 +54,36 @@ void BacktrackingLineSearch::RegisterOptions(
       0.0, true,
       1.0, true,
       0.5,
-      "At every step of the backtracking line search, the trial step size is reduced by this factor.");
+      "At every step of the backtracking line search, the trial step size is reduced by this factor.",
+      true);
 
-   std::string prev_category = roptions->RegisteringCategory();
+   SmartPtr<RegisteredCategory> prev_category = roptions->RegisteringCategory();
    roptions->SetRegisteringCategory("Undocumented");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "magic_steps",
       "Enables magic steps.",
-      "no",
-      "no", "don't take magic steps",
-      "yes", "take magic steps",
-      "DOESN'T REALLY WORK YET!");
+      false,
+      "DOESN'T REALLY WORK YET!",
+      true);
    roptions->SetRegisteringCategory(prev_category);
 
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "accept_every_trial_step",
       "Always accept the first trial step.",
-      "no",
-      "no", "don't arbitrarily accept the full step",
-      "yes", "always accept the full step",
+      false,
       "Setting this option to \"yes\" essentially disables the line search and "
       "makes the algorithm take aggressive steps, without global convergence guarantees.");
    roptions->AddLowerBoundedIntegerOption(
       "accept_after_max_steps",
-      "Accept a trial point after maximal this number of steps.",
+      "Accept a trial point after maximal this number of steps even if it does not satisfy line search conditions.",
       -1,
       -1,
-      "Even if it does not satisfy line search conditions.");
+      "Setting this to -1 disables this option.",
+      true);
 
    roptions->AddStringOption10(
       "alpha_for_y",
-      "Method to determine the step size for constraint multipliers.",
+      "Method to determine the step size for constraint multipliers (alpha_y) .",
       "primal",
       "primal", "use primal step size",
       "bound-mult", "use step size for the bound multipliers (good for LPs)",
@@ -93,8 +94,7 @@ void BacktrackingLineSearch::RegisterOptions(
       "safer-min-dual-infeas", "like \"min_dual_infeas\", but safeguarded by \"min\" and \"max\"",
       "primal-and-full", "use the primal step size, and full step if delta_x <= alpha_for_y_tol",
       "dual-and-full", "use the dual step size, and full step if delta_x <= alpha_for_y_tol",
-      "acceptor", "Call LSAcceptor to get step size for y",
-      "This option determines how the step size (alpha_y) will be calculated when updating the constraint multipliers.");
+      "acceptor", "Call LSAcceptor to get step size for y");
    roptions->AddLowerBoundedNumberOption(
       "alpha_for_y_tol",
       "Tolerance for switching to full equality multiplier steps.",
@@ -107,11 +107,12 @@ void BacktrackingLineSearch::RegisterOptions(
       "tiny_step_tol",
       "Tolerance for detecting numerically insignificant steps.",
       0.0, false,
-      10.0 * std::numeric_limits<double>::epsilon(),
+      10.0 * std::numeric_limits<Number>::epsilon(),
       "If the search direction in the primal variables (x and s) is, in relative terms for each component, "
       "less than this value, the algorithm accepts the full step without line search. "
       "If this happens repeatedly, the algorithm will terminate with a corresponding exit message. "
-      "The default value is 10 times machine precision.");
+      "The default value is 10 times machine precision.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "tiny_step_y_tol",
       "Tolerance for quitting because of numerically insignificant steps.",
@@ -119,7 +120,8 @@ void BacktrackingLineSearch::RegisterOptions(
       1e-2,
       "If the search direction in the primal variables (x and s) is, "
       "in relative terms for each component, repeatedly less than tiny_step_tol, and "
-      "the step in the y variables is smaller than this threshold, the algorithm will terminate.");
+      "the step in the y variables is smaller than this threshold, the algorithm will terminate.",
+      true);
    roptions->AddLowerBoundedIntegerOption(
       "watchdog_shortened_iter_trigger",
       "Number of shortened iterations that trigger the watchdog.",
@@ -137,12 +139,10 @@ void BacktrackingLineSearch::RegisterOptions(
       "procedure is aborted and the algorithm returns to the stored point.");
 
    roptions->SetRegisteringCategory("Restoration Phase");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "expect_infeasible_problem",
       "Enable heuristics to quickly detect an infeasible problem.",
-      "no",
-      "no", "the problem probably be feasible",
-      "yes", "the problem has a good chance to be infeasible",
+      false,
       "This options is meant to activate heuristics that may speed up the infeasibility determination "
       "if you expect that there is a good chance for the problem to be infeasible. "
       "In the filter line search procedure, the restoration phase is called more quickly than usually, "
@@ -163,12 +163,10 @@ void BacktrackingLineSearch::RegisterOptions(
       1e8,
       "If the max norm of the constraint multipliers becomes larger than this value and "
       "\"expect_infeasible_problem\" is chosen, then the restoration phase is entered.");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "start_with_resto",
-      "Tells algorithm to switch to restoration phase in first iteration.",
-      "no",
-      "no", "don't force start in restoration phase",
-      "yes", "force start in restoration phase",
+      "Whether to switch to restoration phase in first iteration.",
+      false,
       "Setting this option to \"yes\" forces the algorithm to switch to the feasibility restoration phase in the first iteration. "
       "If the initial point is feasible, the algorithm will abort with a failure.");
    roptions->AddLowerBoundedNumberOption(
@@ -186,7 +184,8 @@ void BacktrackingLineSearch::RegisterOptions(
       0,
       10,
       "If the soft restoration phase is performed for more than so many iterations in a row, "
-      "the regular restoration phase is called.");
+      "the regular restoration phase is called.",
+      true);
 }
 
 bool BacktrackingLineSearch::InitializeImpl(
@@ -211,6 +210,7 @@ bool BacktrackingLineSearch::InitializeImpl(
    options.GetBoolValue("expect_infeasible_problem", expect_infeasible_problem_, prefix);
 
    options.GetBoolValue("start_with_resto", start_with_resto_, prefix);
+   options.GetNumericValue("constr_viol_tol", constr_viol_tol_, prefix);
 
    options.GetNumericValue("tiny_step_tol", tiny_step_tol_, prefix);
    options.GetNumericValue("tiny_step_y_tol", tiny_step_y_tol_, prefix);
@@ -254,7 +254,7 @@ void BacktrackingLineSearch::FindAcceptableTrialPoint()
    DBG_START_METH("BacktrackingLineSearch::FindAcceptableTrialPoint",
                   dbg_verbosity);
    Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                  "--> Starting line search in iteration %d <--\n", IpData().iter_count());
+                  "--> Starting line search in iteration %" IPOPT_INDEX_FORMAT " <--\n", IpData().iter_count());
 
    Number curr_mu = IpData().curr_mu();
    if( last_mu_ != curr_mu )
@@ -280,7 +280,7 @@ void BacktrackingLineSearch::FindAcceptableTrialPoint()
    }
 
    // Store current iterate if the optimality error is on acceptable
-   // level to restored if things fail later
+   // level to be restored if things fail later
    if( CurrentIsAcceptable() )
    {
       Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
@@ -304,33 +304,40 @@ void BacktrackingLineSearch::FindAcceptableTrialPoint()
       {
          goto_resto = true;
       }
+      else if( acceptor_->DoFallback() )
+      {
+         in_watchdog_ = false;
+         watchdog_iterate_ = NULL;
+         watchdog_delta_ = NULL;
+         count_successive_shortened_steps_ = 0;
+         watchdog_shortened_iter_ = 0;
+         IpData().Set_info_alpha_primal_char('X');
+         fallback_activated_ = false;
+         return;
+      }
       else
       {
-         if( acceptor_->DoFallback() )
-         {
-            in_watchdog_ = false;
-            watchdog_iterate_ = NULL;
-            watchdog_delta_ = NULL;
-            count_successive_shortened_steps_ = 0;
-            watchdog_shortened_iter_ = 0;
-            IpData().Set_info_alpha_primal_char('X');
-            fallback_activated_ = false;
-            return;
-         }
-         else
-         {
-            THROW_EXCEPTION(RESTORATION_FAILED,
-                            "We are in an emergency mode, but not restoration phase or other fall back is available.");
-         }
+         THROW_EXCEPTION(STEP_COMPUTATION_FAILED,
+                         "We are in an emergency mode, but no restoration phase or other fall back is available.");
       }
       fallback_activated_ = false; // reset the flag
+
+      // in order to init the line search for the acceptor next, we need a delta to calculate reference_gradBarrTDelta_
+      // since likely we are here because this has failed in PDSearchDirCalculator::ComputeSearchDirection(), we set a new delta now
+      SmartPtr<IteratesVector> delta = IpData().curr()->MakeNewIteratesVector(true);
+      delta->Set(0.0);
+      IpData().set_delta(delta);
    }
    else
    {
-      // Initialize the acceptor for this backtracking line search
-      acceptor_->InitThisLineSearch(in_watchdog_);
       actual_delta = IpData().delta()->MakeNewContainer();
    }
+   // Initialize the acceptor for this backtracking line search
+   // this was originally only done if fallback_activated_ was not true, i.e., if we were not going into restoration phase
+   // however, if the fallback is activated, we may go to the restoration phase below, which calls acceptor_->PrepareRestoPhaseStart()
+   // below, which calls FilterLSAcceptor::AugmentFilter(), which needs to have reference_barr_ and reference_theta_ initialized
+   // so we call InitThisLineSearch also in this case now
+   acceptor_->InitThisLineSearch(in_watchdog_);
 
    if( start_with_resto_ )
    {
@@ -342,14 +349,13 @@ void BacktrackingLineSearch::FindAcceptableTrialPoint()
    }
 
    if( expect_infeasible_problem_
-       && Max(IpData().curr()->y_c()->Amax(), IpData().curr()->y_d()->Amax()) > expect_infeasible_problem_ytol_ )
+       && IsValid(resto_phase_)
+       && Max(IpData().curr()->y_c()->Amax(), IpData().curr()->y_d()->Amax()) > expect_infeasible_problem_ytol_)
    {
       goto_resto = true;
    }
 
    bool accept = false;
-   bool corr_taken = false;
-   bool soc_taken = false;
    Index n_steps = 0;
    Number alpha_primal = 0.;
 
@@ -466,6 +472,8 @@ void BacktrackingLineSearch::FindAcceptableTrialPoint()
          bool evaluation_error;
          while( !done )
          {
+            bool corr_taken = false;
+            bool soc_taken = false;
             accept = DoBacktrackingLineSearch(skip_first_trial_point, alpha_primal, corr_taken, soc_taken, n_steps,
                                               evaluation_error, actual_delta);
             DBG_PRINT((1, "evaluation_error = %d\n", evaluation_error));
@@ -566,25 +574,28 @@ void BacktrackingLineSearch::FindAcceptableTrialPoint()
             {
                THROW_EXCEPTION(IpoptException, "No Restoration Phase given to this Backtracking Line Search Object!");
             }
+
             // ToDo make the 1e-2 below a parameter?
-            if( IpCq().curr_constraint_violation() <= 1e-2 * IpData().tol() )
+            // added second criteria to cover cases where tol has been set to a large value
+            if( IpCq().curr_constraint_violation() <= 1e-2 * IpData().tol() &&
+                IpCq().unscaled_curr_nlp_constraint_violation(NORM_MAX) <= 1e-1 * constr_viol_tol_ )
             {
                bool found_acceptable = RestoreAcceptablePoint();
                if( found_acceptable )
                {
                   Jnlst().Printf(J_WARNING, J_LINE_SEARCH,
-                                 "Restoration phase is called at almost feasible point,\n  but acceptable point from iteration %d could be restored.\n",
+                                 "Cannot call restoration phase at almost feasible point,\nbut acceptable point from iteration %" IPOPT_INDEX_FORMAT " could be restored.\n",
                                  acceptable_iteration_number_);
                   THROW_EXCEPTION(ACCEPTABLE_POINT_REACHED,
                                   "Restoration phase called at almost feasible point, but acceptable point could be restored.\n");
                }
                else
                {
-                  // ToDo does that happen too often?
                   Jnlst().Printf(J_STRONGWARNING, J_LINE_SEARCH,
-                                 "Restoration phase is called at point that is almost feasible,\n  with constraint violation %e. Abort.\n",
-                                 IpCq().curr_constraint_violation());
-                  THROW_EXCEPTION(RESTORATION_FAILED, "Restoration phase called, but point is almost feasible.");
+                                 "Cannot call restoration phase at point that is almost feasible %s(violation %e).\nAbort in line search due to no other fall back.\n",
+                                 dynamic_cast<OrigIpoptNLP*>(GetRawPtr(IpCq().GetIpoptNLP())) == NULL ? "for the restoration NLP " : "",
+                                 IpCq().unscaled_curr_nlp_constraint_violation(NORM_MAX));
+                  THROW_EXCEPTION(STEP_COMPUTATION_FAILED, "Linesearch failed, but no restoration phase or other fall back is available.");
                }
             }
 
@@ -723,7 +734,7 @@ bool BacktrackingLineSearch::DoBacktrackingLineSearch(
 
    if( !accept )
    {
-      // Loop over decreaseing step sizes until acceptable point is
+      // Loop over decreasing step sizes until acceptable point is
       // found or until step size becomes too small
 
       while( alpha_primal > alpha_min || n_steps == 0 )
@@ -886,6 +897,16 @@ void BacktrackingLineSearch::StopWatchDog(
    acceptor_->StopWatchDog();
 }
 
+void BacktrackingLineSearch::StopWatchDog()
+{
+   if( !in_watchdog_ )
+   {
+      return;
+   }
+   SmartPtr<IteratesVector> actual_delta;
+   StopWatchDog(actual_delta);
+}
+
 void BacktrackingLineSearch::Reset()
 {
    DBG_START_FUN("BacktrackingLineSearch::Reset", dbg_verbosity);
@@ -961,8 +982,7 @@ void BacktrackingLineSearch::PerformDualStep(
          SmartPtr<Vector> new_jac_times_delta_y = IpData().curr()->x()->MakeNew();
          new_jac_times_delta_y->AddTwoVectors(1., *IpCq().trial_jac_cT_times_vec(*delta->y_c()), 1.,
                                               *IpCq().trial_jac_dT_times_vec(*delta->y_d()), 0.);
-
-         Number a = pow(new_jac_times_delta_y->Nrm2(), 2.) + pow(delta->y_d()->Nrm2(), 2.);
+         Number a = std::pow(new_jac_times_delta_y->Nrm2(), 2.) + std::pow(delta->y_d()->Nrm2(), 2.);
          Number b = dual_inf_x->Dot(*new_jac_times_delta_y) - dual_inf_s->Dot(*delta->y_d());
 
          Number alpha = -b / a;
@@ -973,7 +993,7 @@ void BacktrackingLineSearch::PerformDualStep(
          }
          else
          {
-            alpha_y = Min(1., Max(0., alpha));
+            alpha_y = Min(Number(1.), Max(Number(0.), alpha));
          }
          break;
    } //switch (alpha_for_y)

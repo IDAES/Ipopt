@@ -12,15 +12,13 @@
 #include "IpSumSymMatrix.hpp"
 #include "IpDiagMatrix.hpp"
 #include "IpIdentityMatrix.hpp"
-// ToDo: Remove below here - for debug only
-#include "IpTripletHelper.hpp"
-// ToDo: Remove above here
+//#include "IpTripletHelper.hpp"
 
 #include <cstdio>
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -82,17 +80,17 @@ bool StdAugSystemSolver::InitializeImpl(
 
 ESymSolverStatus StdAugSystemSolver::MultiSolve(
    const SymMatrix*                      W,
-   double                                W_factor,
+   Number                                W_factor,
    const Vector*                         D_x,
-   double                                delta_x,
+   Number                                delta_x,
    const Vector*                         D_s,
-   double                                delta_s,
+   Number                                delta_s,
    const Matrix*                         J_c,
    const Vector*                         D_c,
-   double                                delta_c,
+   Number                                delta_c,
    const Matrix*                         J_d,
    const Vector*                         D_d,
-   double                                delta_d,
+   Number                                delta_d,
    std::vector<SmartPtr<const Vector> >& rhs_xV,
    std::vector<SmartPtr<const Vector> >& rhs_sV,
    std::vector<SmartPtr<const Vector> >& rhs_cV,
@@ -125,7 +123,7 @@ ESymSolverStatus StdAugSystemSolver::MultiSolve(
    // Create the compound matrix of the augmented system if it has not
    // yet been created - It is assumed that the structure will not change
    // after this call
-   DBG_DO(bool debug_first_time_through = false;)
+   DBG_DO(bool debug_first_time_through = false);
    if( !IsValid(augmented_system_) )
    {
       // pass in the information to form the structure of the augmented system
@@ -135,7 +133,7 @@ ESymSolverStatus StdAugSystemSolver::MultiSolve(
       CreateAugmentedSpace(*W, *J_c, *J_d, *rhs_xV[0], *rhs_sV[0], *rhs_cV[0], *rhs_dV[0]);
       CreateAugmentedSystem(W, W_factor, D_x, delta_x, D_s, delta_s, *J_c, D_c, delta_c, *J_d, D_d, delta_d, *rhs_xV[0],
                             *rhs_sV[0], *rhs_cV[0], *rhs_dV[0]);
-      DBG_DO(debug_first_time_through = true;)
+      DBG_DO(debug_first_time_through = true);
    }
 
    // Check if anything that was just passed in is different from
@@ -166,16 +164,15 @@ ESymSolverStatus StdAugSystemSolver::MultiSolve(
       augrhs->SetComp(2, *rhs_cV[i]);
       augrhs->SetComp(3, *rhs_dV[i]);
       char buffer[16];
-      Snprintf(buffer, 15, "RHS[%2d]", i);
+      Snprintf(buffer, 15, "RHS[%2" IPOPT_INDEX_FORMAT "]", i);
       augrhs->Print(Jnlst(), J_MOREVECTOR, J_LINEAR_ALGEBRA, buffer);
       augmented_rhsV[i] = GetRawPtr(augrhs);
    }
 
    augmented_system_->Print(Jnlst(), J_MATRIX, J_LINEAR_ALGEBRA, "KKT");
-#ifndef HAVE_MPI
+#if 0 // debug code
    if( Jnlst().ProduceOutput(J_MOREMATRIX, J_LINEAR_ALGEBRA) )
    {
-      // ToDo: remove below here - for debug only
       Index dbg_nz = TripletHelper::GetNumberEntries(*augmented_system_);
       Index* dbg_iRows = new Index[dbg_nz];
       Index* dbg_jCols = new Index[dbg_nz];
@@ -187,7 +184,7 @@ ESymSolverStatus StdAugSystemSolver::MultiSolve(
       for( Index dbg_i = 0; dbg_i < dbg_nz; dbg_i++ )
       {
          Jnlst().Printf(J_MOREMATRIX, J_LINEAR_ALGEBRA,
-                        "(%d) KKT[%d][%d] = %23.15e\n", dbg_i, dbg_iRows[dbg_i], dbg_jCols[dbg_i], dbg_values[dbg_i]);
+                        "(%" IPOPT_INDEX_FORMAT ") KKT[%" IPOPT_INDEX_FORMAT "][%" IPOPT_INDEX_FORMAT "] = %23.15e\n", dbg_i, dbg_iRows[dbg_i], dbg_jCols[dbg_i], dbg_values[dbg_i]);
       }
       delete[] dbg_iRows;
       dbg_iRows = NULL;
@@ -195,7 +192,6 @@ ESymSolverStatus StdAugSystemSolver::MultiSolve(
       dbg_jCols = NULL;
       delete[] dbg_values;
       dbg_values = NULL;
-      // ToDo: remove above here
    }
 #endif
 
@@ -219,7 +215,7 @@ ESymSolverStatus StdAugSystemSolver::MultiSolve(
       for( Index i = 0; i < nrhs; i++ )
       {
          char buffer[16];
-         Snprintf(buffer, 15, "SOL[%2d]", i);
+         Snprintf(buffer, 15, "SOL[%2" IPOPT_INDEX_FORMAT "]", i);
          augmented_solV[i]->Print(Jnlst(), J_MOREVECTOR, J_LINEAR_ALGEBRA, buffer);
       }
    }
@@ -312,17 +308,17 @@ void StdAugSystemSolver::CreateAugmentedSpace(
 
 void StdAugSystemSolver::CreateAugmentedSystem(
    const SymMatrix* W,
-   double           W_factor,
+   Number           W_factor,
    const Vector*    D_x,
-   double           delta_x,
+   Number           delta_x,
    const Vector*    D_s,
-   double           delta_s,
+   Number           delta_s,
    const Matrix&    J_c,
    const Vector*    D_c,
-   double           delta_c,
+   Number           delta_c,
    const Matrix&    J_d,
    const Vector*    D_d,
-   double           delta_d,
+   Number           delta_d,
    const Vector&    proto_x,
    const Vector&    proto_s,
    const Vector&    proto_c,
@@ -473,23 +469,23 @@ void StdAugSystemSolver::CreateAugmentedSystem(
 
 bool StdAugSystemSolver::AugmentedSystemRequiresChange(
    const SymMatrix* W,
-   double           W_factor,
+   Number           W_factor,
    const Vector*    D_x,
-   double           delta_x,
+   Number           delta_x,
    const Vector*    D_s,
-   double           delta_s,
+   Number           delta_s,
    const Matrix&    J_c,
    const Vector*    D_c,
-   double           delta_c,
+   Number           delta_c,
    const Matrix&    J_d,
    const Vector*    D_d,
-   double           delta_d
+   Number           delta_d
 )
 {
    DBG_START_METH("StdAugSystemSolver::AugmentedSystemRequiresChange", dbg_verbosity);
    DBG_ASSERT(augsys_tag_ == augmented_system_->GetTag() && "Someone has changed the augmented system outside of the AugSystemSolver. This should NOT happen.");
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 
    bool Wtest = (W && W->GetTag() != w_tag_);
    bool iWtest = (!W && w_tag_ != 0);

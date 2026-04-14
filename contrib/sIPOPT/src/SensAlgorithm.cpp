@@ -7,12 +7,12 @@
 #include "SensAlgorithm.hpp"
 #include "SensUtils.hpp"
 #include "IpSmartPtr.hpp"
-
 #include "IpVector.hpp"
+#include "IpUtils.hpp"
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 1;
 #endif
 
@@ -36,7 +36,7 @@ SensAlgorithm::SensAlgorithm(
      n_sens_steps_(n_sens_steps) // why doesn't he get this from the options?
 {
    DBG_START_METH("SensAlgorithm::SensAlgorithm", dbg_verbosity);
-   DBG_ASSERT(n_sens_steps <= (int)driver_vec.size());
+   DBG_ASSERT((size_t)n_sens_steps <= driver_vec.size());
 }
 
 SensAlgorithm::~SensAlgorithm()
@@ -119,11 +119,11 @@ bool SensAlgorithm::InitializeImpl(
    statevalue = "sens_init_constr";
 
    SmartPtr<const DenseVectorSpace> x_owner_space_ = dynamic_cast<const DenseVectorSpace*>(
-            GetRawPtr(IpData().curr()->y_c()->OwnerSpace()));
+         GetRawPtr(IpData().curr()->y_c()->OwnerSpace()));
    const std::vector<Index> idx_ipopt = x_owner_space_->GetIntegerMetaData(state.c_str());
 
    np_ = 0;
-   for( Index i = 0; i < (int) idx_ipopt.size(); ++i )
+   for( size_t i = 0; i < idx_ipopt.size(); ++i )
    {
       if( idx_ipopt[i] > 0 )
       {
@@ -207,7 +207,7 @@ SensAlgorithmExitStatus SensAlgorithm::ComputeSensitivityMatrix(void)
    SmartPtr < IteratesVector > trialcopy;
 
    SmartPtr < DenseVectorSpace > delta_u_space;
-   delta_u_space = new DenseVectorSpace(2);
+   delta_u_space = new DenseVectorSpace(np_);
 
    SmartPtr < DenseVector > delta_u = new DenseVector(GetRawPtr(ConstPtr(delta_u_space)));
 
@@ -220,7 +220,7 @@ SensAlgorithmExitStatus SensAlgorithm::ComputeSensitivityMatrix(void)
    statevalue = "sens_init_constr";
 
    SmartPtr<const DenseVectorSpace> x_owner_space_ = dynamic_cast<const DenseVectorSpace*>(
-            GetRawPtr(IpData().curr()->y_c()->OwnerSpace()));
+         GetRawPtr(IpData().curr()->y_c()->OwnerSpace()));
    //= dynamic_cast<const DenseVectorSpace*>(GetRawPtr(IpData().curr()->x()->OwnerSpace()));
 
    const std::vector<Index> idx_ipopt = x_owner_space_->GetIntegerMetaData(state.c_str());
@@ -228,14 +228,14 @@ SensAlgorithmExitStatus SensAlgorithm::ComputeSensitivityMatrix(void)
    char buffer[250];
 
    Index col = 0;
-   for( Index Scol = 0; Scol < (int) idx_ipopt.size(); ++Scol )
+   for( size_t Scol = 0; Scol < idx_ipopt.size(); ++Scol )
    {
 
       if( idx_ipopt[Scol] > 0 )
       {
 
          // reset rhs vector to zero
-         for( Index j = 0; j < (int) idx_ipopt.size(); ++j )
+         for( size_t j = 0; j < idx_ipopt.size(); ++j )
          {
             if( idx_ipopt[j] > 0 )
             {
@@ -243,7 +243,7 @@ SensAlgorithmExitStatus SensAlgorithm::ComputeSensitivityMatrix(void)
             }
          }
 
-         sprintf(buffer, "Column %i", idx_ipopt[Scol]);
+         Snprintf(buffer, sizeof(buffer), "Column %" IPOPT_INDEX_FORMAT, idx_ipopt[Scol]);
 
          sens_step_calc_->SetSchurDriver(driver_vec_[0]);
 
@@ -286,7 +286,7 @@ void SensAlgorithm::GetSensitivityMatrix(
 
    const Number* X_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).x()))->Values();
    offset = col * nx_;
-   for( int i = 0; i < nx_; ++i )
+   for( Index i = 0; i < nx_; ++i )
    {
       //printf(" ds/dp(X)[%3d] = %.14g\n", i+1, X_[i]);
       SensitivityM_X_[i + offset] = X_[i];
@@ -294,7 +294,7 @@ void SensAlgorithm::GetSensitivityMatrix(
 
    const Number* Z_L_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).z_L()))->Values();
    offset = col * nzl_;
-   for( int i = 0; i < nzl_; ++i )
+   for( Index i = 0; i < nzl_; ++i )
    {
       //printf(" ds/dp(X)[%3d] = %.14g\n", i+1, X_[i]);
       SensitivityM_Z_L_[i + offset] = Z_L_[i];
@@ -302,7 +302,7 @@ void SensAlgorithm::GetSensitivityMatrix(
 
    const Number* Z_U_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).z_U()))->Values();
    offset = col * nzu_;
-   for( int i = 0; i < nzu_; ++i )
+   for( Index i = 0; i < nzu_; ++i )
    {
       //printf(" ds/dp(X)[%3d] = %.14g\n", i+1, X_[i]);
       SensitivityM_Z_U_[i + offset] = Z_U_[i];
@@ -310,14 +310,14 @@ void SensAlgorithm::GetSensitivityMatrix(
 
    const Number* LE_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).y_c()))->Values();
    offset = col * nl_;
-   for( int i = 0; i < nceq_; ++i )
+   for( Index i = 0; i < nceq_; ++i )
    {
       //printf(" ds/dp(LE)[%3d] = %.14g\n", i+1, LE_[i]);
       SensitivityM_L_[i + offset] = LE_[i];
    }
 
    const Number* LIE_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).y_d()))->Values();
-   for( int i = 0; i < ncineq_; ++i )
+   for( Index i = 0; i < ncineq_; ++i )
    {
       //printf(" ds/dp(LIE)[%3d] = %.14g\n", i+1, LIE_[i]);
       SensitivityM_L_[i + nceq_ + offset] = LIE_[i];
@@ -336,35 +336,35 @@ void SensAlgorithm::GetDirectionalDerivatives(void)
 
    const Number* X_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).x()))->Values();
 
-   for( int i = 0; i < nx_; ++i )
+   for( Index i = 0; i < nx_; ++i )
    {
       //printf(" ds/dp(X)[%3d] = %.14g\n", i+1, X_[i]);
       DirectionalD_X_[i] = X_[i];
    }
 
    const Number* Z_L_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).z_L()))->Values();
-   for( int i = 0; i < nzl_; ++i )
+   for( Index i = 0; i < nzl_; ++i )
    {
       //printf(" ds/dp(X)[%3d] = %.14g\n", i+1, X_[i]);
       DirectionalD_Z_L_[i] = Z_L_[i];
    }
 
    const Number* Z_U_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).z_U()))->Values();
-   for( int i = 0; i < nzu_; ++i )
+   for( Index i = 0; i < nzu_; ++i )
    {
       //printf(" ds/dp(X)[%3d] = %.14g\n", i+1, X_[i]);
       DirectionalD_Z_U_[i] = Z_U_[i];
    }
 
    const Number* LE_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).y_c()))->Values();
-   for( int i = 0; i < nceq_; ++i )
+   for( Index i = 0; i < nceq_; ++i )
    {
       //printf(" ds/dp(LE)[%3d] = %.14g\n", i+1, LE_[i]);
       DirectionalD_L_[i] = LE_[i];
    }
 
    const Number* LIE_ = dynamic_cast<const DenseVector*>(GetRawPtr((*SV).y_d()))->Values();
-   for( int i = 0; i < ncineq_; ++i )
+   for( Index i = 0; i < ncineq_; ++i )
    {
       //printf(" ds/dp(LIE)[%3d] = %.14g\n", i+1, LIE_[i]);
       DirectionalD_L_[i + nceq_] = LIE_[i];

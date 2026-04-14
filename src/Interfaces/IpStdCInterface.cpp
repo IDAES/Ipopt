@@ -4,46 +4,49 @@
 //
 // Authors:  Carl Laird, Andreas Waechter     IBM    2004-08-13
 
-/// @todo use memcpy for various for-loop-copies
-
 #include "IpStdCInterface.h"
 #include "IpStdInterfaceTNLP.hpp"
 #include "IpOptionsList.hpp"
 #include "IpIpoptApplication.hpp"
+#include "IpBlas.hpp"
+#include "IpSmartPtr.hpp"
+
+#include <cassert>
 
 struct IpoptProblemInfo
 {
    Ipopt::SmartPtr<Ipopt::IpoptApplication> app;
-   Index           n;
-   Number*         x_L;
-   Number*         x_U;
-   Index           m;
-   Number*         g_L;
-   Number*         g_U;
-   Index           nele_jac;
-   Index           nele_hess;
-   Index           index_style;
+   Ipopt::SmartPtr<Ipopt::StdInterfaceTNLP> tnlp;
+   ipindex         n;
+   ipnumber*       x_L;
+   ipnumber*       x_U;
+   ipindex         m;
+   ipnumber*       g_L;
+   ipnumber*       g_U;
+   ipindex         nele_jac;
+   ipindex         nele_hess;
+   ipindex         index_style;
    Eval_F_CB       eval_f;
    Eval_G_CB       eval_g;
    Eval_Grad_F_CB  eval_grad_f;
    Eval_Jac_G_CB   eval_jac_g;
    Eval_H_CB       eval_h;
    Intermediate_CB intermediate_cb;
-   Number          obj_scaling;
-   Number*         x_scaling;
-   Number*         g_scaling;
+   ipnumber        obj_scaling;
+   ipnumber*       x_scaling;
+   ipnumber*       g_scaling;
 };
 
 IpoptProblem CreateIpoptProblem(
-   Index          n,
-   Number*        x_L,
-   Number*        x_U,
-   Index          m,
-   Number*        g_L,
-   Number*        g_U,
-   Index          nele_jac,
-   Index          nele_hess,
-   Index          index_style,
+   ipindex        n,
+   ipnumber*      x_L,
+   ipnumber*      x_U,
+   ipindex        m,
+   ipnumber*      g_L,
+   ipnumber*      g_U,
+   ipindex        nele_jac,
+   ipindex        nele_hess,
+   ipindex        index_style,
    Eval_F_CB      eval_f,
    Eval_G_CB      eval_g,
    Eval_Grad_F_CB eval_grad_f,
@@ -60,33 +63,23 @@ IpoptProblem CreateIpoptProblem(
 
    IpoptProblem retval = new IpoptProblemInfo;
 
-   retval->n   = n;
-   retval->x_L = new Number[n];
-   for( Index i = 0; i < n; i++ )
-   {
-      retval->x_L[i] = x_L[i];
-   }
+   retval->tnlp = NULL;
 
-   retval->x_U = new Number[n];
-   for( Index i = 0; i < n; i++ )
-   {
-      retval->x_U[i] = x_U[i];
-   }
+   retval->n   = n;
+   retval->x_L = new ipnumber[n];
+   Ipopt::IpBlasCopy(n, x_L, 1, retval->x_L, 1);
+
+   retval->x_U = new ipnumber[n];
+   Ipopt::IpBlasCopy(n, x_U, 1, retval->x_U, 1);
 
    retval->m = m;
    if( m > 0 )
    {
-      retval->g_L = new Number[m];
-      for( Index i = 0; i < m; i++ )
-      {
-         retval->g_L[i] = g_L[i];
-      }
+      retval->g_L = new ipnumber[m];
+      Ipopt::IpBlasCopy(m, g_L, 1, retval->g_L, 1);
 
-      retval->g_U = new Number[m];
-      for( Index i = 0; i < m; i++ )
-      {
-         retval->g_U[i] = g_U[i];
-      }
+      retval->g_U = new ipnumber[m];
+      Ipopt::IpBlasCopy(m, g_U, 1, retval->g_U, 1);
    }
    else
    {
@@ -130,47 +123,47 @@ void FreeIpoptProblem(
    delete ipopt_problem;
 }
 
-Bool AddIpoptStrOption(
+bool AddIpoptStrOption(
    IpoptProblem ipopt_problem,
    char*        keyword,
    char*        val
 )
 {
-   return (Bool) ipopt_problem->app->Options()->SetStringValue(keyword, val);
+   return ipopt_problem->app->Options()->SetStringValue(keyword, val);
 }
 
-Bool AddIpoptNumOption(
+bool AddIpoptNumOption(
    IpoptProblem ipopt_problem,
    char*        keyword,
-   Number       val
+   ipnumber     val
 )
 {
-   return (Bool) ipopt_problem->app->Options()->SetNumericValue(keyword, val);
+   return ipopt_problem->app->Options()->SetNumericValue(keyword, val);
 }
 
-Bool AddIpoptIntOption(
+bool AddIpoptIntOption(
    IpoptProblem ipopt_problem,
    char*        keyword,
-   Int          val
+   ipindex      val
 )
 {
-   return (Bool) ipopt_problem->app->Options()->SetIntegerValue(keyword, val);
+   return ipopt_problem->app->Options()->SetIntegerValue(keyword, val);
 }
 
-Bool OpenIpoptOutputFile(
+bool OpenIpoptOutputFile(
    IpoptProblem ipopt_problem,
    char*        file_name,
-   Int          print_level
+   int          print_level
 )
 {
-   return (Bool) ipopt_problem->app->OpenOutputFile(file_name, Ipopt::EJournalLevel(print_level));
+   return ipopt_problem->app->OpenOutputFile(file_name, Ipopt::EJournalLevel(print_level));
 }
 
-Bool SetIpoptProblemScaling(
+bool SetIpoptProblemScaling(
    IpoptProblem ipopt_problem,
-   Number       obj_scaling,
-   Number*      x_scaling,
-   Number*      g_scaling
+   ipnumber     obj_scaling,
+   ipnumber*    x_scaling,
+   ipnumber*    g_scaling
 )
 {
    ipopt_problem->obj_scaling = obj_scaling;
@@ -179,12 +172,9 @@ Bool SetIpoptProblemScaling(
    {
       if( !ipopt_problem->x_scaling )
       {
-         ipopt_problem->x_scaling = new Number[ipopt_problem->n];
+         ipopt_problem->x_scaling = new ipnumber[ipopt_problem->n];
       }
-      for( ::Index i = 0; i < ipopt_problem->n; i++ )
-      {
-         ipopt_problem->x_scaling[i] = x_scaling[i];
-      }
+      Ipopt::IpBlasCopy(ipopt_problem->n, x_scaling, 1, ipopt_problem->x_scaling, 1);
    }
    else
    {
@@ -196,12 +186,9 @@ Bool SetIpoptProblemScaling(
    {
       if( !ipopt_problem->g_scaling )
       {
-         ipopt_problem->g_scaling = new Number[ipopt_problem->m];
+         ipopt_problem->g_scaling = new ipnumber[ipopt_problem->m];
       }
-      for( ::Index i = 0; i < ipopt_problem->m; i++ )
-      {
-         ipopt_problem->g_scaling[i] = g_scaling[i];
-      }
+      Ipopt::IpBlasCopy(ipopt_problem->m, g_scaling, 1, ipopt_problem->g_scaling, 1);
    }
    else
    {
@@ -209,27 +196,27 @@ Bool SetIpoptProblemScaling(
       ipopt_problem->g_scaling = NULL;
    }
 
-   return (Bool) true;
+   return true;
 }
 
-Bool SetIntermediateCallback(
+bool SetIntermediateCallback(
    IpoptProblem    ipopt_problem,
    Intermediate_CB intermediate_cb
 )
 {
    ipopt_problem->intermediate_cb = intermediate_cb;
 
-   return (Bool) true;
+   return true;
 }
 
 enum ApplicationReturnStatus IpoptSolve(
    IpoptProblem ipopt_problem,
-   Number*      x,
-   Number*      g,
-   Number*      obj_val,
-   Number*      mult_g,
-   Number*      mult_x_L,
-   Number*      mult_x_U,
+   ipnumber*    x,
+   ipnumber*    g,
+   ipnumber*    obj_val,
+   ipnumber*    mult_g,
+   ipnumber*    mult_x_L,
+   ipnumber*    mult_x_U,
    UserDataPtr  user_data
 )
 {
@@ -247,57 +234,43 @@ enum ApplicationReturnStatus IpoptSolve(
    }
 
    // Copy the starting point information
-   Number* start_x = new Number[ipopt_problem->n];
-   for( Index i = 0; i < ipopt_problem->n; ++i )
-   {
-      start_x[i] = x[i];
-   }
+   ipnumber* start_x = new ipnumber[ipopt_problem->n];
+   Ipopt::IpBlasCopy(ipopt_problem->n, x, 1, start_x, 1);
 
-   Number* start_lam = NULL;
+   ipnumber* start_lam = NULL;
    if( mult_g )
    {
-      start_lam = new Number[ipopt_problem->m];
-      for( Index i = 0; i < ipopt_problem->m; ++i )
-      {
-         start_lam[i] = mult_g[i];
-      }
+      start_lam = new ipnumber[ipopt_problem->m];
+      Ipopt::IpBlasCopy(ipopt_problem->m, mult_g, 1, start_lam, 1);
    }
 
-   Number* start_z_L = NULL;
+   ipnumber* start_z_L = NULL;
    if( mult_x_L )
    {
-      start_z_L = new Number[ipopt_problem->n];
-      for( Index i = 0; i < ipopt_problem->n; ++i )
-      {
-         start_z_L[i] = mult_x_L[i];
-      }
+      start_z_L = new ipnumber[ipopt_problem->n];
+      Ipopt::IpBlasCopy(ipopt_problem->n, mult_x_L, 1, start_z_L, 1);
    }
 
-   Number* start_z_U = NULL;
+   ipnumber* start_z_U = NULL;
    if( mult_x_U )
    {
-      start_z_U = new Number[ipopt_problem->n];
-      for( Index i = 0; i < ipopt_problem->n; ++i )
-      {
-         start_z_U[i] = mult_x_U[i];
-      }
+      start_z_U = new ipnumber[ipopt_problem->n];
+      Ipopt::IpBlasCopy(ipopt_problem->n, mult_x_U, 1, start_z_U, 1);
    }
-
-   // Create the original nlp
-   Ipopt::SmartPtr<Ipopt::TNLP> tnlp;
 
    Ipopt::ApplicationReturnStatus status;
    try
    {
-      tnlp = new Ipopt::StdInterfaceTNLP(ipopt_problem->n, ipopt_problem->x_L, ipopt_problem->x_U,
-                                         ipopt_problem->m, ipopt_problem->g_L, ipopt_problem->g_U,
-                                         ipopt_problem->nele_jac, ipopt_problem->nele_hess, ipopt_problem->index_style,
-                                         start_x, start_lam, start_z_L, start_z_U,
-                                         ipopt_problem->eval_f, ipopt_problem->eval_g, ipopt_problem->eval_grad_f, ipopt_problem->eval_jac_g, ipopt_problem->eval_h,
-                                         ipopt_problem->intermediate_cb,
-                                         x, mult_x_L, mult_x_U, g, mult_g, obj_val, user_data,
-                                         ipopt_problem->obj_scaling, ipopt_problem->x_scaling, ipopt_problem->g_scaling);
-      status = ipopt_problem->app->OptimizeTNLP(tnlp);
+      // Create the original nlp
+      ipopt_problem->tnlp = new Ipopt::StdInterfaceTNLP(ipopt_problem->n, ipopt_problem->x_L, ipopt_problem->x_U,
+         ipopt_problem->m, ipopt_problem->g_L, ipopt_problem->g_U,
+         ipopt_problem->nele_jac, ipopt_problem->nele_hess, ipopt_problem->index_style,
+         start_x, start_lam, start_z_L, start_z_U,
+         ipopt_problem->eval_f, ipopt_problem->eval_g, ipopt_problem->eval_grad_f, ipopt_problem->eval_jac_g, ipopt_problem->eval_h,
+         ipopt_problem->intermediate_cb,
+         x, mult_x_L, mult_x_U, g, mult_g, obj_val, user_data,
+         ipopt_problem->obj_scaling, ipopt_problem->x_scaling, ipopt_problem->g_scaling);
+      status = ipopt_problem->app->OptimizeTNLP(ipopt_problem->tnlp);
    }
    catch( Ipopt::INVALID_STDINTERFACE_NLP& exc )
    {
@@ -309,6 +282,7 @@ enum ApplicationReturnStatus IpoptSolve(
       exc.ReportException(*ipopt_problem->app->Jnlst(), Ipopt::J_ERROR);
       status = Ipopt::Unrecoverable_Exception;
    }
+   ipopt_problem->tnlp = NULL;
 
    delete[] start_x;
    delete[] start_lam;
@@ -316,4 +290,59 @@ enum ApplicationReturnStatus IpoptSolve(
    delete[] start_z_U;
 
    return ApplicationReturnStatus(status);
+}
+
+bool GetIpoptCurrentIterate(
+   IpoptProblem    ipopt_problem,
+   bool            scaled,
+   ipindex         n,
+   ipnumber*       x,
+   ipnumber*       z_L,
+   ipnumber*       z_U,
+   ipindex         m,
+   ipnumber*       g,
+   ipnumber*       lambda
+)
+{
+   if( IsNull(ipopt_problem->tnlp) )
+   {
+      return false;
+   }
+
+   return ipopt_problem->tnlp->get_curr_iterate(scaled, n, x, z_L, z_U, m, g, lambda);
+}
+
+bool GetIpoptCurrentViolations(
+   IpoptProblem  ipopt_problem,
+   bool          scaled,
+   ipindex       n,
+   ipnumber*     x_L_violation,
+   ipnumber*     x_U_violation,
+   ipnumber*     compl_x_L,
+   ipnumber*     compl_x_U,
+   ipnumber*     grad_lag_x,
+   ipindex       m,
+   ipnumber*     nlp_constraint_violation,
+   ipnumber*     compl_g
+)
+{
+   if( IsNull(ipopt_problem->tnlp) )
+   {
+      return false;
+   }
+
+   return ipopt_problem->tnlp->get_curr_violations(scaled != 0, n, x_L_violation, x_U_violation, compl_x_L, compl_x_U, grad_lag_x, m, nlp_constraint_violation, compl_g);
+}
+
+void GetIpoptVersion(
+   int* major,   /**< buffer to store major version number of Ipopt */
+   int* minor,   /**< buffer to store minor version number of Ipopt */
+   int* release  /**< buffer to store release version number of Ipopt */
+)
+{
+   assert(major != NULL);
+   assert(minor != NULL);
+   assert(release != NULL);
+
+   Ipopt::IpoptApplication::Version(*major, *minor, *release);
 }

@@ -29,10 +29,9 @@ LuksanVlcek6::LuksanVlcek6(
    Number g_l,
    Number g_u
 )
-{
-   g_l_ = g_l;
-   g_u_ = g_u;
-}
+   : g_l_(g_l),
+     g_u_(g_u)
+{ }
 
 bool LuksanVlcek6::InitializeProblem(
    Index N
@@ -138,11 +137,11 @@ bool LuksanVlcek6::eval_f(
    for( Index i = 0; i < N_; i++ )
    {
       Number b = (2. + 5. * x[i] * x[i]) * x[i] + 1.;
-      for( Index j = Max(0, i - 5); j <= Min(N_ - 1, i + 1); j++ )
+      for( Index j = Max(Index(0), i - 5); j <= Min(N_ - 1, i + 1); j++ )
       {
          b += x[j] * (1. + x[j]);
       }
-      obj_value += pow(fabs(b), p);
+      obj_value += std::pow(std::abs(b), p);
    }
 
    return true;
@@ -161,13 +160,13 @@ bool LuksanVlcek6::eval_grad_f(
    for( Index i = 0; i < N_; i++ )
    {
       Number b = (2. + 5. * x[i] * x[i]) * x[i] + 1.;
-      for( Index j = Max(0, i - 5); j <= Min(N_ - 1, i + 1); j++ )
+      for( Index j = Max(Index(0), i - 5); j <= Min(N_ - 1, i + 1); j++ )
       {
          b += x[j] * (1. + x[j]);
       }
-      Number pb1 = pow(fabs(b), p - 1.);
+      Number pb1 = std::pow(std::abs(b), p - 1.);
       Number apb1 = p * Sgn(b) * pb1;
-      for( Index j = Max(0, i - 5); j < i; j++ )
+      for( Index j = Max(Index(0), i - 5); j < i; j++ )
       {
          grad_f[j] += (1. + 2. * x[j]) * apb1;
       }
@@ -193,7 +192,7 @@ bool LuksanVlcek6::eval_g(
 {
    for( Index i = 0; i < N_ / 2; i++ )
    {
-      Number e = exp(x[2 * i] - x[2 * i + 1] - x[2 * i + 2]);
+      Number e = std::exp(x[2 * i] - x[2 * i + 1] - x[2 * i + 2]);
       g[i] = 4. * x[2 * i + 1] - (x[2 * i] - x[2 * i + 2]) * e - 3;
    }
    return true;
@@ -238,7 +237,7 @@ bool LuksanVlcek6::eval_jac_g(
       Index ijac = 0;
       for( Index i = 0; i < N_ / 2; i++ )
       {
-         Number e = exp(x[2 * i] - x[2 * i + 1] - x[2 * i + 2]);
+         Number e = std::exp(x[2 * i] - x[2 * i + 1] - x[2 * i + 2]);
          Number a1 = (1. + x[2 * i] - x[2 * i + 2]) * e;
          values[ijac] = -a1;
          ijac++;
@@ -330,12 +329,12 @@ bool LuksanVlcek6::eval_h(
       for( Index i = 0; i < N_; i++ )
       {
          Number b = (2. + 5. * x[i] * x[i]) * x[i] + 1.;
-         for( Index j = Max(0, i - 5); j <= Min(N_ - 1, i + 1); j++ )
+         for( Index j = Max(Index(0), i - 5); j <= Min(N_ - 1, i + 1); j++ )
          {
             b += x[j] * (1. + x[j]);
          }
-         Number pb1 = pow(fabs(b), p - 1.);
-         Number pb2 = pow(fabs(b), p - 2.);
+         Number pb1 = std::pow(std::abs(b), p - 1.);
+         Number pb2 = std::pow(std::abs(b), p - 2.);
          Number apb1 = p * Sgn(b) * pb1;
          Number apb2 = p * (p - 1.) * pb2;
          Number a1 = 3. + 2. * x[i] + 15. * x[i] * x[i];
@@ -346,13 +345,13 @@ bool LuksanVlcek6::eval_h(
          // x[i] x[j] j<i
          Index ih = n;
          Index ip = n - 1;
-         for( Index j = i - 1; j >= Max(0, i - 5); j-- )
+         for( Index j = i - 1; j >= Max(Index(0), i - 5); j-- )
          {
             values[ih + j] += obj_factor * a1apb2 * (1. + 2. * x[j]);
             ih += ip;
             ip--;
          }
-         for( Index j = Max(0, i - 5); j < i; j++ )
+         for( Index j = Max(Index(0), i - 5); j < i; j++ )
          {
             Number axj = (1. + 2. * x[j]);
             // x[j] x[j] j<i
@@ -360,7 +359,7 @@ bool LuksanVlcek6::eval_h(
             ih = n;
             ip = n - 1;
             // x[j] x[k] j<i, k<j
-            for( Index k = j - 1; k >= Max(0, i - 5); k-- )
+            for( Index k = j - 1; k >= Max(Index(0), i - 5); k-- )
             {
                values[ih + k] += obj_factor * apb2 * (1. + 2. * x[k]) * axj;
                ih += ip;
@@ -375,7 +374,7 @@ bool LuksanVlcek6::eval_h(
             // x[j=i+1] x[k] k<i
             ih = n + n - 1;
             ip = n - 2;
-            for( Index k = i - 1; k >= Max(0, i - 5); k-- )
+            for( Index k = i - 1; k >= Max(Index(0), i - 5); k-- )
             {
                values[ih + k] = obj_factor * apb2 * (1. + 2. * x[k]) * axj;
                ih += ip;
@@ -391,7 +390,7 @@ bool LuksanVlcek6::eval_h(
             values[n + i] = 0.;
             ih = n + n - 1;
             ip = n - 2;
-            for( Index k = i - 1; k >= Max(0, i - 5); k-- )
+            for( Index k = i - 1; k >= Max(Index(0), i - 5); k-- )
             {
                values[ih + k] = 0.;
                ih += ip;
@@ -405,7 +404,7 @@ bool LuksanVlcek6::eval_h(
       // Now the constraints
       for( Index i = 0; i < N_ / 2; i++ )
       {
-         Number e = exp(x[2 * i] - x[2 * i + 1] - x[2 * i + 2]);
+         Number e = std::exp(x[2 * i] - x[2 * i + 1] - x[2 * i + 2]);
          Number a1 = 1. + x[2 * i] - x[2 * i + 2];
          Number a2 = 1. + a1;
          // x[2*i] x[2*i]

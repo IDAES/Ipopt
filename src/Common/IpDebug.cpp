@@ -9,7 +9,7 @@
 #include "IpDebug.hpp"
 #include "IpJournalist.hpp"
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 
 namespace Ipopt
 {
@@ -18,8 +18,8 @@ Index DebugJournalistWrapper::indentation_level_ = 0;
 Journalist* DebugJournalistWrapper::jrnl_ = NULL;
 
 DebugJournalistWrapper::DebugJournalistWrapper(
-   std::string func_name,
-   Index       verbose_level
+   const std::string& func_name,
+   Index              verbose_level
 )
    : func_name_(func_name),
      verbose_level_(verbose_level),
@@ -38,9 +38,9 @@ DebugJournalistWrapper::DebugJournalistWrapper(
 }
 
 DebugJournalistWrapper::DebugJournalistWrapper(
-   std::string       func_name,
-   Index             verbose_level,
-   const void* const method_owner
+   const std::string& func_name,
+   Index              verbose_level,
+   const void* const  method_owner
 )
    : func_name_(func_name),
      verbose_level_(verbose_level),
@@ -51,7 +51,7 @@ DebugJournalistWrapper::DebugJournalistWrapper(
       verbose_level_ = 0;
       return;
    }
-   DebugPrintf(1, "-> Calling to: %s in obj: 0x%x\n", func_name_.c_str(),
+   DebugPrintf(1, "-> Calling to: %s in obj: %p\n", func_name_.c_str(),
                method_owner_);
    if (verbose_level_ > 0)
    {
@@ -73,7 +73,7 @@ DebugJournalistWrapper::~DebugJournalistWrapper()
       }
       else
       {
-         DebugPrintf(1, "<- Returning from : %s in obj: 0x%x\n",
+         DebugPrintf(1, "<- Returning from : %s in obj: %p\n",
                      func_name_.c_str(), method_owner_);
       }
    }
@@ -119,4 +119,4 @@ void DebugJournalistWrapper::DebugPrintf(
 
 } // namespace Ipopt
 
-#endif // #if COIN_IPOPT_VERBOSITY > 0
+#endif // #if IPOPT_VERBOSITY > 0

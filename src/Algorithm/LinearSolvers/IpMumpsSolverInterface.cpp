@@ -11,11 +11,9 @@
 //           (incorporated by AW on 2006-11-11 into Ipopt package)
 //
 // NOTES:
-// - Since Mumps 5.1.0, mumps_->nz should be replaced by mumps_->nnz
+// - Since Mumps 5.1.0, mumps_->nz (MUMPS_INT) is deprecated and mumps_->nnz (MUMPS_INT8) should be used.
+//   For now (Mumps 5.4.0), mumps_->nz still works and has no disadvantage for us.
 
-// The following line is a fix for otherwise twice-defined global variable
-// (This would have to be taken out for a parallel MUMPS version!)
-#define MPI_COMM_WORLD IPOPT_MPI_COMM_WORLD
 #ifdef __GNUC__
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
@@ -32,58 +30,67 @@
 
 #include "IpMumpsSolverInterface.hpp"
 
+#if IPOPT_SINGLE
+#include "smumps_c.h"
+#define MUMPS_STRUC_C SMUMPS_STRUC_C
+#define mumps_c smumps_c
+#else
 #include "dmumps_c.h"
+#define MUMPS_STRUC_C DMUMPS_STRUC_C
+#define mumps_c dmumps_c
+#endif
 
 #include <cmath>
 #include <cstdlib>
 
-namespace Ipopt
-{
-#if COIN_IPOPT_VERBOSITY > 0
-static const Index dbg_verbosity = 0;
+#if !defined(IPOPT_MUMPS_NOMUTEX) && __cplusplus < 201103L
+#define IPOPT_MUMPS_NOMUTEX
+#endif
+#ifndef IPOPT_MUMPS_NOMUTEX
+#include <mutex>
+/// a mutex to ensure that only one thread is running MUMPS functions at a time
+static std::mutex mumps_call_mutex;
 #endif
 
 #define USE_COMM_WORLD -987654
 
-int MumpsSolverInterface::instancecount_mpi = 0;
+// initialize MPI when library is loaded; finalize MPI when library is unloaded
+#if defined(__GNUC__) && defined(IPOPT_MPIINIT) && !defined(MUMPS_MPI_H) && defined(HAVE_MPI_INITIALIZED)
+__attribute__((constructor))
+static void MPIinit(void)
+{
+   int mpi_initialized;
+   MPI_Initialized(&mpi_initialized);
+   if( !mpi_initialized )
+   {
+      MPI_Init(NULL, NULL);
+   }
+}
+
+__attribute__((destructor))
+static void MPIfini(void)
+{
+   int mpi_finalized;
+   MPI_Finalized(&mpi_finalized);
+   if(!mpi_finalized)
+   {
+      MPI_Finalize();
+   }
+}
+#endif
+
+namespace Ipopt
+{
+#if IPOPT_VERBOSITY > 0
+static const Index dbg_verbosity = 0;
+#endif
 
 MumpsSolverInterface::MumpsSolverInterface()
 {
    DBG_START_METH("MumpsSolverInterface::MumpsSolverInterface()",
                   dbg_verbosity);
 
-#ifndef MUMPS_MPI_H
-#if defined(HAVE_MPI_INITIALIZED)
-   int mpi_initialized;
-   MPI_Initialized(&mpi_initialized);
-   if( !mpi_initialized )
-   {
-      int argc = 1;
-      char** argv = NULL;
-      MPI_Init(&argc, &argv);
-      assert(instancecount_mpi == 0);
-      instancecount_mpi = 1;
-   }
-   else if( instancecount_mpi > 0 )
-   {
-      ++instancecount_mpi;
-   }
-#endif
-   int myid;
-   MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-#endif
-
-   //initialize mumps
-   DMUMPS_STRUC_C* mumps_ = (DMUMPS_STRUC_C*) calloc(1, sizeof(DMUMPS_STRUC_C));
-   mumps_->job = -1; //initialize mumps
-   mumps_->par = 1; //working host for sequential version
-   mumps_->sym = 2; //general symetric matrix
-   mumps_->comm_fortran = USE_COMM_WORLD;
-   dmumps_c(mumps_);
-   mumps_->icntl[1] = 0;
-   mumps_->icntl[2] = 0; //QUIETLY!
-   mumps_->icntl[3] = 0;
-   mumps_ptr_ = (void*) mumps_;
+   mumps_ptr_ = NULL;
 }
 
 MumpsSolverInterface::~MumpsSolverInterface()
@@ -91,21 +98,18 @@ MumpsSolverInterface::~MumpsSolverInterface()
    DBG_START_METH("MumpsSolverInterface::~MumpsSolverInterface()",
                   dbg_verbosity);
 
-   DMUMPS_STRUC_C* mumps_ = (DMUMPS_STRUC_C*) mumps_ptr_;
-   mumps_->job = -2; //terminate mumps
-   dmumps_c(mumps_);
-#ifndef MUMPS_MPI_H
-#ifdef HAVE_MPI_INITIALIZED
-   if( instancecount_mpi == 1 )
+   if( mumps_ptr_ == NULL )
    {
-      int mpi_finalized;
-      MPI_Finalized(&mpi_finalized);
-      assert(!mpi_finalized);
-      MPI_Finalize();
+      return;
    }
-   --instancecount_mpi;
+
+#ifndef IPOPT_MUMPS_NOMUTEX
+   const std::lock_guard<std::mutex> lock(mumps_call_mutex);
 #endif
-#endif
+
+   MUMPS_STRUC_C* mumps_ = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
+   mumps_->job = -2; //terminate mumps
+   mumps_c(mumps_);
    delete[] mumps_->a;
    free(mumps_);
 }
@@ -114,28 +118,31 @@ void MumpsSolverInterface::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions
 )
 {
+   roptions->AddLowerBoundedIntegerOption(
+      "mumps_print_level",
+      "Debug printing level for the linear solver MUMPS",
+      0, 0,
+      "0: no printing; 1: Error messages only; 2: Error, warning, and main statistic messages; 3: Error and warning messages and terse diagnostics; >=4: All information.");
    roptions->AddBoundedNumberOption(
       "mumps_pivtol",
       "Pivot tolerance for the linear solver MUMPS.",
       0.0, false,
       1.0, false,
       1e-6,
-      "A smaller number pivots for sparsity, a larger number pivots for stability. "
-      "This option is only available if Ipopt has been compiled with MUMPS.");
+      "A smaller number pivots for sparsity, a larger number pivots for stability.");
    roptions->AddBoundedNumberOption(
       "mumps_pivtolmax",
       "Maximum pivot tolerance for the linear solver MUMPS.",
       0, false,
       1, false,
       0.1,
-      "Ipopt may increase pivtol as high as pivtolmax to get a more accurate solution to the linear system. "
-      "This option is only available if Ipopt has been compiled with MUMPS.");
+      "Ipopt may increase pivtol as high as pivtolmax to get a more accurate solution to the linear system.");
    roptions->AddLowerBoundedIntegerOption(
       "mumps_mem_percent",
       "Percentage increase in the estimated working space for MUMPS.",
       0,
       1000,
-      "In MUMPS when significant extra fill-in is caused by numerical pivoting, "
+      "When significant extra fill-in is caused by numerical pivoting, "
       "larger values of mumps_mem_percent may help use the workspace more efficiently. "
       "On the other hand, if memory requirement are too large at the very beginning of the optimization, "
       "choosing a much smaller value for this option, such as 5, might reduce memory requirements.");
@@ -159,11 +166,23 @@ void MumpsSolverInterface::RegisterOptions(
       "This is ICNTL(8) in MUMPS.");
    roptions->AddNumberOption(
       "mumps_dep_tol",
-      "Pivot threshold for detection of linearly dependent constraints in MUMPS.",
+      "Threshold to consider a pivot at zero in detection of linearly dependent constraints with MUMPS.",
       0.0,
-      "When MUMPS is used to determine linearly dependent constraints, "
-      "this is determines the threshold for a pivot to be considered zero. "
-      "This is CNTL(3) in MUMPS.");
+      "This is CNTL(3) in MUMPS.", true);
+#ifndef COIN_USE_MUMPS_MPI_H
+   roptions->AddIntegerOption(
+      "mumps_mpi_communicator",
+      "MPI communicator used for matrix operations",
+      USE_COMM_WORLD,
+      "This sets the MPI communicator. MPI_COMM_WORLD is the default. Any other value should be the return value from MPI_Comm_c2f. "
+      "This option is only available if MUMPS's libseq/mpi.h is not used.", true);
+#endif
+}
+
+/// give name of MUMPS with version info
+std::string MumpsSolverInterface::GetName()
+{
+   return "MUMPS " MUMPS_VERSION;
 }
 
 bool MumpsSolverInterface::InitializeImpl(
@@ -171,11 +190,13 @@ bool MumpsSolverInterface::InitializeImpl(
    const std::string& prefix
 )
 {
+   Index print_level;
+   options.GetIntegerValue("mumps_print_level", print_level, prefix);
+
    options.GetNumericValue("mumps_pivtol", pivtol_, prefix);
    if( options.GetNumericValue("mumps_pivtolmax", pivtolmax_, prefix) )
    {
-      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"mumps_pivtolmax\": This value must be between "
-                       "mumps_pivtol and 1.");
+      ASSERT_EXCEPTION(pivtolmax_ >= pivtol_, OPTION_INVALID, "Option \"mumps_pivtolmax\": This value must be between mumps_pivtol and 1.");
    }
    else
    {
@@ -198,7 +219,37 @@ bool MumpsSolverInterface::InitializeImpl(
    refactorize_ = false;
    have_symbolic_factorization_ = false;
 
-   DMUMPS_STRUC_C* mumps_ = (DMUMPS_STRUC_C*) mumps_ptr_;
+   // allocate and initialize MUMPS, if not done before
+   MUMPS_STRUC_C* mumps_;
+   if( mumps_ptr_ == NULL )
+   {
+      mumps_ = static_cast<MUMPS_STRUC_C*>(calloc(1, sizeof(MUMPS_STRUC_C)));
+
+      mumps_->job = -1; //initialize mumps
+      mumps_->par = 1; //working host for sequential version
+      mumps_->sym = 2; //general symmetric matrix
+
+      Index mpi_comm;
+#ifndef COIN_USE_MUMPS_MPI_H
+      options.GetIntegerValue("mumps_mpi_communicator", mpi_comm, prefix);
+#else
+      mpi_comm = USE_COMM_WORLD;
+#endif
+      mumps_->comm_fortran = static_cast<int>(mpi_comm);
+
+#ifndef IPOPT_MUMPS_NOMUTEX
+      const std::lock_guard<std::mutex> lock(mumps_call_mutex);
+#endif
+
+      mumps_c(mumps_);
+
+      mumps_ptr_ = (void*) mumps_;
+   }
+   else
+   {
+      mumps_ = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
+   }
+
    if( !warm_start_same_structure_ )
    {
       mumps_->n = 0;
@@ -210,6 +261,9 @@ bool MumpsSolverInterface::InitializeImpl(
                        "MumpsSolverInterface called with warm_start_same_structure, but the problem is solved for the first time.");
    }
 
+   mumps_->icntl[2] = print_level > 0 ? 6 : 0;  // global info stream
+   mumps_->icntl[3] = print_level;  // print level
+
    return true;
 }
 
@@ -218,7 +272,7 @@ ESymSolverStatus MumpsSolverInterface::MultiSolve(
    const Index* ia,
    const Index* ja,
    Index        nrhs,
-   double*      rhs_vals,
+   Number*      rhs_vals,
    bool         check_NegEVals,
    Index        numberOfNegEVals
 )
@@ -226,9 +280,9 @@ ESymSolverStatus MumpsSolverInterface::MultiSolve(
    DBG_START_METH("MumpsSolverInterface::MultiSolve", dbg_verbosity);
    DBG_ASSERT(!check_NegEVals || ProvidesInertia());
    DBG_ASSERT(initialized_);
-   DBG_ASSERT(((DMUMPS_STRUC_C*)mumps_ptr_)->irn == ia);
+   DBG_ASSERT(static_cast<MUMPS_STRUC_C*>(mumps_ptr_)->irn == ia);
    (void) ia;
-   DBG_ASSERT(((DMUMPS_STRUC_C*)mumps_ptr_)->jcn == ja);
+   DBG_ASSERT(static_cast<MUMPS_STRUC_C*>(mumps_ptr_)->jcn == ja);
    (void) ja;
 
    if( pivtol_changed_ )
@@ -274,9 +328,9 @@ ESymSolverStatus MumpsSolverInterface::MultiSolve(
    return Solve(nrhs, rhs_vals);
 }
 
-double* MumpsSolverInterface::GetValuesArrayPtr()
+Number* MumpsSolverInterface::GetValuesArrayPtr()
 {
-   DMUMPS_STRUC_C* mumps_ = (DMUMPS_STRUC_C*) mumps_ptr_;
+   MUMPS_STRUC_C* mumps_ = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
    DBG_START_METH("MumpsSolverInterface::GetValuesArrayPtr", dbg_verbosity)
    DBG_ASSERT(initialized_);
    return mumps_->a;
@@ -284,14 +338,14 @@ double* MumpsSolverInterface::GetValuesArrayPtr()
 
 static
 void dump_matrix(
-   DMUMPS_STRUC_C* mumps_data
+   MUMPS_STRUC_C* mumps_data
 )
 {
-#ifdef write_matrices
+#ifdef MUMPS_DUMP_MATRIX
    // Dump the matrix
    for (int i = 0; i < 40; i++)
    {
-      printf("%d\n", mumps_data->icntl[i]);
+      printf("%" IPOPT_INDEX_FORMAT "\n", mumps_data->icntl[i]);
    }
    for (int i = 0; i < 5; i++)
    {
@@ -299,13 +353,13 @@ void dump_matrix(
    }
    printf("%-15d :N\n", mumps_data->n);
    printf("%-15d :NZ", mumps_data->nz);
-   for (int i = 0; i < mumps_data->nz; i++)
+   for (Index i = 0; i < mumps_data->nz; i++)
    {
-      printf("\n%d %d %25.15e", mumps_data->irn[i], mumps_data->jcn[i], mumps_data->a[i]);
+      printf("\n%" IPOPT_INDEX_FORMAT " %" IPOPT_INDEX_FORMAT " %25.15e", mumps_data->irn[i], mumps_data->jcn[i], mumps_data->a[i]);
    }
    printf("       :values");
    // Dummy RHS for now
-   for (int i = 0; i < mumps_data->n; i++)
+   for (Index i = 0; i < mumps_data->n; i++)
    {
       printf("\n%25.15e", 0.);
    }
@@ -322,7 +376,7 @@ ESymSolverStatus MumpsSolverInterface::InitializeStructure(
    const Index* ja
 )
 {
-   DMUMPS_STRUC_C* mumps_ = (DMUMPS_STRUC_C*) mumps_ptr_;
+   MUMPS_STRUC_C* mumps_ = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
    DBG_START_METH("MumpsSolverInterface::InitializeStructure", dbg_verbosity);
 
    ESymSolverStatus retval = SYMSOLVER_SUCCESS;
@@ -333,9 +387,9 @@ ESymSolverStatus MumpsSolverInterface::InitializeStructure(
       delete[] mumps_->a;
       mumps_->a = NULL;
 
-      mumps_->a = new double[nonzeros];
-      mumps_->irn = const_cast<int*>(ia);
-      mumps_->jcn = const_cast<int*>(ja);
+      mumps_->a = new Number[nonzeros];
+      mumps_->irn = const_cast<Index*>(ia);
+      mumps_->jcn = const_cast<Index*>(ja);
 
       // make sure we do the symbolic factorization before a real
       // factorization
@@ -355,7 +409,11 @@ ESymSolverStatus MumpsSolverInterface::SymbolicFactorization()
 {
    DBG_START_METH("MumpsSolverInterface::SymbolicFactorization",
                   dbg_verbosity);
-   DMUMPS_STRUC_C* mumps_data = (DMUMPS_STRUC_C*) mumps_ptr_;
+   MUMPS_STRUC_C* mumps_data = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
+
+#ifndef IPOPT_MUMPS_NOMUTEX
+   const std::lock_guard<std::mutex> lock(mumps_call_mutex);
+#endif
 
    if( HaveIpData() )
    {
@@ -363,10 +421,6 @@ ESymSolverStatus MumpsSolverInterface::SymbolicFactorization()
    }
 
    mumps_data->job = 1;      //symbolic ordering pass
-
-   //mumps_data->icntl[1] = 6;
-   //mumps_data->icntl[2] = 6;//QUIETLY!
-   //mumps_data->icntl[3] = 4;
 
    mumps_data->icntl[5] = mumps_permuting_scaling_;
    mumps_data->icntl[6] = mumps_pivot_order_;
@@ -380,34 +434,34 @@ ESymSolverStatus MumpsSolverInterface::SymbolicFactorization()
    dump_matrix(mumps_data);
 
    Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                  "Calling MUMPS-1 for symbolic factorization at cpu time %10.3f (wall %10.3f).\n", CpuTime(), WallclockTime());
-   dmumps_c(mumps_data);
+                  "Calling MUMPS-1 for symbolic factorization.\n");
+   mumps_c(mumps_data);
    Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                  "Done with MUMPS-1 for symbolic factorization at cpu time %10.3f (wall %10.3f).\n", CpuTime(), WallclockTime());
-   int error = mumps_data->info[0];
-   const int& mumps_permuting_scaling_used = mumps_data->infog[22];
-   const int& mumps_pivot_order_used = mumps_data->infog[6];
+                  "Done with MUMPS-1 for symbolic factorization.\n");
+   Index error = mumps_data->info[0];
+   const Index& mumps_permuting_scaling_used = mumps_data->infog[22];
+   const Index& mumps_pivot_order_used = mumps_data->infog[6];
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                  "MUMPS used permuting_scaling %d and pivot_order %d.\n", mumps_permuting_scaling_used, mumps_pivot_order_used);
+                  "MUMPS used permuting_scaling %" IPOPT_INDEX_FORMAT " and pivot_order %" IPOPT_INDEX_FORMAT ".\n", mumps_permuting_scaling_used, mumps_pivot_order_used);
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                  "           scaling will be %d.\n", mumps_data->icntl[7]);
+                  "           scaling will be %" IPOPT_INDEX_FORMAT ".\n", mumps_data->icntl[7]);
 
    if( HaveIpData() )
    {
       IpData().TimingStats().LinearSystemSymbolicFactorization().End();
    }
 
-   //return appropriat value
+   //return appropriate value
    if( error == -6 )  //system is singular
    {
       Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                     "MUMPS returned INFO(1) = %d matrix is singular.\n", error);
+                     "MUMPS returned INFO(1) = %" IPOPT_INDEX_FORMAT " matrix is singular.\n", error);
       return SYMSOLVER_SINGULAR;
    }
    if( error < 0 )
    {
       Jnlst().Printf(J_ERROR, J_LINEAR_ALGEBRA,
-                     "Error=%d returned from MUMPS in Factorization.\n", error);
+                     "Error=%" IPOPT_INDEX_FORMAT " returned from MUMPS in Factorization.\n", error);
       return SYMSOLVER_FATAL_ERROR;
    }
 
@@ -420,17 +474,21 @@ ESymSolverStatus MumpsSolverInterface::Factorization(
 )
 {
    DBG_START_METH("MumpsSolverInterface::Factorization", dbg_verbosity);
-   DMUMPS_STRUC_C* mumps_data = (DMUMPS_STRUC_C*) mumps_ptr_;
+   MUMPS_STRUC_C* mumps_data = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
+
+#ifndef IPOPT_MUMPS_NOMUTEX
+   const std::lock_guard<std::mutex> lock(mumps_call_mutex);
+#endif
 
    mumps_data->job = 2;  //numerical factorization
 
    dump_matrix(mumps_data);
    Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                  "Calling MUMPS-2 for numerical factorization at cpu time %10.3f (wall %10.3f).\n", CpuTime(), WallclockTime());
-   dmumps_c(mumps_data);
+                  "Calling MUMPS-2 for numerical factorization.\n");
+   mumps_c(mumps_data);
    Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                  "Done with MUMPS-2 for numerical factorization at cpu time %10.3f (wall %10.3f).\n", CpuTime(), WallclockTime());
-   int error = mumps_data->info[0];
+                  "Done with MUMPS-2 for numerical factorization.\n");
+   Index error = mumps_data->info[0];
 
    //Check for errors
    if( error == -8 || error == -9 )  //not enough memory
@@ -439,22 +497,18 @@ ESymSolverStatus MumpsSolverInterface::Factorization(
       for( int trycount = 0; trycount < trycount_max; trycount++ )
       {
          Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                        "MUMPS returned INFO(1) = %d and requires more memory, reallocating.  Attempt %d\n", error, trycount + 1);
+                        "MUMPS returned INFO(1) = %" IPOPT_INDEX_FORMAT " and requires more memory, reallocating.  Attempt %d\n", error, trycount + 1);
+         MUMPS_INT old_mem_percent = mumps_data->icntl[13];
+         ComputeMemIncrease(mumps_data->icntl[13], 2.0 * (Number)old_mem_percent, MUMPS_INT(0), "percent extra working space for MUMPS");
          Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                        "  Increasing icntl[13] from %d to ", mumps_data->icntl[13]);
-         double mem_percent = mumps_data->icntl[13];
-         mumps_data->icntl[13] = (Index) (2.0 * mem_percent);
-         Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                        "%d.\n", mumps_data->icntl[13]);
+                        "  Increasing icntl[13] from %" IPOPT_INDEX_FORMAT " to %" IPOPT_INDEX_FORMAT ".\n", old_mem_percent, mumps_data->icntl[13]);
 
          dump_matrix(mumps_data);
          Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                        "Calling MUMPS-2 (repeated) for numerical factorization at cpu time %10.3f (wall %10.3f).\n", CpuTime(),
-                        WallclockTime());
-         dmumps_c(mumps_data);
+                        "Calling MUMPS-2 (repeated) for numerical factorization.\n");
+         mumps_c(mumps_data);
          Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                        "Done with MUMPS-2 (repeated) for numerical factorization at cpu time %10.3f (wall %10.3f).\n", CpuTime(),
-                        WallclockTime());
+                        "Done with MUMPS-2 (repeated) for numerical factorization.\n");
          error = mumps_data->info[0];
          if( error != -8 && error != -9 )
          {
@@ -470,14 +524,14 @@ ESymSolverStatus MumpsSolverInterface::Factorization(
    }
 
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                  "Number of doubles for MUMPS to hold factorization (INFO(9)) = %d\n", mumps_data->info[8]);
+                  "Number of doubles for MUMPS to hold factorization (INFO(9)) = %" IPOPT_INDEX_FORMAT "\n", mumps_data->info[8]);
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                  "Number of integers for MUMPS to hold factorization (INFO(10)) = %d\n", mumps_data->info[9]);
+                  "Number of integers for MUMPS to hold factorization (INFO(10)) = %" IPOPT_INDEX_FORMAT "\n", mumps_data->info[9]);
 
    if( error == -10 )  //system is singular
    {
       Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                     "MUMPS returned INFO(1) = %d matrix is singular.\n", error);
+                     "MUMPS returned INFO(1) = %" IPOPT_INDEX_FORMAT " matrix is singular.\n", error);
       return SYMSOLVER_SINGULAR;
    }
 
@@ -486,7 +540,7 @@ ESymSolverStatus MumpsSolverInterface::Factorization(
    if( error == -13 )
    {
       Jnlst().Printf(J_ERROR, J_LINEAR_ALGEBRA,
-                     "MUMPS returned INFO(1) =%d - out of memory when trying to allocate %d %s.\nIn some cases it helps to decrease the value of the option \"mumps_mem_percent\".\n",
+                     "MUMPS returned INFO(1) =%" IPOPT_INDEX_FORMAT " - out of memory when trying to allocate %" IPOPT_INDEX_FORMAT " %s.\nIn some cases it helps to decrease the value of the option \"mumps_mem_percent\".\n",
                      error, mumps_data->info[1] < 0 ? -mumps_data->info[1] : mumps_data->info[1],
                      mumps_data->info[1] < 0 ? "MB" : "bytes");
       return SYMSOLVER_FATAL_ERROR;
@@ -494,14 +548,14 @@ ESymSolverStatus MumpsSolverInterface::Factorization(
    if( error < 0 )  //some other error
    {
       Jnlst().Printf(J_ERROR, J_LINEAR_ALGEBRA,
-                     "MUMPS returned INFO(1) =%d MUMPS failure.\n", error);
+                     "MUMPS returned INFO(1) =%" IPOPT_INDEX_FORMAT " MUMPS failure.\n", error);
       return SYMSOLVER_FATAL_ERROR;
    }
 
    if( check_NegEVals && (numberOfNegEVals != negevals_) )
    {
       Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                     "In MumpsSolverInterface::Factorization: negevals_ = %d, but numberOfNegEVals = %d\n", negevals_,
+                     "In MumpsSolverInterface::Factorization: negevals_ = %" IPOPT_INDEX_FORMAT ", but numberOfNegEVals = %" IPOPT_INDEX_FORMAT "\n", negevals_,
                      numberOfNegEVals);
       return SYMSOLVER_WRONG_INERTIA;
    }
@@ -511,11 +565,16 @@ ESymSolverStatus MumpsSolverInterface::Factorization(
 
 ESymSolverStatus MumpsSolverInterface::Solve(
    Index   nrhs,
-   double* rhs_vals
+   Number* rhs_vals
 )
 {
    DBG_START_METH("MumpsSolverInterface::Solve", dbg_verbosity);
-   DMUMPS_STRUC_C* mumps_data = (DMUMPS_STRUC_C*) mumps_ptr_;
+   MUMPS_STRUC_C* mumps_data = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
+
+#ifndef IPOPT_MUMPS_NOMUTEX
+   const std::lock_guard<std::mutex> lock(mumps_call_mutex);
+#endif
+
    ESymSolverStatus retval = SYMSOLVER_SUCCESS;
    if( HaveIpData() )
    {
@@ -527,15 +586,15 @@ ESymSolverStatus MumpsSolverInterface::Solve(
       mumps_data->rhs = &(rhs_vals[offset]);
       mumps_data->job = 3;  //solve
       Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                     "Calling MUMPS-3 for solve at cpu time %10.3f (wall %10.3f).\n", CpuTime(), WallclockTime());
-      dmumps_c(mumps_data);
+                     "Calling MUMPS-3 for solve.\n");
+      mumps_c(mumps_data);
       Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
-                     "Done with MUMPS-3 for solve at cpu time %10.3f (wall %10.3f).\n", CpuTime(), WallclockTime());
-      int error = mumps_data->info[0];
+                     "Done with MUMPS-3 for solve.\n");
+      Index error = mumps_data->info[0];
       if( error < 0 )
       {
          Jnlst().Printf(J_ERROR, J_LINEAR_ALGEBRA,
-                        "Error=%d returned from MUMPS in Solve.\n", error);
+                        "Error=%" IPOPT_INDEX_FORMAT " returned from MUMPS in Solve.\n", error);
          retval = SYMSOLVER_FATAL_ERROR;
       }
    }
@@ -565,9 +624,9 @@ bool MumpsSolverInterface::IncreaseQuality()
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                   "Increasing pivot tolerance for MUMPS from %7.2e ", pivtol_);
 
-   //this is a more aggresive update then MA27
-   //this should be tuned
-   pivtol_ = Min(pivtolmax_, pow(pivtol_, 0.5));
+   //this is a more aggressive update then MA27
+   //ToDo this should be tuned
+   pivtol_ = Min(pivtolmax_, std::pow(pivtol_, Number(0.5)));
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                   "to %7.2e.\n", pivtol_);
    return true;
@@ -586,7 +645,7 @@ ESymSolverStatus MumpsSolverInterface::DetermineDependentRows(
 {
    DBG_START_METH("MumpsSolverInterface::DetermineDependentRows",
                   dbg_verbosity);
-   DMUMPS_STRUC_C* mumps_data = (DMUMPS_STRUC_C*) mumps_ptr_;
+   MUMPS_STRUC_C* mumps_data = static_cast<MUMPS_STRUC_C*>(mumps_ptr_);
 
    c_deps.clear();
 
@@ -609,14 +668,18 @@ ESymSolverStatus MumpsSolverInterface::DetermineDependentRows(
    }
    // perform the factorization, in order to find dependent rows/columns
 
+#ifndef IPOPT_MUMPS_NOMUTEX
+   const std::lock_guard<std::mutex> lock(mumps_call_mutex);
+#endif
+
    //Set flags to ask MUMPS for checking linearly dependent rows
    mumps_data->icntl[23] = 1;
    mumps_data->cntl[2] = mumps_dep_tol_;
    mumps_data->job = 2;   //numerical factorization
 
    dump_matrix(mumps_data);
-   dmumps_c(mumps_data);
-   int error = mumps_data->info[0];
+   mumps_c(mumps_data);
+   Index error = mumps_data->info[0];
 
    //Check for errors
    if( error == -8 || error == -9 )  //not enough memory
@@ -625,16 +688,14 @@ ESymSolverStatus MumpsSolverInterface::DetermineDependentRows(
       for( int trycount = 0; trycount < trycount_max; trycount++ )
       {
          Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                        "MUMPS returned INFO(1) = %d and requires more memory, reallocating.  Attempt %d\n", error, trycount + 1);
+                        "MUMPS returned INFO(1) = %" IPOPT_INDEX_FORMAT " and requires more memory, reallocating.  Attempt %d\n", error, trycount + 1);
+         MUMPS_INT old_mem_percent = mumps_data->icntl[13];
+         ComputeMemIncrease(mumps_data->icntl[13], 2.0 * (Number)old_mem_percent, MUMPS_INT(0), "percent extra working space for MUMPS");
          Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                        "  Increasing icntl[13] from %d to ", mumps_data->icntl[13]);
-         double mem_percent = mumps_data->icntl[13];
-         mumps_data->icntl[13] = (Index) (2.0 * mem_percent);
-         Jnlst().Printf(J_WARNING, J_LINEAR_ALGEBRA,
-                        "%d.\n", mumps_data->icntl[13]);
+                        "  Increasing icntl[13] from %" IPOPT_INDEX_FORMAT " to %" IPOPT_INDEX_FORMAT ".\n", old_mem_percent, mumps_data->icntl[13]);
 
          dump_matrix(mumps_data);
-         dmumps_c(mumps_data);
+         mumps_c(mumps_data);
          error = mumps_data->info[0];
          if( error != -8 && error != -9 )
          {
@@ -657,7 +718,7 @@ ESymSolverStatus MumpsSolverInterface::DetermineDependentRows(
    if( error < 0 )  //some other error
    {
       Jnlst().Printf(J_ERROR, J_LINEAR_ALGEBRA,
-                     "MUMPS returned INFO(1) =%d MUMPS failure.\n", error);
+                     "MUMPS returned INFO(1) =%" IPOPT_INDEX_FORMAT " MUMPS failure.\n", error);
       return SYMSOLVER_FATAL_ERROR;
    }
 
@@ -671,4 +732,3 @@ ESymSolverStatus MumpsSolverInterface::DetermineDependentRows(
 }
 
 }  //end Ipopt namespace
-

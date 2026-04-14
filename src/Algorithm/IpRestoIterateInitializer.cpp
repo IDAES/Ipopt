@@ -10,7 +10,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -50,7 +50,6 @@ bool RestoIterateInitializer::SetInitialIterates()
    // Get a grip on the restoration phase NLP and obtain the pointers
    // to the original NLP data
    SmartPtr<RestoIpoptNLP> resto_ip_nlp = static_cast<RestoIpoptNLP*>(&IpNLP());
-   SmartPtr<IpoptNLP> orig_ip_nlp = static_cast<IpoptNLP*>(&resto_ip_nlp->OrigIpNLP());
    SmartPtr<IpoptData> orig_ip_data = static_cast<IpoptData*>(&resto_ip_nlp->OrigIpData());
    SmartPtr<IpoptCalculatedQuantities> orig_ip_cq = static_cast<IpoptCalculatedQuantities*>(&resto_ip_nlp->OrigIpCq());
 

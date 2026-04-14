@@ -9,14 +9,19 @@
 #include "IpJournalist.hpp"
 #include "IpRestoPhase.hpp"
 #include "IpOrigIpoptNLP.hpp"
+#include "IpBacktrackingLineSearch.hpp"
 
-#ifdef COIN_HAS_HSL
+#ifdef IPOPT_HAS_HSL
 #include "CoinHslConfig.h"
+#endif
+
+#if IPOPT_CHECKLEVEL > 1 && defined(IPOPT_HAS_FEENABLEEXCEPT)
+#include <cfenv>
 #endif
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -28,7 +33,8 @@ IpoptAlgorithm::IpoptAlgorithm(
    const SmartPtr<IterateInitializer>&        iterate_initializer,
    const SmartPtr<IterationOutput>&           iter_output,
    const SmartPtr<HessianUpdater>&            hessian_updater,
-   const SmartPtr<EqMultiplierCalculator>&    eq_multiplier_calculator /* = NULL*/
+   const SmartPtr<EqMultiplierCalculator>&    eq_multiplier_calculator, /* = NULL*/
+   const std::string&                         linear_solver_name /* = "" */
 )
    : search_dir_calculator_(search_dir_calculator),
      line_search_(line_search),
@@ -37,7 +43,8 @@ IpoptAlgorithm::IpoptAlgorithm(
      iterate_initializer_(iterate_initializer),
      iter_output_(iter_output),
      hessian_updater_(hessian_updater),
-     eq_multiplier_calculator_(eq_multiplier_calculator)
+     eq_multiplier_calculator_(eq_multiplier_calculator),
+     linear_solver_name_(linear_solver_name)
 {
    DBG_START_METH("IpoptAlgorithm::IpoptAlgorithm",
                   dbg_verbosity);
@@ -67,8 +74,9 @@ void IpoptAlgorithm::RegisterOptions(
       0., true,
       1e10,
       "If the dual variables deviate from their primal estimates, a correction is performed. "
-      "(See Eqn. (16) in the implementation paper.) "
-      "Setting the value to less than 1 disables the correction.");
+      "See Eqn. (16) in the implementation paper. "
+      "Setting the value to less than 1 disables the correction.",
+      true);
    roptions->AddStringOption2(
       "recalc_y",
       "Tells the algorithm to recalculate the equality and inequality multipliers as least square estimates.",
@@ -86,21 +94,26 @@ void IpoptAlgorithm::RegisterOptions(
       1e-6,
       "If recalc_y is chosen and the current infeasibility is less than this value, then the multipliers are recomputed.");
    roptions->SetRegisteringCategory("Step Calculation");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "mehrotra_algorithm",
-      "Indicates if we want to do Mehrotra's algorithm.",
-      "no",
-      "no", "Do the usual Ipopt algorithm.",
-      "yes", "Do Mehrotra's predictor-corrector algorithm.",
-      "If set to yes, Ipopt runs as Mehrotra's predictor-corrector algorithm. "
-      "This works usually very well for LPs and convex QPs. "
-      "This automatically disables the line search, and chooses the (unglobalized) adaptive mu strategy "
-      "with the \"probing\" oracle, and uses \"corrector_type=affine\" without any safeguards; "
+      "Indicates whether to do Mehrotra's predictor-corrector algorithm.",
+      false,
+      "If enabled, line search is disabled and the (unglobalized) adaptive mu strategy is chosen "
+      "with the \"probing\" oracle, and \"corrector_type=affine\" is used without any safeguards; "
       "you should not set any of those options explicitly in addition. "
       "Also, unless otherwise specified, the values of \"bound_push\", \"bound_frac\", and "
-      "\"bound_mult_init_val\" are set more aggressive, and sets \"alpha_for_y=bound_mult\".");
-   roptions->SetRegisteringCategory("");
-   roptions->AddStringOption2("sb", "", "no", "no", "", "yes", "");
+      "\"bound_mult_init_val\" are set more aggressive, and sets \"alpha_for_y=bound_mult\". "
+      "The Mehrotra's predictor-corrector algorithm works usually very well for LPs and convex QPs.");
+   roptions->SetRegisteringCategory("Undocumented");
+   roptions->AddBoolOption("sb",
+                           "whether to skip printing Ipopt copyright banner",
+                           false);
+   roptions->SetRegisteringCategory("Miscellaneous");
+   roptions->AddBoolOption(
+      "timing_statistics",
+      "Indicates whether to measure time spend in components of Ipopt and NLP evaluation",
+      false,
+      "The overall algorithm time is unaffected by this option.");
 }
 
 static bool copyright_message_printed = false;
@@ -112,6 +125,14 @@ bool IpoptAlgorithm::InitializeImpl(
 {
    DBG_START_METH("IpoptAlgorithm::InitializeImpl",
                   dbg_verbosity);
+
+   // disable detailed timing, if not required
+   bool timing_statistics;
+   options.GetBoolValue("timing_statistics", timing_statistics, "");
+   if( !timing_statistics )
+   {
+      IpData().TimingStats().DisableTimes();
+   }
 
    SmartPtr<const OptionsList> my_options;
    options.GetBoolValue("mehrotra_algorithm", mehrotra_algorithm_, prefix);
@@ -173,9 +194,6 @@ bool IpoptAlgorithm::InitializeImpl(
       copyright_message_printed = true;
    }
 
-   // Store which linear solver is chosen for later output
-   options.GetStringValue("linear_solver", linear_solver_, prefix);
-
    // Read the IpoptAlgorithm options
    // Initialize the Data object
    bool retvalue = IpData().Initialize(Jnlst(), *my_options, prefix);
@@ -228,6 +246,8 @@ bool IpoptAlgorithm::InitializeImpl(
       my_options->GetNumericValue("recalc_y_feas_tol", recalc_y_feas_tol_, prefix);
    }
 
+   my_options->GetNumericValue("constr_viol_tol", constr_viol_tol_, prefix);
+
    if( prefix == "resto." )
    {
       skip_print_problem_stats_ = true;
@@ -240,6 +260,35 @@ bool IpoptAlgorithm::InitializeImpl(
    return true;
 }
 
+// class to execute some tasks when object is destructed
+// ends a TimedTask, disables floating-point exceptions
+class EndTasks
+{
+private:
+   TimedTask& task_;
+   int excepts_;
+public:
+   EndTasks(
+      TimedTask& task,
+      int        excepts
+   )
+      : task_(task),
+        excepts_(excepts)
+   {
+      DBG_ASSERT(task_.IsStarted());
+   }
+
+   ~EndTasks()
+   {
+      task_.End();
+#if IPOPT_CHECKLEVEL > 1 && defined(IPOPT_HAS_FEENABLEEXCEPT)
+      fedisableexcept(excepts_);
+#else
+      (void)excepts_;
+#endif
+   }
+};
+
 SolverReturn IpoptAlgorithm::Optimize(
    bool isResto /*= false */
 )
@@ -249,8 +298,19 @@ SolverReturn IpoptAlgorithm::Optimize(
    // Start measuring CPU time
    IpData().TimingStats().OverallAlgorithm().Start();
 
-   // Reset Cpu start time (so doesn't carry over from previous Optimize)
-   IpData().ResetCpuStartTime();
+   int disable_excepts = 0;
+#if IPOPT_CHECKLEVEL > 1 && defined(IPOPT_HAS_FEENABLEEXCEPT)
+   int orig_excepts = feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+   if( orig_excepts >= 0 )
+   {
+      // disable exceptions FE_DIVBYZERO, FE_INVALID, FE_OVERFLOW later, if not part of originally set exceptions
+      disable_excepts = ~orig_excepts & (FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+   }
+#endif
+
+   // ensure timed task is ended when Optimize() is left
+   // ensure additional floating point exceptions are no longer raised when Optimize() is left
+   EndTasks endtasks(IpData().TimingStats().OverallAlgorithm(), disable_excepts);
 
    if( !copyright_message_printed )
    {
@@ -260,17 +320,7 @@ SolverReturn IpoptAlgorithm::Optimize(
    if( !isResto )
    {
       Jnlst().Printf(J_ITERSUMMARY, J_MAIN,
-                     "This is Ipopt version " IPOPT_VERSION ", running with linear solver %s.\n", linear_solver_.c_str());
-
-#ifndef IPOPT_NOMUMPSNOTE
-      if( linear_solver_ == "mumps" )
-      {
-         Jnlst().Printf(J_ITERSUMMARY, J_MAIN,
-                        "NOTE: Other linear solvers might be more efficient (see Ipopt documentation).\n");
-      }
-#endif
-      Jnlst().Printf(J_ITERSUMMARY, J_MAIN,
-                     "\n");
+                     "This is Ipopt version " IPOPT_VERSION ", running with linear solver %s.\n\n", linear_solver_name_.c_str());
    }
 
    SolverReturn retval = UNASSIGNED;
@@ -326,13 +376,12 @@ SolverReturn IpoptAlgorithm::Optimize(
             IpData().TimingStats().ComputeSearchDirection().End();
          }
 
-         // If we are in the emergency mode, ask to line search object
+         // If we are in the emergency mode, ask the line search object
          // to go to the fallback options.  If that isn't possible,
          // issue error message
          if( emergency_mode )
          {
-            bool retval = line_search_->ActivateFallbackMechanism();
-            if( retval )
+            if( line_search_->ActivateFallbackMechanism() )
             {
                Jnlst().Printf(J_WARNING, J_MAIN,
                               "WARNING: Problem in step computation; switching to emergency mode.\n");
@@ -357,6 +406,11 @@ SolverReturn IpoptAlgorithm::Optimize(
 
          IpData().Set_iter_count(IpData().iter_count() + 1);
 
+         if( IpCq().IsSquareProblem() )
+         {
+            ComputeFeasibilityMultipliers();
+         }
+
          IpData().TimingStats().CheckConvergence().Start();
          conv_status = conv_check_->CheckConvergence();
          IpData().TimingStats().CheckConvergence().End();
@@ -366,15 +420,7 @@ SolverReturn IpoptAlgorithm::Optimize(
       OutputIteration();
       IpData().TimingStats().OutputIteration().End();
 
-      if( conv_status == ConvergenceCheck::CONVERGED || conv_status == ConvergenceCheck::CONVERGED_TO_ACCEPTABLE_POINT )
-      {
-         if( IpCq().IsSquareProblem() )
-         {
-            // make the sure multipliers are computed properly
-            ComputeFeasibilityMultipliers();
-         }
-      }
-
+      bool stop_watchdog = false;
       switch( conv_status )
       {
          case ConvergenceCheck::CONVERGED:
@@ -385,9 +431,15 @@ SolverReturn IpoptAlgorithm::Optimize(
             break;
          case ConvergenceCheck::MAXITER_EXCEEDED:
             retval = MAXITER_EXCEEDED;
+            stop_watchdog = true;
             break;
          case ConvergenceCheck::CPUTIME_EXCEEDED:
             retval = CPUTIME_EXCEEDED;
+            stop_watchdog = true;
+            break;
+         case ConvergenceCheck::WALLTIME_EXCEEDED:
+            retval = WALLTIME_EXCEEDED;
+            stop_watchdog = true;
             break;
          case ConvergenceCheck::DIVERGING:
             retval = DIVERGING_ITERATES;
@@ -398,6 +450,12 @@ SolverReturn IpoptAlgorithm::Optimize(
          default:
             retval = INTERNAL_ERROR;
             break;
+      }
+
+      // stop watchdog if interrupted due to limit to restore iterate from before watchdog (#289)
+      if( stop_watchdog && dynamic_cast<BacktrackingLineSearch*>(GetRawPtr(line_search_)) != NULL )
+      {
+         static_cast<BacktrackingLineSearch*>(GetRawPtr(line_search_))->StopWatchDog();
       }
    }
    catch( TINY_STEP_DETECTED& exc )
@@ -410,11 +468,6 @@ SolverReturn IpoptAlgorithm::Optimize(
    {
       exc.ReportException(Jnlst(), J_MOREDETAILED);
       IpData().TimingStats().ComputeAcceptableTrialPoint().EndIfStarted();
-      if( IpCq().IsSquareProblem() )
-      {
-         // make the sure multipliers are computed properly
-         ComputeFeasibilityMultipliers();
-      }
       retval = STOP_AT_ACCEPTABLE_POINT;
    }
    catch( LOCALLY_INFEASIBLE& exc )
@@ -428,7 +481,16 @@ SolverReturn IpoptAlgorithm::Optimize(
    {
       exc.ReportException(Jnlst(), J_MOREDETAILED);
       IpData().TimingStats().ComputeAcceptableTrialPoint().EndIfStarted();
-      retval = RESTORATION_FAILURE;
+      if( IpCq().IsSquareProblem() )
+      {
+         // make sure the multipliers are computed properly
+         ComputeFeasibilityMultipliersPostprocess();
+         retval = FEASIBLE_POINT_FOUND;
+      }
+      else
+      {
+         retval = RESTORATION_FAILURE;
+      }
    }
    catch( RESTORATION_FAILED& exc )
    {
@@ -448,6 +510,12 @@ SolverReturn IpoptAlgorithm::Optimize(
       IpData().TimingStats().ComputeAcceptableTrialPoint().EndIfStarted();
       retval = CPUTIME_EXCEEDED;
    }
+   catch( RESTORATION_WALLTIME_EXCEEDED& exc )
+   {
+      exc.ReportException(Jnlst(), J_MOREDETAILED);
+      IpData().TimingStats().ComputeAcceptableTrialPoint().EndIfStarted();
+      retval = WALLTIME_EXCEEDED;
+   }
    catch( RESTORATION_USER_STOP& exc )
    {
       exc.ReportException(Jnlst(), J_MOREDETAILED);
@@ -463,6 +531,7 @@ SolverReturn IpoptAlgorithm::Optimize(
    catch( IpoptNLP::Eval_Error& exc )
    {
       exc.ReportException(Jnlst(), J_MOREDETAILED);
+      IpData().TimingStats().InitializeIterates().EndIfStarted();
       IpData().TimingStats().ComputeAcceptableTrialPoint().EndIfStarted();
       retval = INVALID_NUMBER_DETECTED;
    }
@@ -473,7 +542,7 @@ SolverReturn IpoptAlgorithm::Optimize(
       if( IpCq().IsSquareProblem() )
       {
          // make the sure multipliers are computed properly
-         ComputeFeasibilityMultipliers();
+         ComputeFeasibilityMultipliersPostprocess();
       }
       retval = FEASIBLE_POINT_FOUND;
    }
@@ -490,7 +559,6 @@ SolverReturn IpoptAlgorithm::Optimize(
    }
 
    DBG_ASSERT(retval != UNASSIGNED && "Unknown return code in the algorithm");
-   IpData().TimingStats().OverallAlgorithm().End();
    return retval;
 }
 
@@ -499,7 +567,7 @@ void IpoptAlgorithm::UpdateHessian()
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n");
    Jnlst().Printf(J_DETAILED, J_MAIN,
-                  "*** Update HessianMatrix for Iteration %d:", IpData().iter_count());
+                  "*** Update HessianMatrix for Iteration %" IPOPT_INDEX_FORMAT ":", IpData().iter_count());
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n\n");
    hessian_updater_->UpdateHessian();
@@ -510,7 +578,7 @@ bool IpoptAlgorithm::UpdateBarrierParameter()
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n");
    Jnlst().Printf(J_DETAILED, J_MAIN,
-                  "*** Update Barrier Parameter for Iteration %d:", IpData().iter_count());
+                  "*** Update Barrier Parameter for Iteration %" IPOPT_INDEX_FORMAT ":", IpData().iter_count());
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n\n");
    bool retval = mu_update_->UpdateBarrierParameter();
@@ -536,7 +604,7 @@ bool IpoptAlgorithm::ComputeSearchDirection()
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n");
    Jnlst().Printf(J_DETAILED, J_MAIN,
-                  "*** Solving the Primal Dual System for Iteration %d:", IpData().iter_count());
+                  "*** Solving the Primal Dual System for Iteration %" IPOPT_INDEX_FORMAT ":", IpData().iter_count());
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n\n");
 
@@ -545,13 +613,13 @@ bool IpoptAlgorithm::ComputeSearchDirection()
    if( retval )
    {
       Jnlst().Printf(J_MOREVECTOR, J_MAIN,
-                     "*** Step Calculated for Iteration: %d\n", IpData().iter_count());
+                     "*** Step Calculated for Iteration: %" IPOPT_INDEX_FORMAT "\n", IpData().iter_count());
       IpData().delta()->Print(Jnlst(), J_MOREVECTOR, J_MAIN, "delta");
    }
    else
    {
       Jnlst().Printf(J_DETAILED, J_MAIN,
-                     "*** Step could not be computed in iteration %d!\n", IpData().iter_count());
+                     "*** Step could not be computed in iteration %" IPOPT_INDEX_FORMAT "!\n", IpData().iter_count());
    }
 
    return retval;
@@ -562,7 +630,7 @@ void IpoptAlgorithm::ComputeAcceptableTrialPoint()
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n");
    Jnlst().Printf(J_DETAILED, J_MAIN,
-                  "*** Finding Acceptable Trial Point for Iteration %d:", IpData().iter_count());
+                  "*** Finding Acceptable Trial Point for Iteration %" IPOPT_INDEX_FORMAT ":", IpData().iter_count());
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n\n");
    line_search_->FindAcceptableTrialPoint();
@@ -595,19 +663,19 @@ void IpoptAlgorithm::AcceptTrialPoint()
 
    // Adjust the bounds if necessary
    Index adjusted_slacks = IpCq().AdjustedTrialSlacks();
-   DBG_PRINT((1, "adjusted_slacks = %d\n", adjusted_slacks));
+   DBG_PRINT((1, "adjusted_slacks = %" IPOPT_INDEX_FORMAT "\n", adjusted_slacks));
    if( adjusted_slacks > 0 )
    {
       IpCq().ResetAdjustedTrialSlacks();
       if( adjusted_slacks == 1 )
       {
          Jnlst().Printf(J_WARNING, J_MAIN,
-                        "In iteration %d, %d Slack too small, adjusting variable bound\n", IpData().iter_count(), adjusted_slacks);
+                        "In iteration %" IPOPT_INDEX_FORMAT ", %" IPOPT_INDEX_FORMAT " Slack too small, adjusting variable bound\n", IpData().iter_count(), adjusted_slacks);
       }
       else
       {
          Jnlst().Printf(J_WARNING, J_MAIN,
-                        "In iteration %d, %d Slacks too small, adjusting variable bounds\n", IpData().iter_count(), adjusted_slacks);
+                        "In iteration %" IPOPT_INDEX_FORMAT ", %" IPOPT_INDEX_FORMAT " Slacks too small, adjusting variable bounds\n", IpData().iter_count(), adjusted_slacks);
       }
       if( Jnlst().ProduceOutput(J_VECTOR, J_MAIN) )
       {
@@ -758,12 +826,6 @@ void IpoptAlgorithm::PrintProblemStatistics()
       return;
    }
 
-   SmartPtr<const Vector> x = IpData().curr()->x();
-   SmartPtr<const Vector> x_L = IpNLP().x_L();
-   SmartPtr<const Vector> x_U = IpNLP().x_U();
-   SmartPtr<const Matrix> Px_L = IpNLP().Px_L();
-   SmartPtr<const Matrix> Px_U = IpNLP().Px_U();
-
    Index nx_tot, nx_only_lower, nx_both, nx_only_upper;
    calc_number_of_bounds(*IpData().curr()->x(), *IpNLP().x_L(), *IpNLP().x_U(), *IpNLP().Px_L(), *IpNLP().Px_U(),
                          nx_tot, nx_only_lower, nx_both, nx_only_upper);
@@ -773,23 +835,23 @@ void IpoptAlgorithm::PrintProblemStatistics()
                          ns_tot, ns_only_lower, ns_both, ns_only_upper);
 
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "Total number of variables............................: %8d\n", nx_tot);
+                  "Total number of variables............................: %8" IPOPT_INDEX_FORMAT "\n", nx_tot);
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "                     variables with only lower bounds: %8d\n", nx_only_lower);
+                  "                     variables with only lower bounds: %8" IPOPT_INDEX_FORMAT "\n", nx_only_lower);
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "                variables with lower and upper bounds: %8d\n", nx_both);
+                  "                variables with lower and upper bounds: %8" IPOPT_INDEX_FORMAT "\n", nx_both);
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "                     variables with only upper bounds: %8d\n", nx_only_upper);
+                  "                     variables with only upper bounds: %8" IPOPT_INDEX_FORMAT "\n", nx_only_upper);
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "Total number of equality constraints.................: %8d\n", IpData().curr()->y_c()->Dim());
+                  "Total number of equality constraints.................: %8" IPOPT_INDEX_FORMAT "\n", IpData().curr()->y_c()->Dim());
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "Total number of inequality constraints...............: %8d\n", ns_tot);
+                  "Total number of inequality constraints...............: %8" IPOPT_INDEX_FORMAT "\n", ns_tot);
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "        inequality constraints with only lower bounds: %8d\n", ns_only_lower);
+                  "        inequality constraints with only lower bounds: %8" IPOPT_INDEX_FORMAT "\n", ns_only_lower);
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "   inequality constraints with lower and upper bounds: %8d\n", ns_both);
+                  "   inequality constraints with lower and upper bounds: %8" IPOPT_INDEX_FORMAT "\n", ns_both);
    Jnlst().Printf(J_SUMMARY, J_STATISTICS,
-                  "        inequality constraints with only upper bounds: %8d\n\n", ns_only_upper);
+                  "        inequality constraints with only upper bounds: %8" IPOPT_INDEX_FORMAT "\n\n", ns_only_upper);
 }
 
 void IpoptAlgorithm::ComputeFeasibilityMultipliers()
@@ -798,12 +860,104 @@ void IpoptAlgorithm::ComputeFeasibilityMultipliers()
                   dbg_verbosity);
    DBG_ASSERT(IpCq().IsSquareProblem());
 
+   // if not primal feasible yet, then do not compute multipliers yet
+   Number constr_viol = IpCq().unscaled_curr_nlp_constraint_violation(NORM_MAX);
+   if( constr_viol > constr_viol_tol_ )
+   {
+      return;
+   }
+
+   // if we don't have an object for computing least square
+   // multipliers we don't compute them
+   if( IsNull(eq_multiplier_calculator_) )
+   {
+      Jnlst().Printf(J_DETAILED, J_SOLUTION,
+                     "No eq_mult_calculator object available in IpoptAlgorithm to recompute multipliers at solution for square problem.\n");
+      return;
+   }
+
+   IpData().TimingStats().CheckConvergence().Start();
+   ConvergenceCheck::ConvergenceStatus conv_status = conv_check_->CheckConvergence(false);
+   IpData().TimingStats().CheckConvergence().End();
+
+   // if converged or reached some limit, then do not update multipliers
+   // status CONTINUE likely means that we are not dual feasible yet, which we try to fix below
+   if( conv_status != ConvergenceCheck::CONTINUE )
+   {
+      return;
+   }
+
+   // backup current iterate for case eq_mult_calculator fails
+   // TODO we could avoid this backup&restore, if eq_multiplier_calculator_ could be told to calculate the multipliers for the trial instead of the current iterate
+   SmartPtr<const IteratesVector> curr_backup = IpData().curr();
+
+   SmartPtr<IteratesVector> iterates = IpData().curr()->MakeNewContainer();
+   SmartPtr<Vector> tmp = iterates->z_L()->MakeNew();
+   tmp->Set(0.);
+   iterates->Set_z_L(*tmp);
+   tmp = iterates->z_U()->MakeNew();
+   tmp->Set(0.);
+   iterates->Set_z_U(*tmp);
+   tmp = iterates->v_L()->MakeNew();
+   tmp->Set(0.);
+   iterates->Set_v_L(*tmp);
+   tmp = iterates->v_U()->MakeNew();
+   tmp->Set(0.);
+   iterates->Set_v_U(*tmp);
+   SmartPtr<Vector> y_c = iterates->y_c()->MakeNew();
+   SmartPtr<Vector> y_d = iterates->y_d()->MakeNew();
+   IpData().set_trial(iterates);
+   IpData().AcceptTrialPoint();
+   bool retval = eq_multiplier_calculator_->CalculateMultipliers(*y_c, *y_d);
+   if( retval )
+   {
+      //TODO Check if following line is really necessary
+      iterates = IpData().curr()->MakeNewContainer();
+      iterates->Set_y_c(*y_c);
+      iterates->Set_y_d(*y_d);
+      IpData().set_trial(iterates);
+      IpData().AcceptTrialPoint();
+
+      // check whether the new iterate satisfies convergence criteria now
+      // if not, then we better continue with backed up iterate
+      IpData().TimingStats().CheckConvergence().Start();
+      ConvergenceCheck::ConvergenceStatus conv_status = conv_check_->CheckConvergence(false);
+      IpData().TimingStats().CheckConvergence().End();
+
+      if( conv_status == ConvergenceCheck::CONVERGED || conv_status == ConvergenceCheck::CONVERGED_TO_ACCEPTABLE_POINT )
+      {
+         return;
+      }
+
+      Jnlst().Printf(J_DETAILED, J_SOLUTION,
+                     "Multipliers for feasibility problem using eq_mult_calculator does not lead to converged status yet.\n");
+   }
+   else
+   {
+      Jnlst().Printf(J_DETAILED, J_SOLUTION,
+                     "Failed to compute multipliers for feasibility problem using eq_mult_calculator.\n");
+   }
+
+   // restore original iterate
+   Jnlst().Printf(J_DETAILED, J_SOLUTION,
+                  "Restoring iterate from before trying eq_mult_calculator.\n");
+   SmartPtr<IteratesVector> orig_iterate = curr_backup->MakeNewContainer();
+   IpData().set_trial(orig_iterate);
+   IpData().AcceptTrialPoint();
+}
+
+void IpoptAlgorithm::ComputeFeasibilityMultipliersPostprocess()
+{
+   DBG_START_METH("IpoptAlgorithm::ComputeFeasibilityMultipliersPostprocess",
+                  dbg_verbosity);
+   DBG_ASSERT(IpCq().IsSquareProblem());
+
    // if we don't have an object for computing least square
    // multipliers we don't compute them
    if( IsNull(eq_multiplier_calculator_) )
    {
       Jnlst().Printf(J_WARNING, J_SOLUTION,
-                     "This is a square problem, but multipliers cannot be recomputed at solution, since no eq_mult_calculator object is available in IpoptAlgorithm\n");
+                     "No eq_mult_calculator object available in IpoptAlgorithm to recompute multipliers at solution for square problem.\n");
       return;
    }
 
@@ -827,7 +981,7 @@ void IpoptAlgorithm::ComputeFeasibilityMultipliers()
    bool retval = eq_multiplier_calculator_->CalculateMultipliers(*y_c, *y_d);
    if( retval )
    {
-      //Check if following line is really necessary
+      //TODO Check if following line is really necessary
       iterates = IpData().curr()->MakeNewContainer();
       iterates->Set_y_c(*y_c);
       iterates->Set_y_d(*y_d);
@@ -837,7 +991,7 @@ void IpoptAlgorithm::ComputeFeasibilityMultipliers()
    else
    {
       Jnlst().Printf(J_WARNING, J_SOLUTION,
-                     "Cannot recompute multipliers for feasibility problem.  Error in eq_mult_calculator\n");
+                     "Failed to compute multipliers for feasibility problem using eq_mult_calculator.\n");
    }
 }
 
@@ -921,7 +1075,7 @@ Number IpoptAlgorithm::correct_bound_multiplier(
    if( IpData().FreeMuMode() )
    {
       mu = IpCq().trial_avrg_compl();
-      mu = Min(mu, 1e3);
+      mu = Min(mu, Number(1e3));
    }
    else
    {
@@ -948,7 +1102,7 @@ Number IpoptAlgorithm::correct_bound_multiplier(
 
    DBG_PRINT_VECTOR(2, "step_z", *step_z);
 
-   Number max_correction_up = Max(0., -step_z->Min());
+   Number max_correction_up = Max(Number(0.), -step_z->Min());
    if( max_correction_up > 0. )
    {
       SmartPtr<Vector> tmp = trial_z.MakeNew();
@@ -964,7 +1118,7 @@ Number IpoptAlgorithm::correct_bound_multiplier(
 
    step_z->AddTwoVectors(1. / kappa_sigma_ * mu, *one_over_s, -1., *new_trial_z, 0.);
 
-   Number max_correction_low = Max(0., step_z->Max());
+   Number max_correction_low = Max(Number(0.), step_z->Max());
    if( max_correction_low > 0. )
    {
       SmartPtr<Vector> tmp = trial_z.MakeNew();
@@ -987,7 +1141,7 @@ void IpoptAlgorithm::print_copyright_message(
                 "\n******************************************************************************\n"
                 "This program contains Ipopt, a library for large-scale nonlinear optimization.\n"
                 " Ipopt is released as open source code under the Eclipse Public License (EPL).\n"
-                "         For more information visit http://projects.coin-or.org/Ipopt\n"
+                "         For more information visit https://github.com/coin-or/Ipopt\n"
                 "******************************************************************************\n\n");
    copyright_message_printed = true;
 }

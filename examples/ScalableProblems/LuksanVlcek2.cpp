@@ -15,10 +15,9 @@ LuksanVlcek2::LuksanVlcek2(
    Number g_l,
    Number g_u
 )
-{
-   g_l_ = g_l;
-   g_u_ = g_u;
-}
+   : g_l_(g_l),
+     g_u_(g_u)
+{ }
 
 bool LuksanVlcek2::InitializeProblem(
    Index N
@@ -171,7 +170,7 @@ bool LuksanVlcek2::eval_g(
    for( Index i = 0; i < N_ - 7; i++ )
    {
       g[i] = (2. + 5. * x[i + 5] * x[i + 5]) * x[i + 5] + 1.;
-      for( Index k = Max(0, i - 5); k <= i + 1; k++ )
+      for( Index k = Max(Index(0), i - 5); k <= i + 1; k++ )
       {
          g[i] += x[k] * (x[k] + 1.);
       }
@@ -199,7 +198,7 @@ bool LuksanVlcek2::eval_jac_g(
       Index ijac = 0;
       for( Index i = 0; i < N_ - 7; i++ )
       {
-         for( Index k = Max(0, i - 5); k <= i + 1; k++ )
+         for( Index k = Max(Index(0), i - 5); k <= i + 1; k++ )
          {
             iRow[ijac] = i;
             jCol[ijac] = k;
@@ -219,7 +218,7 @@ bool LuksanVlcek2::eval_jac_g(
       Index ijac = 0;
       for( Index i = 0; i < N_ - 7; i++ )
       {
-         for( Index k = Max(0, i - 5); k <= i + 1; k++ )
+         for( Index k = Max(Index(0), i - 5); k <= i + 1; k++ )
          {
             values[ijac] = 2. * x[k] + 1.;
             ijac++;
@@ -269,7 +268,7 @@ bool LuksanVlcek2::eval_h(
       }
       iRow[ihes] = n - 2;
       jCol[ihes] = n - 1;
-      ihes++;
+      DBG_DO(ihes++);
       DBG_ASSERT(ihes == nele_hess);
       (void) nele_hess;
    }
@@ -302,7 +301,7 @@ bool LuksanVlcek2::eval_h(
       // Ok, now the diagonal elements from the constraints
       for( Index i = 0; i < N_ - 7; i++ )
       {
-         for( Index k = Max(0, i - 5); k <= i + 1; k++ )
+         for( Index k = Max(Index(0), i - 5); k <= i + 1; k++ )
          {
             values[k] += lambda[i] * 2.;
          }

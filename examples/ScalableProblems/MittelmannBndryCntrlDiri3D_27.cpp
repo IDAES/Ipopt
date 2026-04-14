@@ -48,8 +48,8 @@ void MittelmannBndryCntrlDiriBase3D_27::SetBaseParameters(
    C_ = C;
 
    PenA_ = 1.5 - 1.125 * C_ / B_;
-   PenB_ = 1.75 * C_ / pow(B_, 3) - 1.5 / (B_ * B_);
-   PenC_ = 0.5 / pow(B_, 4) - 0.625 * C_ / pow(B_, 5);
+   PenB_ = 1.75 * C_ / std::pow(B_, 3) - 1.5 / (B_ * B_);
+   PenC_ = 0.5 / std::pow(B_, 4) - 0.625 * C_ / std::pow(B_, 5);
 
    // Initialize the target profile variables
    delete[] y_d_;
@@ -1074,7 +1074,9 @@ void MittelmannBndryCntrlDiriBase3D_27::finalize_solution(
 
     for (Index i=0; i<=N_+1; i++) {
     for (Index j=0; j<=N_+1; j++) {
-    fprintf(fp, "y[%6d,%6d] = %15.8e\n", i, j, x[y_index(i,j)]);
+    for (Index k=0; k<=N_+1; k++) {
+    fprintf(fp, "y[%6d,%6d,%6d] = %15.8e\n", i, j, k, x[y_index(i,j,k)]);
+    }
     }
     }
 

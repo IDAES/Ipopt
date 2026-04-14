@@ -43,25 +43,18 @@
 #include "IpInexactNormalTerminationTester.hpp"
 #include "IpInexactPDTerminationTester.hpp"
 
-#ifdef COIN_HAS_HSL
-# include "CoinHslConfig.h"
-#endif
+#include "IpLinearSolvers.h"
 
-#ifdef HAVE_WSMP
+#ifdef IPOPT_HAS_WSMP
 # include "IpWsmpSolverInterface.hpp"
 #endif
-#ifdef COIN_HAS_MUMPS
+#ifdef IPOPT_HAS_MUMPS
 # include "IpMumpsSolverInterface.hpp"
-#endif
-
-#ifdef HAVE_LINEARSOLVERLOADER
-# include "HSLLoader.h"
-# include "PardisoLoader.h"
 #endif
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -106,16 +99,16 @@ void InexactAlgorithmBuilder::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions
 )
 {
-   roptions->SetRegisteringCategory("Linear Solver");
    roptions->AddStringOption2(
       "inexact_linear_system_scaling",
-      "Method for scaling the linear system for the inexact approach", "slack-based",
+      "Method for scaling the linear system for the inexact approach",
+      "slack-based",
       "none", "no scaling will be performed",
       "slack-based", "scale the linear system as in paper");
 }
 
 SmartPtr<IpoptAlgorithm> InexactAlgorithmBuilder::BuildBasicAlgorithm(
-   const Journalist&  jnlst,
+   const Journalist&  /*jnlst*/,
    const OptionsList& options,
    const std::string& prefix
 )
@@ -130,100 +123,39 @@ SmartPtr<IpoptAlgorithm> InexactAlgorithmBuilder::BuildBasicAlgorithm(
    SmartPtr<SparseSymLinearSolverInterface> SolverInterface;
    std::string linear_solver;
    options.GetStringValue("linear_solver", linear_solver, prefix);
+
    if( linear_solver == "ma27" )
    {
-#ifndef COINHSL_HAS_MA27
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new Ma27TSolverInterface();
-      char buf[256];
-      int rc = LSL_loadHSL(NULL, buf, 255);
-      if (rc)
-      {
-         std::string errmsg;
-         errmsg = "Selected linear solver MA27 not available.\nTried to obtain MA27 from shared library \"";
-         errmsg += LSL_HSLLibraryName();
-         errmsg += "\", but the following error occured:\n";
-         errmsg += buf;
-         THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for MA27 has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new Ma27TSolverInterface();
-#endif
-
+      SolverInterface = new Ma27TSolverInterface(GetHSLLoader(options, prefix));
    }
+
    else if( linear_solver == "ma57" )
    {
-#ifndef COINHSL_HAS_MA57
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new Ma57TSolverInterface();
-      char buf[256];
-      int rc = LSL_loadHSL(NULL, buf, 255);
-      if (rc)
-      {
-         std::string errmsg;
-         errmsg = "Selected linear solver MA57 not available.\nTried to obtain MA57 from shared library \"";
-         errmsg += LSL_HSLLibraryName();
-         errmsg += "\", but the following error occured:\n";
-         errmsg += buf;
-         THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for MA57 has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new Ma57TSolverInterface();
-#endif
-
+      SolverInterface = new Ma57TSolverInterface(GetHSLLoader(options, prefix));
    }
+
    else if( linear_solver == "pardiso" )
    {
       NormalTester = new InexactNormalTerminationTester();
       SmartPtr<IterativeSolverTerminationTester> pd_tester = new InexactPDTerminationTester();
-#ifndef HAVE_PARDISO
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new IterativePardisoSolverInterface(*NormalTester, *pd_tester);
-      char buf[256];
-      int rc = LSL_loadPardisoLib(NULL, buf, 255);
-      if (rc)
-      {
-         std::string errmsg;
-         errmsg = "Selected linear solver Pardiso not available.\nTried to obtain Pardiso from shared library \"";
-         errmsg += LSL_PardisoLibraryName();
-         errmsg += "\", but the following error occured:\n";
-         errmsg += buf;
-         THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for Pardiso has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new IterativePardisoSolverInterface(*NormalTester, *pd_tester);
-#endif
-
+      SolverInterface = new IterativePardisoSolverInterface(*NormalTester, *pd_tester, GetPardisoLoader(options, prefix));
    }
+
+#ifdef IPOPT_HAS_WSMP
    else if( linear_solver == "wsmp" )
    {
-#ifdef HAVE_WSMP
       SolverInterface = new WsmpSolverInterface();
-#else
-
-      THROW_EXCEPTION(OPTION_INVALID, "Selected linear solver WSMP not available.");
+   }
 #endif
 
-   }
+#ifdef IPOPT_HAS_MUMPS
    else if( linear_solver == "mumps" )
    {
-#ifdef COIN_HAS_MUMPS
       SolverInterface = new MumpsSolverInterface();
-#else
-
-      THROW_EXCEPTION(OPTION_INVALID, "Selected linear solver MUMPS not available.");
+      linear_solver = MumpsSolverInterface::GetName();
+   }
 #endif
 
-   }
    else
    {
       THROW_EXCEPTION(OPTION_INVALID, "Inexact version not available for this selection of linear solver.");
@@ -279,18 +211,18 @@ SmartPtr<IpoptAlgorithm> InexactAlgorithmBuilder::BuildBasicAlgorithm(
    SmartPtr<InexactNewtonNormalStep> NewtonNormalStep = new InexactNewtonNormalStep(AugSolver);
 
    SmartPtr<InexactNormalStepCalculator> normal_step_calculator = new InexactDoglegNormalStep(NewtonNormalStep,
-         NormalTester);
+      NormalTester);
 
    SmartPtr<PDPerturbationHandler> perturbHandler = new PDPerturbationHandler();
 
    SmartPtr<InexactPDSolver> inexact_pd_solver = new InexactPDSolver(*AugSolver, *perturbHandler);
 
    SmartPtr<SearchDirectionCalculator> SearchDirCalc = new InexactSearchDirCalculator(normal_step_calculator,
-         inexact_pd_solver);
+      inexact_pd_solver);
 
    // Create the main algorithm
    SmartPtr<IpoptAlgorithm> alg = new IpoptAlgorithm(SearchDirCalc, GetRawPtr(lineSearch), MuUpdate, convCheck,
-         IterInitializer, IterOutput, HessUpdater);
+      IterInitializer, IterOutput, HessUpdater, NULL, linear_solver);
 
    return alg;
 }

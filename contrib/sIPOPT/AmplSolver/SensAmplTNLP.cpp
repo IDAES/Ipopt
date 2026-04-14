@@ -18,12 +18,13 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 1;
 #endif
 
 SensAmplTNLP::SensAmplTNLP(
    const SmartPtr<const Journalist>& jnlst,
+   const SmartPtr<RegisteredOptions> regoptions,
    const SmartPtr<OptionsList>       options,
    char**&                           argv,
    SmartPtr<AmplSuffixHandler>       suffix_handler /* = NULL */,
@@ -32,13 +33,14 @@ SensAmplTNLP::SensAmplTNLP(
    const char*                       ampl_option_string /* = NULL */,
    const char*                       ampl_invokation_string /* = NULL */,
    const char*                       ampl_banner_string /* = NULL */,
-   std::string*                      nl_file_content /* = NULL */
+   std::string*                      nl_file_content /* = NULL */,
+   bool                              checkinterrupt /* = false */
 )
    : AmplTNLP(
         jnlst, // gotta call constructor of base class properly
-        options, argv, suffix_handler /* = NULL */, allow_discrete /* = false */, ampl_options_list /* = NULL */,
+        regoptions, options, argv, suffix_handler /* = NULL */, allow_discrete /* = false */, ampl_options_list /* = NULL */,
         ampl_option_string /* = NULL */, ampl_invokation_string /* = NULL */, ampl_banner_string /* = NULL */,
-        nl_file_content /* = NULL */),
+        nl_file_content /* = NULL */, checkinterrupt /* = false */),
      jnlst_(jnlst),
      options_(options),
      have_parameters_(false),
@@ -50,7 +52,7 @@ SensAmplTNLP::SensAmplTNLP(
    SmartPtr<AmplSuffixHandler> suff_handler = get_suffix_handler();
    ASL_pfgh* asl = AmplSolverObject();
 
-   const Index* parameter_flags = suff_handler->GetIntegerSuffixValues("parameter", AmplSuffixHandler::Variable_Source);
+   const int* parameter_flags = suff_handler->GetIntegerSuffixValues("parameter", AmplSuffixHandler::Variable_Source);
 
    if( parameter_flags_ != NULL )
    {
@@ -148,7 +150,7 @@ void SensAmplTNLP::set_sens_solution(
 {
    DBG_START_METH("SensAmplTNLP::set_sens_solution", dbg_verbosity);
 
-   DBG_PRINT((dbg_verbosity, "n_sens_steps=%d\n", sens_sol_.size()));
+   DBG_PRINT((dbg_verbosity, "n_sens_steps=%zd\n", sens_sol_.size()));
    DBG_ASSERT(idx > 0);
    DBG_ASSERT(idx <= (Index)sens_sol_.size());
 
@@ -221,6 +223,29 @@ void SensAmplTNLP::finalize_solution(
    AmplTNLP::finalize_solution(status, n, x, z_L, z_U, m, g, lambda, obj_value, ip_data, ip_cq);
 }
 
+#ifdef IPOPT_INT64
+static
+std::vector<Index> to_vector_index(
+   std::vector<int>& v
+)
+{
+   std::vector<Index> v2(v.size());
+   for( size_t i = 0; i < v.size(); ++i )
+   {
+      v2[i] = v[i];
+   }
+   return v2;
+}
+#else
+static
+std::vector<Index>& to_vector_index(
+   std::vector<int>& v
+)
+{
+   return v;
+}
+#endif
+
 bool SensAmplTNLP::get_var_con_metadata(
    Index                   n,
    StringMetaDataMapType&  var_string_md,
@@ -240,12 +265,12 @@ bool SensAmplTNLP::get_var_con_metadata(
       {
          // Get Sens Suffixes
          std::string sens_state = "sens_state_";
-         std::vector<Index> state;
+         std::vector<int> state;
          for( Index i = 1; i <= n_sens_steps_; ++i )
          {
             append_Index(sens_state, i);
             state = get_index_suffix_vec(sens_state.c_str());
-            set_integer_metadata_for_var(sens_state, state);
+            set_integer_metadata_for_var(sens_state, to_vector_index(state));
             sens_state = "sens_state_";
          }
          std::string sens_state_value = "sens_state_value_";
@@ -260,8 +285,8 @@ bool SensAmplTNLP::get_var_con_metadata(
          std::string init_constr = "sens_init_constr";
          if( n_sens_steps_ > 0 )
          {
-            std::vector<Index> init_idx = get_index_suffix_constr_vec(init_constr.c_str());
-            set_integer_metadata_for_con(init_constr, init_idx);
+            std::vector<int> init_idx = get_index_suffix_constr_vec(init_constr.c_str());
+            set_integer_metadata_for_con(init_constr, to_vector_index(init_idx));
          }
       }
    }
@@ -270,9 +295,8 @@ bool SensAmplTNLP::get_var_con_metadata(
       //exc.ReportException(*jnlst_);
       // const std::string exc_mess = exc.Message();
       const std::string exc_mess = exc.Message();
-      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run sIPOPT "
-                     "because of incorrect AMPL suffix!\n"
-                     "      Message: %s\n\n", exc_mess.c_str());
+      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run sIPOPT because of incorrect AMPL suffix!\n"
+                                                  "      Message: %s\n\n", exc_mess.c_str());
       options_->SetStringValue("sens_internal_abort", "yes");
       bool ignore_suffix_error;
       options_->GetBoolValue("ignore_suffix_error", ignore_suffix_error, "");
@@ -287,16 +311,15 @@ bool SensAmplTNLP::get_var_con_metadata(
       if( compute_red_hessian_ )
       {
          std::string red_hess_str = "red_hessian";
-         std::vector<Index> red_hess_idx = get_index_suffix_vec(red_hess_str.c_str());
-         set_integer_metadata_for_var(red_hess_str.c_str(), red_hess_idx);
+         std::vector<int> red_hess_idx = get_index_suffix_vec(red_hess_str.c_str());
+         set_integer_metadata_for_var(red_hess_str.c_str(), to_vector_index(red_hess_idx));
       }
    }
    catch( SUFFIX_EMPTY& exc )
    {
       const std::string exc_mess = exc.Message();
-      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run reduced hessian computation "
-                     "because of incorrect AMPL suffix!\n"
-                     "      Message: %s\n\n", exc_mess.c_str());
+      jnlst_->Printf(J_WARNING, J_INITIALIZATION, "    WARNING: Will not run reduced hessian computation because of incorrect AMPL suffix!\n"
+                                                  "      Message: %s\n\n", exc_mess.c_str());
       options_->SetStringValue("sens_internal_abort", "yes");
       bool ignore_suffix_error;
       options_->GetBoolValue("ignore_suffix_error", ignore_suffix_error, "");
@@ -311,7 +334,7 @@ bool SensAmplTNLP::get_var_con_metadata(
    return retval;
 }
 
-const Index* SensAmplTNLP::get_index_suffix(
+const int* SensAmplTNLP::get_index_suffix(
    const char* suffix_name
 )
 {
@@ -319,12 +342,12 @@ const Index* SensAmplTNLP::get_index_suffix(
 
    SmartPtr<AmplSuffixHandler> suffix_handler = get_suffix_handler();
 
-   const Index* index_suffix = suffix_handler->GetIntegerSuffixValues(suffix_name, AmplSuffixHandler::Variable_Source);
+   const int* index_suffix = suffix_handler->GetIntegerSuffixValues(suffix_name, AmplSuffixHandler::Variable_Source);
 
    return index_suffix;
 }
 
-std::vector<Index> SensAmplTNLP::get_index_suffix_vec(
+std::vector<int> SensAmplTNLP::get_index_suffix_vec(
    const char* suffix_name
 )
 {
@@ -334,8 +357,8 @@ std::vector<Index> SensAmplTNLP::get_index_suffix_vec(
    SmartPtr<AmplSuffixHandler> suffix_handler = get_suffix_handler();
    DBG_ASSERT(IsValid(suffix_handler));
 
-   std::vector<Index> index_suffix = suffix_handler->GetIntegerSuffixValues(n_var, suffix_name,
-                                     AmplSuffixHandler::Variable_Source);
+   std::vector<int> index_suffix = suffix_handler->GetIntegerSuffixValues(n_var, suffix_name,
+                                   AmplSuffixHandler::Variable_Source);
    if( index_suffix.size() == 0 )
    {
       index_suffix.resize(n_var, 0);
@@ -386,7 +409,7 @@ std::vector<Number> SensAmplTNLP::get_number_suffix_vec(
    return number_suffix;
 }
 
-const Index* SensAmplTNLP::get_index_suffix_constr(
+const int* SensAmplTNLP::get_index_suffix_constr(
    const char* suffix_name
 )
 {
@@ -394,8 +417,8 @@ const Index* SensAmplTNLP::get_index_suffix_constr(
 
    SmartPtr<AmplSuffixHandler> suffix_handler = get_suffix_handler();
 
-   const Index* index_suffix = suffix_handler->GetIntegerSuffixValues(suffix_name,
-                               AmplSuffixHandler::Constraint_Source);
+   const int* index_suffix = suffix_handler->GetIntegerSuffixValues(suffix_name,
+                             AmplSuffixHandler::Constraint_Source);
 
    if( index_suffix == NULL )
    {
@@ -408,7 +431,7 @@ const Index* SensAmplTNLP::get_index_suffix_constr(
    return index_suffix;
 }
 
-std::vector<Index> SensAmplTNLP::get_index_suffix_constr_vec(
+std::vector<int> SensAmplTNLP::get_index_suffix_constr_vec(
    const char* suffix_name
 )
 {
@@ -416,8 +439,8 @@ std::vector<Index> SensAmplTNLP::get_index_suffix_constr_vec(
    ASL_pfgh* asl = AmplSolverObject();
    SmartPtr<AmplSuffixHandler> suffix_handler = get_suffix_handler();
 
-   std::vector<Index> index_suffix = suffix_handler->GetIntegerSuffixValues(n_con, suffix_name,
-                                     AmplSuffixHandler::Constraint_Source);
+   std::vector<int> index_suffix = suffix_handler->GetIntegerSuffixValues(n_con, suffix_name,
+                                   AmplSuffixHandler::Constraint_Source);
 
    if( index_suffix.empty() )
    {

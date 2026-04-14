@@ -29,8 +29,6 @@ bool CGPenaltyData::Initialize(
 
    penalty_initialized_ = false;
    kkt_penalty_initialized_ = false;
-   have_cgpen_deltas_ = false;
-   have_cgfast_deltas_ = false;
    curr_penalty_pert_ = 0.;
    max_alpha_x_ = 1.;
    never_try_pure_Newton_ = false;
@@ -43,7 +41,7 @@ bool CGPenaltyData::Initialize(
 bool CGPenaltyData::InitializeDataStructures()
 {
    DBG_ASSERT(initialize_called_);
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
 
    debug_delta_cgpen_tag_ = 0;
    debug_delta_cgfast_tag_ = 0;

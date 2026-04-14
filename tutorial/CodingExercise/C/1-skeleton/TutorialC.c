@@ -142,17 +142,17 @@ int main()
    /* Number of nonzeros in the Jacobian of the constraints
     * each constraint has three nonzeros
     */
-   nele_jac = FILLME
+   nele_jac = FILLME;
 
-              /* Number of nonzeros in the Hessian of the Lagrangian (lower or
-               * upper triangual part only)
-               * We have the full diagonal, and the first off-diagonal except for
-               * the first and last variable.
-               */
-              nele_hess = FILLME
+   /* Number of nonzeros in the Hessian of the Lagrangian (lower or
+    * upper triangual part only)
+    * We have the full diagonal, and the first off-diagonal except for
+    * the first and last variable.
+    */
+   nele_hess = FILLME;
 
-                          /* indexing style for matrices */
-                          index_style = FILLME; /* C-style; start counting of rows and column indices at 0 */
+   /* indexing style for matrices */
+   index_style = FILLME; /* C-style; start counting of rows and column indices at 0 */
 
    /* create the IpoptProblem */
    nlp = CreateIpoptProblem(n, x_L, x_U, m, g_L, g_U, nele_jac, nele_hess, index_style, &eval_f, &eval_g, &eval_grad_f,
@@ -190,17 +190,17 @@ int main()
       printf("\n\nSolution of the primal variables, x\n");
       for( i = 0; i < n; i++ )
       {
-         printf("x[%d] = %e\n", i, x[i]);
+         printf("x[%d] = %e\n", (int)i, x[i]);
       }
 
       printf("\n\nSolution of the bound multipliers, z_L and z_U\n");
       for( i = 0; i < n; i++ )
       {
-         printf("z_L[%d] = %e\n", i, mult_x_L[i]);
+         printf("z_L[%d] = %e\n", (int)i, mult_x_L[i]);
       }
       for( i = 0; i < n; i++ )
       {
-         printf("z_U[%d] = %e\n", i, mult_x_U[i]);
+         printf("z_U[%d] = %e\n", (int)i, mult_x_U[i]);
       }
 
       printf("\n\nObjective value\n");

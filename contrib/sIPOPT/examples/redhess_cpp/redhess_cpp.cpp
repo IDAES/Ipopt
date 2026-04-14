@@ -12,8 +12,8 @@
 #include "SensRegOp.hpp"
 
 int main(
-   int    /*argv*/,
-   char** /*argc*/
+   int    /*argc*/,
+   char** /*argv*/
 )
 {
 
@@ -22,7 +22,7 @@ int main(
    SmartPtr<IpoptApplication> app_ipopt = new IpoptApplication();
 
    SmartPtr<SensApplication> app_sens = new SensApplication(app_ipopt->Jnlst(), app_ipopt->Options(),
-         app_ipopt->RegOptions());
+      app_ipopt->RegOptions());
 
    // Register sIPOPT options
    RegisterOptions_sIPOPT(app_ipopt->RegOptions());

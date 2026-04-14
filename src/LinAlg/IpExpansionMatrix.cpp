@@ -10,7 +10,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -295,15 +295,13 @@ void ExpansionMatrix::SinvBlrmZMTdBrImpl(
          {
             for( Index i = 0; i < NCols(); i++ )
             {
-               // ToDo could treat val == 0 extra
-               vals_X[i] = (scalar_R) / vals_S[i];
+               vals_X[i] = scalar_R / vals_S[i];
             }
          }
          else
          {
             for( Index i = 0; i < NCols(); i++ )
             {
-               // ToDo could treat val == 0 extra
                vals_X[i] = (scalar_R + val * vals_D[exp_pos[i]]) / vals_S[i];
             }
          }
@@ -386,7 +384,7 @@ void ExpansionMatrix::ComputeRowAMaxImpl(
 
    for( Index i = 0; i < NCols(); i++ )
    {
-      vec_vals[exp_pos[i]] = Max(vec_vals[exp_pos[i]], 1.);
+      vec_vals[exp_pos[i]] = Max(vec_vals[exp_pos[i]], Number(1.));
    }
 }
 
@@ -421,14 +419,14 @@ void ExpansionMatrix::PrintImplOffset(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sExpansionMatrix \"%s\" with %d rows and %d columns:\n", prefix.c_str(), name.c_str(), NRows(), NCols());
+                        "%sExpansionMatrix \"%s\" with %" IPOPT_INDEX_FORMAT " rows and %" IPOPT_INDEX_FORMAT " columns:\n", prefix.c_str(), name.c_str(), NRows(), NCols());
 
    const Index* exp_pos = ExpandedPosIndices();
 
    for( Index i = 0; i < NCols(); i++ )
    {
       jnlst.PrintfIndented(level, category, indent,
-                           "%s%s[%5d,%5d]=%23.16e  (%d)\n", prefix.c_str(), name.c_str(), exp_pos[i] + row_offset, i + col_offset, 1., i);
+                           "%s%s[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "]=%23.16e  (%" IPOPT_INDEX_FORMAT ")\n", prefix.c_str(), name.c_str(), exp_pos[i] + row_offset, i + col_offset, 1., i);
    }
 }
 
@@ -459,7 +457,10 @@ ExpansionMatrixSpace::ExpansionMatrixSpace(
       //ToDo decide for offset
       DBG_ASSERT(ExpPos[i] - offset < NRows() && ExpPos[i] - offset >= 0);
       expanded_pos_[i] = ExpPos[i] - offset;
-      compressed_pos_[ExpPos[i] - offset] = i;
+      if( NRows() > 0 )
+      {
+         compressed_pos_[ExpPos[i] - offset] = i;
+      }
    }
 }
 

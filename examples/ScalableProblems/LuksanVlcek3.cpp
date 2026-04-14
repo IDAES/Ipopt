@@ -15,10 +15,9 @@ LuksanVlcek3::LuksanVlcek3(
    Number g_l,
    Number g_u
 )
-{
-   g_l_ = g_l;
-   g_u_ = g_u;
-}
+   : g_l_(g_l),
+     g_u_(g_u)
+{ }
 
 bool LuksanVlcek3::InitializeProblem(
    Index N
@@ -129,7 +128,7 @@ bool LuksanVlcek3::eval_f(
       Number a2 = x[2 * i + 2] - x[2 * i + 3];
       Number a3 = x[2 * i + 1] - 2. * x[2 * i + 2];
       Number a4 = x[2 * i] - x[2 * i + 3];
-      obj_value += a1 * a1 + 5. * a2 * a2 + pow(a3, 4) + 10. * pow(a4, 4);
+      obj_value += a1 * a1 + 5. * a2 * a2 + std::pow(a3, 4) + 10. * std::pow(a4, 4);
    }
 
    return true;
@@ -151,10 +150,10 @@ bool LuksanVlcek3::eval_grad_f(
       Number a2 = x[2 * i + 2] - x[2 * i + 3];
       Number a3 = x[2 * i + 1] - 2. * x[2 * i + 2];
       Number a4 = x[2 * i] - x[2 * i + 3];
-      grad_f[2 * i] += 2. * a1 + 40. * pow(a4, 3);
-      grad_f[2 * i + 1] += 20. * a1 + 4. * pow(a3, 3);
-      grad_f[2 * i + 2] = 10. * a2 - 8. * pow(a3, 3);
-      grad_f[2 * i + 3] = -10. * a2 - 40. * pow(a4, 3);
+      grad_f[2 * i] += 2. * a1 + 40. * std::pow(a4, 3);
+      grad_f[2 * i + 1] += 20. * a1 + 4. * std::pow(a3, 3);
+      grad_f[2 * i + 2] = 10. * a2 - 8. * std::pow(a3, 3);
+      grad_f[2 * i + 3] = -10. * a2 - 40. * std::pow(a4, 3);
    }
 
    return true;
@@ -169,8 +168,8 @@ bool LuksanVlcek3::eval_g(
    Number*       g
 )
 {
-   g[0] = 3. * pow(x[0], 3) + 2. * x[1] - 5. + sin(x[0] - x[1]) * sin(x[0] + x[1]);
-   g[1] = 4. * x[n - 3] - x[n - 4] * exp(x[n - 4] - x[n - 3]) - 3;
+   g[0] = 3. * std::pow(x[0], 3) + 2. * x[1] - 5. + std::sin(x[0] - x[1]) * std::sin(x[0] + x[1]);
+   g[1] = 4. * x[n - 3] - x[n - 4] * std::exp(x[n - 4] - x[n - 3]) - 3;
 
    return true;
 }
@@ -203,7 +202,7 @@ bool LuksanVlcek3::eval_jac_g(
       ijac++;
       iRow[ijac] = 1;
       jCol[ijac] = n - 3;
-      ijac++;
+      DBG_DO(ijac++);
 
       DBG_ASSERT(ijac == nele_jac);
       (void) nele_jac;
@@ -213,14 +212,14 @@ bool LuksanVlcek3::eval_jac_g(
       // return the values of the jacobian of the constraints
 
       Index ijac = 0;
-      values[ijac] = 9. * x[0] * x[0] + cos(x[0] - x[1]) * sin(x[0] + x[1]) + sin(x[0] - x[1]) * cos(x[0] + x[1]);
+      values[ijac] = 9. * x[0] * x[0] + std::cos(x[0] - x[1]) * std::sin(x[0] + x[1]) + std::sin(x[0] - x[1]) * std::cos(x[0] + x[1]);
       ijac++;
-      values[ijac] = 2. - cos(x[0] - x[1]) * sin(x[0] + x[1]) + sin(x[0] - x[1]) * cos(x[0] + x[1]);
+      values[ijac] = 2. - std::cos(x[0] - x[1]) * std::sin(x[0] + x[1]) + std::sin(x[0] - x[1]) * std::cos(x[0] + x[1]);
       ijac++;
-      values[ijac] = -(1. + x[n - 4]) * exp(x[n - 4] - x[n - 3]);
+      values[ijac] = -(1. + x[n - 4]) * std::exp(x[n - 4] - x[n - 3]);
       ijac++;
-      values[ijac] = 4. + x[n - 4] * exp(x[n - 4] - x[n - 3]);
-      ijac++;
+      values[ijac] = 4. + x[n - 4] * std::exp(x[n - 4] - x[n - 3]);
+      // ijac++;
    }
 
    return true;
@@ -270,7 +269,7 @@ bool LuksanVlcek3::eval_h(
       ihes++;
       iRow[ihes] = N_ + 1;
       jCol[ihes] = N_ + 1;
-      ihes++;
+      DBG_DO(ihes++);
       DBG_ASSERT(ihes == nele_hess);
       (void) nele_hess;
    }
@@ -337,23 +336,23 @@ bool LuksanVlcek3::eval_h(
       ihes = 0;
       Number d1 = x[0] - x[1];
       Number d2 = x[0] + x[1];
-      values[ihes] += lambda[0] * (18. * x[0] - 2. * sin(d1) * sin(d2) + 2. * cos(d1) * cos(d2));
+      values[ihes] += lambda[0] * (18. * x[0] - 2. * std::sin(d1) * std::sin(d2) + 2. * std::cos(d1) * std::cos(d2));
       ihes += 3;
-      values[ihes] += lambda[0] * (-2. * sin(d1) * sin(d2) - 2. * cos(d1) * cos(d2));
+      values[ihes] += lambda[0] * (-2. * std::sin(d1) * std::sin(d2) - 2. * std::cos(d1) * std::cos(d2));
 
       d1 = x[n - 4] - x[n - 3];
 
       // x[n-4] x[n-4]
       ihes = nele_hess - 8;
-      values[ihes] += -lambda[1] * (2. + x[n - 4]) * exp(d1);
+      values[ihes] += -lambda[1] * (2. + x[n - 4]) * std::exp(d1);
 
       // x[n-4] x[n-3]
       ihes++;
-      values[ihes] += lambda[1] * (1. + x[n - 4]) * exp(d1);
+      values[ihes] += lambda[1] * (1. + x[n - 4]) * std::exp(d1);
 
       // x[n-3] x[n-3]
       ihes += 2;
-      values[ihes] += -lambda[1] * x[n - 4] * exp(d1);
+      values[ihes] += -lambda[1] * x[n - 4] * std::exp(d1);
    }
    return true;
 }

@@ -12,8 +12,8 @@
 #include "SensRegOp.hpp"
 
 int main(
-   int    /*argv*/,
-   char** argc
+   int    /*argc*/,
+   char** argv
 )
 {
    using namespace Ipopt;
@@ -22,7 +22,7 @@ int main(
    app_ipopt->RethrowNonIpoptException(false);
 
    SmartPtr<SensApplication> app_sens = new SensApplication(app_ipopt->Jnlst(), app_ipopt->Options(),
-         app_ipopt->RegOptions());
+      app_ipopt->RegOptions());
 
    // Register sIPOPT options
    RegisterOptions_sIPOPT(app_ipopt->RegOptions());
@@ -62,7 +62,7 @@ int main(
    suffix_handler->AddAvailableSuffix("sens_init_constr", AmplSuffixHandler::Constraint_Source,
                                       AmplSuffixHandler::Index_Type);
 
-   int n_sens_steps = 0;
+   Index n_sens_steps = 0;
    app_ipopt->Options()->GetIntegerValue("n_sens_steps", n_sens_steps, "");
    std::string state;
    std::string state_value;
@@ -123,8 +123,8 @@ int main(
                                     "Number of sensitivity steps");
 
    // create AmplSensTNLP from argc.
-   SmartPtr<TNLP> sens_tnlp = new SensAmplTNLP(ConstPtr(app_ipopt->Jnlst()), app_ipopt->Options(), argc, suffix_handler,
-         false, ampl_options_list);
+   SmartPtr<TNLP> sens_tnlp = new SensAmplTNLP(ConstPtr(app_ipopt->Jnlst()), app_ipopt->RegOptions(), app_ipopt->Options(), argv, suffix_handler,
+      false, ampl_options_list, NULL, NULL, NULL, NULL, true);
 
    app_sens->Initialize();
 

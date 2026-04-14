@@ -18,16 +18,15 @@
 #include "IpAlgorithmRegOp.hpp"
 #include "IpCGPenaltyRegOp.hpp"
 #include "IpNLPBoundsRemover.hpp"
-
-#ifdef COIN_HAS_HSL
-#include "CoinHslConfig.h"
-#endif
+#include "IpLibraryLoader.hpp"
+#include "IpLinearSolvers.h"
 
 #ifdef BUILD_INEXACT
 # include "IpInexactRegOp.hpp"
 # include "IpInexactAlgBuilder.hpp"
 #endif
 
+#include <cassert>
 #include <cmath>
 #include <fstream>
 
@@ -40,8 +39,10 @@ Ipopt::IpoptApplication* IpoptApplicationFactory()
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
+// Kluge: Add reference counter for DebugJournalistWrapper::jrnl
+static SmartPtr<Journalist> smart_jnlst(NULL);
 #endif
 
 IpoptApplication::IpoptApplication(
@@ -50,10 +51,10 @@ IpoptApplication::IpoptApplication(
 )
    : read_params_dat_(true),
      rethrow_nonipoptexception_(false),
+     options_(new OptionsList()),
      inexact_algorithm_(false),
      replace_bounds_(false)
 {
-   options_ = new OptionsList();
    if( create_empty )
    {
       return;
@@ -62,10 +63,17 @@ IpoptApplication::IpoptApplication(
    jnlst_ = new Journalist();
    try
    {
-# if COIN_IPOPT_VERBOSITY > 0
-      DebugJournalistWrapper::SetJournalist(GetRawPtr(jnlst_));
-      SmartPtr<Journal> debug_jrnl = jnlst_->AddFileJournal("Debug", "debug.out", J_ITERSUMMARY);
-      debug_jrnl->SetPrintLevel(J_DBG, J_ALL);
+# if IPOPT_VERBOSITY > 0
+      // Kludge: If this is the first IpoptApplication, then store jnlst_ in smart_jnlst, too, so that it doesn't
+      // get freed when the IpoptApplication is freed and DebugJournalistWrapper::jrnl becomes a dangling pointer.
+      // Also add the Debug journal that writes to debug.out.
+      if( IsNull(smart_jnlst) )
+      {
+         smart_jnlst = jnlst_;
+         DebugJournalistWrapper::SetJournalist(GetRawPtr(jnlst_));
+         SmartPtr<Journal> debug_jrnl = jnlst_->AddFileJournal("Debug", "debug.out", J_ITERSUMMARY);
+         debug_jrnl->SetPrintLevel(J_DBG, J_ALL);
+      }
 # endif
 
       DBG_START_METH("IpoptApplication::IpoptApplication()",
@@ -94,6 +102,11 @@ IpoptApplication::IpoptApplication(
       jnlst_->Printf(J_ERROR, J_MAIN, "\nEXIT: Not enough memory.\n");
       THROW_EXCEPTION(IPOPT_APPLICATION_ERROR, "Not enough memory");
    }
+   catch( std::overflow_error& )
+   {
+      jnlst_->Printf(J_ERROR, J_MAIN, "\nEXIT: Integer type too small for required memory.\n");
+      THROW_EXCEPTION(IPOPT_APPLICATION_ERROR, "Not enough memory");
+   }
    catch( ... )
    {
       IpoptException exc("Unknown Exception caught in ipopt", "Unknown File", -1);
@@ -114,7 +127,20 @@ IpoptApplication::IpoptApplication(
      options_(options),
      inexact_algorithm_(false),
      replace_bounds_(false)
-{ }
+{
+#if IPOPT_VERBOSITY > 0
+   // Kludge: If this is the first IpoptApplication, then store jnlst_ in smart_jnlst, too, so that it doesn't
+   // get freed when the IpoptApplication is freed and DebugJournalistWrapper::jrnl becomes a dangling pointer.
+   // Also add the Debug journal that writes to debug.out.
+   if( IsNull(smart_jnlst) )
+   {
+      smart_jnlst = jnlst_;
+      DebugJournalistWrapper::SetJournalist(GetRawPtr(jnlst_));
+      SmartPtr<Journal> debug_jrnl = jnlst_->AddFileJournal("Debug", "debug.out", J_ITERSUMMARY);
+      debug_jrnl->SetPrintLevel(J_DBG, J_ALL);
+   }
+#endif
+}
 
 SmartPtr<IpoptApplication> IpoptApplication::clone()
 {
@@ -165,14 +191,10 @@ ApplicationReturnStatus IpoptApplication::Initialize(
             stdout_jrnl->SetPrintLevel(J_DBG, J_NONE);
          }
 
-         bool option_set;
-
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
          // Set printlevel for debug
-         option_set = options_->GetIntegerValue("debug_print_level",
-                                                ivalue, "");
          EJournalLevel debug_print_level;
-         if (option_set)
+         if( options_->GetIntegerValue("debug_print_level", ivalue, "") )
          {
             debug_print_level = (EJournalLevel)ivalue;
          }
@@ -180,13 +202,15 @@ ApplicationReturnStatus IpoptApplication::Initialize(
          {
             debug_print_level = print_level;
          }
-         SmartPtr<Journal> debug_jrnl = jnlst_->GetJournal("Debug");
-         if (IsNull(debug_jrnl))
-         {
-            debug_jrnl = jnlst_->AddFileJournal("Debug", "debug.out", J_ITERSUMMARY);
-         }
+         assert(IsValid(smart_jnlst));  /* should have been created in constructor */
+         SmartPtr<Journal> debug_jrnl = smart_jnlst->GetJournal("Debug");
+         assert(IsValid(debug_jrnl));  /* should have been added in constructor */
          debug_jrnl->SetAllPrintLevels(debug_print_level);
          debug_jrnl->SetPrintLevel(J_DBG, J_ALL);
+         if( IsNull(jnlst_->GetJournal("Debug")) )
+         {
+            jnlst_->AddJournal(debug_jrnl);
+         }
 #endif
 
          // Open an output file if required
@@ -195,8 +219,7 @@ ApplicationReturnStatus IpoptApplication::Initialize(
          if( output_filename != "" )
          {
             EJournalLevel file_print_level;
-            option_set = options_->GetIntegerValue("file_print_level", ivalue, "");
-            if( option_set )
+            if( options_->GetIntegerValue("file_print_level", ivalue, "") )
             {
                file_print_level = (EJournalLevel) ivalue;
             }
@@ -204,7 +227,9 @@ ApplicationReturnStatus IpoptApplication::Initialize(
             {
                file_print_level = print_level;
             }
-            bool openend = OpenOutputFile(output_filename, file_print_level);
+            bool file_append;
+            options_->GetBoolValue("file_append", file_append, "");
+            bool openend = OpenOutputFile(output_filename, file_print_level, file_append);
             if( !openend )
             {
                jnlst_->Printf(J_ERROR, J_INITIALIZATION, "Error opening output file \"%s\"\n", output_filename.c_str());
@@ -218,299 +243,7 @@ ApplicationReturnStatus IpoptApplication::Initialize(
       options_->GetBoolValue("print_options_documentation", print_options_documentation, "");
       if( print_options_documentation )
       {
-         std::string printmode;
-         options_->GetStringValue("print_options_mode", printmode, "");
-         if( printmode != "text" )
-         {
-            std::list<std::string> options_to_print;
-            options_to_print.push_back("#Output");
-            options_to_print.push_back("print_level");
-            options_to_print.push_back("print_user_options");
-            options_to_print.push_back("print_options_documentation");
-            options_to_print.push_back("print_frequency_iter");
-            options_to_print.push_back("print_frequency_time");
-            options_to_print.push_back("output_file");
-            options_to_print.push_back("file_print_level");
-            options_to_print.push_back("option_file_name");
-            options_to_print.push_back("print_info_string");
-            options_to_print.push_back("inf_pr_output");
-            options_to_print.push_back("print_timing_statistics");
-
-            options_to_print.push_back("#Termination");
-            options_to_print.push_back("tol");
-            options_to_print.push_back("max_iter");
-            options_to_print.push_back("max_cpu_time");
-            options_to_print.push_back("dual_inf_tol");
-            options_to_print.push_back("constr_viol_tol");
-            options_to_print.push_back("compl_inf_tol");
-            options_to_print.push_back("acceptable_tol");
-            options_to_print.push_back("acceptable_iter");
-            options_to_print.push_back("acceptable_constr_viol_tol");
-            options_to_print.push_back("acceptable_dual_inf_tol");
-            options_to_print.push_back("acceptable_compl_inf_tol");
-            options_to_print.push_back("acceptable_obj_change_tol");
-            options_to_print.push_back("diverging_iterates_tol");
-
-            options_to_print.push_back("#NLP Scaling");
-            options_to_print.push_back("obj_scaling_factor");
-            options_to_print.push_back("nlp_scaling_method");
-            options_to_print.push_back("nlp_scaling_max_gradient");
-            options_to_print.push_back("nlp_scaling_min_value");
-
-            options_to_print.push_back("#NLP");
-            options_to_print.push_back("bound_relax_factor");
-            options_to_print.push_back("honor_original_bounds");
-            options_to_print.push_back("check_derivatives_for_naninf");
-            options_to_print.push_back("nlp_lower_bound_inf");
-            options_to_print.push_back("nlp_upper_bound_inf");
-            options_to_print.push_back("fixed_variable_treatment");
-            options_to_print.push_back("jac_c_constant");
-            options_to_print.push_back("jac_d_constant");
-            options_to_print.push_back("hessian_constant");
-
-            options_to_print.push_back("#Initialization");
-            options_to_print.push_back("bound_frac");
-            options_to_print.push_back("bound_push");
-            options_to_print.push_back("slack_bound_frac");
-            options_to_print.push_back("slack_bound_push");
-            options_to_print.push_back("bound_mult_init_val");
-            options_to_print.push_back("constr_mult_init_max");
-            options_to_print.push_back("bound_mult_init_method");
-
-            options_to_print.push_back("#Barrier Parameter");
-            options_to_print.push_back("mehrotra_algorithm");
-            options_to_print.push_back("mu_strategy");
-            options_to_print.push_back("mu_oracle");
-            options_to_print.push_back("quality_function_max_section_steps");
-            options_to_print.push_back("fixed_mu_oracle");
-            options_to_print.push_back("adaptive_mu_globalization");
-            options_to_print.push_back("mu_init");
-            options_to_print.push_back("mu_max_fact");
-            options_to_print.push_back("mu_max");
-            options_to_print.push_back("mu_min");
-            options_to_print.push_back("mu_target");
-            options_to_print.push_back("barrier_tol_factor");
-            options_to_print.push_back("mu_linear_decrease_factor");
-            options_to_print.push_back("mu_superlinear_decrease_power");
-
-            options_to_print.push_back("#Multiplier Updates");
-            options_to_print.push_back("alpha_for_y");
-            options_to_print.push_back("alpha_for_y_tol");
-            options_to_print.push_back("recalc_y");
-            options_to_print.push_back("recalc_y_feas_tol");
-
-            options_to_print.push_back("#Line Search");
-            options_to_print.push_back("max_soc");
-            options_to_print.push_back("watchdog_shortened_iter_trigger");
-            options_to_print.push_back("watchdog_trial_iter_max");
-            options_to_print.push_back("accept_every_trial_step");
-            options_to_print.push_back("corrector_type");
-            options_to_print.push_back("soc_method");
-
-            options_to_print.push_back("#Warm Start");
-            options_to_print.push_back("warm_start_init_point");
-            options_to_print.push_back("warm_start_bound_push");
-            options_to_print.push_back("warm_start_bound_frac");
-            options_to_print.push_back("warm_start_slack_bound_frac");
-            options_to_print.push_back("warm_start_slack_bound_push");
-            options_to_print.push_back("warm_start_mult_bound_push");
-            options_to_print.push_back("warm_start_mult_init_max");
-
-            options_to_print.push_back("#Restoration Phase");
-            options_to_print.push_back("expect_infeasible_problem");
-            options_to_print.push_back("expect_infeasible_problem_ctol");
-            options_to_print.push_back("expect_infeasible_problem_ytol");
-            options_to_print.push_back("start_with_resto");
-            options_to_print.push_back("soft_resto_pderror_reduction_factor");
-            options_to_print.push_back("required_infeasibility_reduction");
-            options_to_print.push_back("bound_mult_reset_threshold");
-            options_to_print.push_back("constr_mult_reset_threshold");
-            options_to_print.push_back("evaluate_orig_obj_at_resto_trial");
-
-            options_to_print.push_back("#Linear Solver");
-            options_to_print.push_back("linear_solver");
-            options_to_print.push_back("linear_system_scaling");
-            options_to_print.push_back("linear_scaling_on_demand");
-            options_to_print.push_back("max_refinement_steps");
-            options_to_print.push_back("min_refinement_steps");
-            options_to_print.push_back("neg_curv_test_reg");
-            options_to_print.push_back("neg_curv_test_tol");
-
-            options_to_print.push_back("#Hessian Perturbation");
-            options_to_print.push_back("max_hessian_perturbation");
-            options_to_print.push_back("min_hessian_perturbation");
-            options_to_print.push_back("first_hessian_perturbation");
-            options_to_print.push_back("perturb_inc_fact_first");
-            options_to_print.push_back("perturb_inc_fact");
-            options_to_print.push_back("perturb_dec_fact");
-            options_to_print.push_back("jacobian_regularization_value");
-
-            options_to_print.push_back("#Quasi-Newton");
-            options_to_print.push_back("hessian_approximation");
-            options_to_print.push_back("limited_memory_update_type");
-            options_to_print.push_back("limited_memory_max_history");
-            options_to_print.push_back("limited_memory_max_skipping");
-            options_to_print.push_back("limited_memory_initialization");
-            options_to_print.push_back("limited_memory_init_val");
-            options_to_print.push_back("limited_memory_init_val_max");
-            options_to_print.push_back("limited_memory_init_val_min");
-            options_to_print.push_back("limited_memory_special_for_resto");
-
-            options_to_print.push_back("#Derivative Test");
-            options_to_print.push_back("derivative_test");
-            options_to_print.push_back("derivative_test_perturbation");
-            options_to_print.push_back("derivative_test_tol");
-            options_to_print.push_back("derivative_test_print_all");
-            options_to_print.push_back("derivative_test_first_index");
-            options_to_print.push_back("point_perturbation_radius");
-
-            // Special linear solver
-#if defined(COINHSL_HAS_MA27) || defined(HAVE_LINEARSOLVERLOADER)
-
-            options_to_print.push_back("#MA27 Linear Solver");
-            options_to_print.push_back("ma27_pivtol");
-            options_to_print.push_back("ma27_pivtolmax");
-            options_to_print.push_back("ma27_liw_init_factor");
-            options_to_print.push_back("ma27_la_init_factor");
-            options_to_print.push_back("ma27_meminc_factor");
-#endif
-
-#if defined(COINHSL_HAS_MA57) || defined(HAVE_LINEARSOLVERLOADER)
-
-            options_to_print.push_back("#MA57 Linear Solver");
-            options_to_print.push_back("ma57_pivtol");
-            options_to_print.push_back("ma57_pivtolmax");
-            options_to_print.push_back("ma57_pre_alloc");
-            options_to_print.push_back("ma57_pivot_order");
-            options_to_print.push_back("ma57_automatic_scaling");
-            options_to_print.push_back("ma57_block_size");
-            options_to_print.push_back("ma57_node_amalgamation");
-            options_to_print.push_back("ma57_small_pivot_flag");
-#endif
-
-#if defined(COINHSL_HAS_MA77) || defined(HAVE_LINEARSOLVERLOADER)
-
-            options_to_print.push_back("#MA77 Linear Solver");
-            options_to_print.push_back("ma77_print_level");
-            options_to_print.push_back("ma77_buffer_lpage");
-            options_to_print.push_back("ma77_buffer_npage");
-            options_to_print.push_back("ma77_file_size");
-            options_to_print.push_back("ma77_maxstore");
-            options_to_print.push_back("ma77_nemin");
-            options_to_print.push_back("ma77_order");
-            options_to_print.push_back("ma77_small");
-            options_to_print.push_back("ma77_static");
-            options_to_print.push_back("ma77_u");
-            options_to_print.push_back("ma77_umax");
-#endif
-
-#if defined(COINHSL_HAS_MA86) || defined(HAVE_LINEARSOLVERLOADER)
-
-            options_to_print.push_back("#MA86 Linear Solver");
-            options_to_print.push_back("ma86_print_level");
-            options_to_print.push_back("ma86_nemin");
-            options_to_print.push_back("ma86_order");
-            options_to_print.push_back("ma86_scaling");
-            options_to_print.push_back("ma86_small");
-            options_to_print.push_back("ma86_static");
-            options_to_print.push_back("ma86_u");
-            options_to_print.push_back("ma86_umax");
-#endif
-
-#if defined(COINHSL_HAS_MA97) || defined(HAVE_LINEARSOLVERLOADER)
-
-            options_to_print.push_back("#MA97 Linear Solver");
-            options_to_print.push_back("ma97_print_level");
-            options_to_print.push_back("ma97_nemin");
-            options_to_print.push_back("ma97_order");
-            options_to_print.push_back("ma97_scaling");
-            options_to_print.push_back("ma97_scaling1");
-            options_to_print.push_back("ma97_scaling2");
-            options_to_print.push_back("ma97_scaling3");
-            options_to_print.push_back("ma97_small");
-            options_to_print.push_back("ma97_solve_blas3");
-            options_to_print.push_back("ma97_switch1");
-            options_to_print.push_back("ma97_switch2");
-            options_to_print.push_back("ma97_switch3");
-            options_to_print.push_back("ma97_u");
-            options_to_print.push_back("ma97_umax");
-#endif
-
-#ifdef COIN_HAS_MUMPS
-
-            options_to_print.push_back("#MUMPS Linear Solver");
-            options_to_print.push_back("mumps_pivtol");
-            options_to_print.push_back("mumps_pivtolmax");
-            options_to_print.push_back("mumps_mem_percent");
-            options_to_print.push_back("mumps_permuting_scaling");
-            options_to_print.push_back("mumps_pivot_order");
-            options_to_print.push_back("mumps_scaling");
-#endif
-
-#if defined(HAVE_PARDISO) || defined(HAVE_LINEARSOLVERLOADER)
-
-            options_to_print.push_back("#Pardiso Linear Solver");
-            options_to_print.push_back("pardiso_matching_strategy");
-            options_to_print.push_back("pardiso_max_iterative_refinement_steps");
-            options_to_print.push_back("pardiso_msglvl");
-            options_to_print.push_back("pardiso_order");
-            //options_to_print.push_back("pardiso_out_of_core_power");
-#endif
-
-#ifdef HAVE_WSMP
-
-            options_to_print.push_back("#WSMP Linear Solver");
-            options_to_print.push_back("wsmp_num_threads");
-            options_to_print.push_back("wsmp_ordering_option");
-            options_to_print.push_back("wsmp_pivtol");
-            options_to_print.push_back("wsmp_pivtolmax");
-            options_to_print.push_back("wsmp_scaling");
-            options_to_print.push_back("wsmp_singularity_threshold");
-#endif
-
-            if( printmode == "latex" )
-            {
-               reg_options_->OutputLatexOptionDocumentation(*jnlst_, options_to_print);
-            }
-            else
-            {
-               reg_options_->OutputDoxygenOptionDocumentation(*jnlst_, options_to_print);
-            }
-         }
-         else
-         {
-            std::list<std::string> categories;
-            categories.push_back("Output");
-            /*categories.push_back("Main Algorithm");*/
-            categories.push_back("Convergence");
-            categories.push_back("NLP Scaling");
-            categories.push_back("NLP");
-            categories.push_back("Initialization");
-            categories.push_back("Barrier Parameter Update");
-            categories.push_back("Line Search");
-            categories.push_back("Warm Start");
-            categories.push_back("Linear Solver");
-            categories.push_back("Step Calculation");
-            categories.push_back("Restoration Phase");
-            categories.push_back("Derivative Checker");
-            categories.push_back("Hessian Approximation");
-            categories.push_back("MA27 Linear Solver");
-            categories.push_back("MA57 Linear Solver");
-            categories.push_back("Pardiso Linear Solver");
-#ifdef HAVE_WSMP
-
-            categories.push_back("WSMP Linear Solver");
-#endif
-#ifdef COIN_HAS_MUMPS
-
-            categories.push_back("Mumps Linear Solver");
-#endif
-            categories.push_back("MA28 Linear Solver");
-
-            categories.push_back("Uncategorized");
-            //categories.push_back("Undocumented Options");
-            reg_options_->OutputOptionDocumentation(*jnlst_, categories);
-         }
+         reg_options_->OutputOptionDocumentation(*jnlst_, options_);
       }
 
 #ifdef BUILD_INEXACT
@@ -538,6 +271,11 @@ ApplicationReturnStatus IpoptApplication::Initialize(
    catch( std::bad_alloc& )
    {
       jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Not enough memory.\n");
+      return Insufficient_Memory;
+   }
+   catch( std::overflow_error& )
+   {
+      jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Integer type too small for required memory.\n");
       return Insufficient_Memory;
    }
    catch( ... )
@@ -571,6 +309,11 @@ ApplicationReturnStatus IpoptApplication::Initialize(
       catch( std::bad_alloc& )
       {
          jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Not enough memory.\n");
+         return Insufficient_Memory;
+      }
+      catch( std::overflow_error& )
+      {
+         jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Integer type too small for required memory.\n");
          return Insufficient_Memory;
       }
       catch( ... )
@@ -645,43 +388,41 @@ void IpoptApplication::RegisterOptions(
       "NOTE: This option only works when read from the ipopt.opt options file! "
       "Determines the verbosity level for the file specified by \"output_file\". "
       "By default it is the same as \"print_level\".");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
+      "file_append",
+      "Whether to append to output file, if set, instead of truncating.",
+      false,
+      "NOTE: This option only works when read from the ipopt.opt options file!");
+   roptions->AddBoolOption(
       "print_user_options",
       "Print all options set by the user.",
-      "no",
-      "no", "don't print options",
-      "yes", "print options",
+      false,
       "If selected, the algorithm will print the list of all options set by the user including their values and whether they have been used. "
       "In some cases this information might be incorrect, due to the internal program flow.");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "print_options_documentation",
-      "Switch to print all algorithmic options.",
-      "no",
-      "no", "don't print list",
-      "yes", "print list",
-      "If selected, the algorithm will print the list of all available algorithmic options with some documentation "
-      "before solving the optimization problem.");
+      "Switch to print all algorithmic options with some documentation before solving the optimization problem.",
+      false);
 
-#if COIN_IPOPT_VERBOSITY > 0
-
+#if IPOPT_VERBOSITY > 0
    roptions->AddBoundedIntegerOption(
       "debug_print_level",
       "Verbosity level for debug file.",
       0, J_LAST_LEVEL - 1,
       J_ITERSUMMARY,
-      "This Ipopt library has been compiled in debug mode, and a file \"debug.out\" is produced for every run."
+      "This Ipopt library has been compiled in debug mode, and a file \"debug.out\" is produced for every run. "
       "This option determines the verbosity level for this file. "
       "By default it is the same as \"print_level\".");
 #endif
 
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "print_timing_statistics",
       "Switch to print timing statistics.",
-      "no",
-      "no", "don't print statistics",
-      "yes", "print all timing statistics",
-      "If selected, the program will print the CPU usage (user time) for selected tasks.");
+      false,
+      "If selected, the program will print the time spend for selected tasks. "
+      "This implies timing_statistics=yes.");
 
+   roptions->SetRegisteringCategory("Miscellaneous");
    roptions->AddStringOption1(
       "option_file_name",
       "File name of options file.",
@@ -693,44 +434,34 @@ void IpoptApplication::RegisterOptions(
       "It does not make any sense to specify this option within the options file. "
       "Setting this option to an empty string disables reading of an options file.");
 
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "replace_bounds",
-      "Indicates if all variable bounds should be replaced by inequality constraints",
-      "no",
-      "no", "leave bounds on variables",
-      "yes", "replace variable bounds by inequality constraints",
-      "This option must be set for the inexact algorithm");
-   roptions->AddStringOption2(
+      "Whether all variable bounds should be replaced by inequality constraints",
+      false,
+      "This option must be set for the inexact algorithm.",
+      true);
+   roptions->AddBoolOption(
       "skip_finalize_solution_call",
-      "Indicates if call to NLP::FinalizeSolution after optimization should be suppressed",
-      "no",
-      "no", "call FinalizeSolution",
-      "yes", "do not call FinalizeSolution",
+      "Whether a call to NLP::FinalizeSolution after optimization should be suppressed",
+      false,
       "In some Ipopt applications, the user might want to call the FinalizeSolution method separately. "
-      "Setting this option to \"yes\" will cause the IpoptApplication object to suppress the default call to that method.");
+      "Setting this option to \"yes\" will cause the IpoptApplication object to suppress the default call to that method.",
+      true);
 
    roptions->SetRegisteringCategory("Undocumented");
-   roptions->AddStringOption3(
-      "print_options_mode",
-      "Undocumented",
-      "text",
-      "text", "Ordinary text",
-      "latex", "LaTeX formatted",
-      "doxygen", "Doxygen (markdown) formatted");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "suppress_all_output",
-      "Undocumented",
-      "no",
-      "no", "Undocumented",
-      "yes", "Undocumented",
-      "Undocumented");
+      "",
+      false,
+      "",
+      true);
 #ifdef BUILD_INEXACT
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "inexact_algorithm",
-      "Activate the version of Ipopt that allows iterative linear solvers.",
-      "no",
-      "no", "use default algorithm with direct linear solvers",
-      "yes", "use the EXPERIMENTAL iterative linear solver option");
+      "Whether to activate the version of Ipopt that allows iterative linear solvers.",
+      false,
+      "EXPERIMENTAL",
+      true);
 #endif
 }
 
@@ -822,6 +553,11 @@ ApplicationReturnStatus IpoptApplication::OptimizeNLP(
       retValue = Insufficient_Memory;
       jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Not enough memory.\n");
    }
+   catch( std::overflow_error& )
+   {
+      retValue = Insufficient_Memory;
+      jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Integer type too small for required memory.\n");
+   }
    catch( ... )
    {
       if( !rethrow_nonipoptexception_ )
@@ -883,22 +619,22 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
 
    // Reset Timing statistics
    ip_data_->TimingStats().ResetTimes();
-   p2ip_nlp->ResetTimes();
 
    ApplicationReturnStatus retValue = Internal_Error;
    SolverReturn status = INTERNAL_ERROR;
-   /** Flag indicating if the NLP:FinalizeSolution method should not
-    *  be called after optimization. */
-   bool skip_finalize_solution_call = false;
    try
    {
+      // check whether timing statistics need to be printed
+      bool print_timing_statistics;
+      options_->GetBoolValue("print_timing_statistics", print_timing_statistics, "");
+      // enable collecting timing statistics if they need to be printed later
+      if( print_timing_statistics )
+      {
+         options_->SetStringValue("timing_statistics", "yes", true, true);
+      }
 
       // Set up the algorithm
       p2alg->Initialize(*jnlst_, *p2ip_nlp, *p2ip_data, *p2ip_cq, *options_, "");
-
-      // Process the options used below
-      bool print_timing_statistics;
-      options_->GetBoolValue("print_timing_statistics", print_timing_statistics, "");
 
       // If selected, print the user options
       bool print_user_options;
@@ -907,7 +643,7 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
       {
          std::string liststr;
          options_->PrintUserOptions(liststr);
-         jnlst_->Printf(J_ERROR, J_MAIN, "\nList of user-set options:\n\n%s", liststr.c_str());
+         jnlst_->Printf(J_SUMMARY, J_MAIN, "\nList of user-set options:\n\n%s", liststr.c_str());
       }
 
       if( jnlst_->ProduceOutput(J_DETAILED, J_MAIN) )
@@ -925,7 +661,7 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
       // case, we rethrow the TOO_FEW_DOF exception here
       ASSERT_EXCEPTION(status != TOO_FEW_DEGREES_OF_FREEDOM, TOO_FEW_DOF, "Too few degrees of freedom (rethrown)!");
 
-      jnlst_->Printf(J_SUMMARY, J_SOLUTION, "\nNumber of Iterations....: %d\n", p2ip_data->iter_count());
+      jnlst_->Printf(J_SUMMARY, J_SOLUTION, "\nNumber of Iterations....: %" IPOPT_INDEX_FORMAT "\n", p2ip_data->iter_count());
 
       if( status != INVALID_NUMBER_DETECTED )
       {
@@ -940,6 +676,9 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
             jnlst_->Printf(J_SUMMARY, J_SOLUTION, "Constraint violation....: %24.16e  %24.16e\n",
                            p2ip_cq->curr_nlp_constraint_violation(NORM_MAX),
                            p2ip_cq->unscaled_curr_nlp_constraint_violation(NORM_MAX));
+            jnlst_->Printf(J_SUMMARY, J_SOLUTION, "Variable bound violation: %24.16e  %24.16e\n",
+                           p2ip_cq->curr_orig_bounds_violation(NORM_MAX),
+                           p2ip_cq->unscaled_curr_orig_bounds_violation(NORM_MAX));
             jnlst_->Printf(J_SUMMARY, J_SOLUTION, "Complementarity.........: %24.16e  %24.16e\n",
                            p2ip_cq->curr_complementarity(0., NORM_MAX), p2ip_cq->unscaled_curr_complementarity(0., NORM_MAX));
             jnlst_->Printf(J_SUMMARY, J_SOLUTION, "Overall NLP error.......: %24.16e  %24.16e\n\n",
@@ -947,8 +686,10 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
          }
          catch( IpoptNLP::Eval_Error& exc )
          {
+            // this can happen if the final point was accepted because functions can be evaluated,
+            // but functions are not differentiable, so dual infeasibility cannot be computed
             status = INVALID_NUMBER_DETECTED;
-            exc.ReportException(*jnlst_, J_ERROR);
+            exc.ReportException(*jnlst_, J_STRONGWARNING);
          }
       }
 
@@ -966,33 +707,40 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
          p2ip_cq->curr_d_minus_s()->Print(*jnlst_, J_VECTOR, J_SOLUTION, "curr_d_minus_s");
       }
 
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "\nNumber of objective function evaluations             = %d\n",
+      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "\nNumber of objective function evaluations             = %" IPOPT_INDEX_FORMAT "\n",
                      p2ip_nlp->f_evals());
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of objective gradient evaluations             = %d\n",
+      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of objective gradient evaluations             = %" IPOPT_INDEX_FORMAT "\n",
                      p2ip_nlp->grad_f_evals());
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of equality constraint evaluations            = %d\n",
+      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of equality constraint evaluations            = %" IPOPT_INDEX_FORMAT "\n",
                      p2ip_nlp->c_evals());
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of inequality constraint evaluations          = %d\n",
+      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of inequality constraint evaluations          = %" IPOPT_INDEX_FORMAT "\n",
                      p2ip_nlp->d_evals());
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of equality constraint Jacobian evaluations   = %d\n",
+      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of equality constraint Jacobian evaluations   = %" IPOPT_INDEX_FORMAT "\n",
                      p2ip_nlp->jac_c_evals());
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of inequality constraint Jacobian evaluations = %d\n",
+      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of inequality constraint Jacobian evaluations = %" IPOPT_INDEX_FORMAT "\n",
                      p2ip_nlp->jac_d_evals());
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of Lagrangian Hessian evaluations             = %d\n",
+      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Number of Lagrangian Hessian evaluations             = %" IPOPT_INDEX_FORMAT "\n",
                      p2ip_nlp->h_evals());
-      Number cpu_time_overall_alg = p2ip_data->TimingStats().OverallAlgorithm().TotalCpuTime();
-      Number cpu_time_funcs = p2ip_nlp->TotalFunctionEvaluationCpuTime();
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Total CPU secs in IPOPT (w/o function evaluations)   = %10.3f\n",
-                     cpu_time_overall_alg - cpu_time_funcs);
-      jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Total CPU secs in NLP function evaluations           = %10.3f\n",
-                     cpu_time_funcs);
+      Number wall_time_overall_alg = p2ip_data->TimingStats().OverallAlgorithm().TotalWallclockTime();
+      if( p2ip_data->TimingStats().IsFunctionEvaluationTimeEnabled() )
+      {
+         Number wall_time_funcs = p2ip_data->TimingStats().TotalFunctionEvaluationWallclockTime();
+         jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Total seconds in IPOPT (w/o function evaluations)    = %10.3f\n",
+                        wall_time_overall_alg - wall_time_funcs);
+         jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Total seconds in NLP function evaluations            = %10.3f\n",
+                        wall_time_funcs);
+      }
+      else
+      {
+         jnlst_->Printf(J_SUMMARY, J_STATISTICS, "Total seconds in IPOPT                               = %.3f\n",
+                        wall_time_overall_alg);
+      }
 
       // Write timing statistics information
       if( print_timing_statistics )
       {
          jnlst_->Printf(J_SUMMARY, J_TIMING_STATISTICS, "\n\nTiming Statistics:\n\n");
          p2ip_data->TimingStats().PrintAllTimingStatistics(*jnlst_, J_SUMMARY, J_TIMING_STATISTICS);
-         p2ip_nlp->PrintTimingStatistics(*jnlst_, J_SUMMARY, J_TIMING_STATISTICS);
       }
 
       // Write EXIT message
@@ -1010,6 +758,11 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
       {
          retValue = Maximum_CpuTime_Exceeded;
          jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Maximum CPU time exceeded.\n");
+      }
+      else if( status == WALLTIME_EXCEEDED )
+      {
+         retValue = Maximum_WallTime_Exceeded;
+         jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Maximum wallclock time exceeded.\n");
       }
       else if( status == STOP_AT_TINY_STEP )
       {
@@ -1039,7 +792,7 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
       else if( status == ERROR_IN_STEP_COMPUTATION )
       {
          retValue = Error_In_Step_Computation;
-         jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Error in step computation (regularization becomes too large?)!\n");
+         jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Error in step computation!\n");
       }
       else if( status == LOCAL_INFEASIBILITY )
       {
@@ -1085,29 +838,18 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
       retValue = Invalid_Option;
       status = INVALID_OPTION;
    }
-   catch( NO_FREE_VARIABLES_BUT_FEASIBLE& exc )
+   catch( DYNAMIC_LIBRARY_FAILURE& exc )
    {
-      exc.ReportException(*jnlst_, J_MOREDETAILED);
-      jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Optimal Solution Found.\n");
-      retValue = Solve_Succeeded;
-      status = SUCCESS;
-      skip_finalize_solution_call = true; /* has already been called by TNLPAdapter (and we don't know the correct primal solution) */
-   }
-   catch( NO_FREE_VARIABLES_AND_INFEASIBLE& exc )
-   {
-      exc.ReportException(*jnlst_, J_MOREDETAILED);
-      jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Problem has only fixed variables and constraints are infeasible.\n");
-      retValue = Infeasible_Problem_Detected;
-      status = LOCAL_INFEASIBILITY;
-      skip_finalize_solution_call = true; /* has already been called by TNLPAdapter (and we don't know the correct primal solution) */
+      exc.ReportException(*jnlst_, J_ERROR);
+      jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Library loading failure.\n");
+      retValue = Invalid_Option;
    }
    catch( INCONSISTENT_BOUNDS& exc )
    {
       exc.ReportException(*jnlst_, J_MOREDETAILED);
       jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Problem has inconsistent variable bounds or constraint sides.\n");
-      retValue = Infeasible_Problem_Detected;
+      retValue = Invalid_Problem_Definition;
       status = LOCAL_INFEASIBILITY;
-      skip_finalize_solution_call = true; /* has already been called by TNLPAdapter (and we don't know the correct primal solution) */
    }
    catch( IpoptException& exc )
    {
@@ -1119,6 +861,12 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
    {
       retValue = Insufficient_Memory;
       jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Not enough memory.\n");
+      status = OUT_OF_MEMORY;
+   }
+   catch( std::overflow_error& )
+   {
+      retValue = Insufficient_Memory;
+      jnlst_->Printf(J_SUMMARY, J_MAIN, "\nEXIT: Integer type too small for required memory.\n");
       status = OUT_OF_MEMORY;
    }
    catch( ... )
@@ -1136,10 +884,10 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
       }
    }
 
-   if( !skip_finalize_solution_call )
-   {
-      options_->GetBoolValue("skip_finalize_solution_call", skip_finalize_solution_call, "");
-   }
+   /** Flag indicating if the NLP:FinalizeSolution method should not
+    *  be called after optimization. */
+   bool skip_finalize_solution_call;
+   options_->GetBoolValue("skip_finalize_solution_call", skip_finalize_solution_call, "");
 
    if( !skip_finalize_solution_call && IsValid(p2ip_data->curr()) && IsValid(p2ip_data->curr()->x()) )
    {
@@ -1155,6 +903,8 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
       {
          case SUCCESS:
          case MAXITER_EXCEEDED:
+         case CPUTIME_EXCEEDED:
+         case WALLTIME_EXCEEDED:
          case STOP_AT_TINY_STEP:
          case STOP_AT_ACCEPTABLE_POINT:
          case LOCAL_INFEASIBILITY:
@@ -1200,14 +950,15 @@ ApplicationReturnStatus IpoptApplication::call_optimize()
 
 bool IpoptApplication::OpenOutputFile(
    std::string   file_name,
-   EJournalLevel print_level
+   EJournalLevel print_level,
+   bool          file_append
 )
 {
    SmartPtr<Journal> file_jrnl = jnlst_->GetJournal("OutputFile:" + file_name);
 
    if( IsNull(file_jrnl) )
    {
-      file_jrnl = jnlst_->AddFileJournal("OutputFile:" + file_name, file_name.c_str(), print_level);
+      file_jrnl = jnlst_->AddFileJournal("OutputFile:" + file_name, file_name.c_str(), print_level, file_append);
    }
 
    // Check, if the output file could be created properly
@@ -1225,6 +976,37 @@ void IpoptApplication::RegisterAllIpoptOptions(
    const SmartPtr<RegisteredOptions>& roptions
 )
 {
+   // create Ipopt categories here to have place where to specify its priorities
+   roptions->SetRegisteringCategory("Termination", 600000);
+   roptions->SetRegisteringCategory("Output", 500000);
+   roptions->SetRegisteringCategory("NLP", 480000);
+   roptions->SetRegisteringCategory("NLP Scaling", 470000);
+   roptions->SetRegisteringCategory("Initialization", 460000);
+   roptions->SetRegisteringCategory("Warm Start", 450000);
+   roptions->SetRegisteringCategory("Miscellaneous", 400000);
+   roptions->SetRegisteringCategory("Barrier Parameter Update", 390000);
+   roptions->SetRegisteringCategory("Line Search", 380000);
+   roptions->SetRegisteringCategory("Linear Solver", 360000);
+   roptions->SetRegisteringCategory("Step Calculation", 350000);
+   roptions->SetRegisteringCategory("Restoration Phase", 340000);
+   roptions->SetRegisteringCategory("Hessian Approximation", 290000);
+   roptions->SetRegisteringCategory("Derivative Checker", 280000);
+   roptions->SetRegisteringCategory("MA27 Linear Solver", 199000);
+   roptions->SetRegisteringCategory("MA57 Linear Solver", 198000);
+   roptions->SetRegisteringCategory("MA77 Linear Solver", 197000);
+   roptions->SetRegisteringCategory("MA86 Linear Solver", 196000);
+   roptions->SetRegisteringCategory("MA97 Linear Solver", 195000);
+   roptions->SetRegisteringCategory("Pardiso (pardiso-project.org) Linear Solver", 190000);
+   roptions->SetRegisteringCategory("Pardiso (MKL) Linear Solver", 189000);
+   roptions->SetRegisteringCategory("SPRAL Linear Solver", 180000);
+   roptions->SetRegisteringCategory("WSMP Linear Solver", 170000);
+   roptions->SetRegisteringCategory("Mumps Linear Solver", 160000);
+   roptions->SetRegisteringCategory("MA28 Linear Solver", 150000);
+
+   roptions->SetRegisteringCategory("CG Penalty", -400000);
+   roptions->SetRegisteringCategory("Inexact Step Computation", -900000);
+   roptions->SetRegisteringCategory("Undocumented", -1000000);
+
    RegisterOptions_Interfaces(roptions);
    RegisterOptions_Algorithm(roptions);
    RegisterOptions_CGPenalty(roptions);
@@ -1232,6 +1014,7 @@ void IpoptApplication::RegisterAllIpoptOptions(
 #ifdef BUILD_INEXACT
    RegisterOptions_Inexact(roptions);
 #endif
+   roptions->SetRegisteringCategory("");
 }
 
 SmartPtr<SolveStatistics> IpoptApplication::Statistics()
@@ -1262,6 +1045,17 @@ SmartPtr<IpoptAlgorithm> IpoptApplication::AlgorithmObject()
 void IpoptApplication::PrintCopyrightMessage()
 {
    IpoptAlgorithm::print_copyright_message(*jnlst_);
+}
+
+void IpoptApplication::Version(
+   int& major,
+   int& minor,
+   int& release
+)
+{
+   major = IPOPT_VERSION_MAJOR;
+   minor = IPOPT_VERSION_MINOR;
+   release = IPOPT_VERSION_RELEASE;
 }
 
 } // namespace Ipopt

@@ -15,7 +15,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -33,6 +33,8 @@ DenseVector::DenseVector(
    if( Dim() == 0 )
    {
       initialized_ = true;
+      homogeneous_ = true;
+      scalar_ = 0.;
    }
 }
 
@@ -54,7 +56,7 @@ void DenseVector::SetValues(
 )
 {
    initialized_ = true;
-   IpBlasDcopy(Dim(), x, 1, values_allocated(), 1);
+   IpBlasCopy(Dim(), x, 1, values_allocated(), 1);
    homogeneous_ = false;
    // This is not an overloaded method from
    // Vector. Here, we must call ObjectChanged()
@@ -70,7 +72,7 @@ const Number* DenseVector::ExpandedValues() const
       {
          expanded_values_ = owner_space_->AllocateInternalStorage();
       }
-      IpBlasDcopy(Dim(), &scalar_, 0, expanded_values_, 1);
+      IpBlasCopy(Dim(), &scalar_, 0, expanded_values_, 1);
       return expanded_values_;
    }
    else
@@ -85,7 +87,7 @@ void DenseVector::set_values_from_scalar()
    initialized_ = true;
    homogeneous_ = false;
    Number* vals = values_allocated();
-   IpBlasDcopy(Dim(), &scalar_, 0, vals, 1);
+   IpBlasCopy(Dim(), &scalar_, 0, vals, 1);
 }
 
 void DenseVector::CopyImpl(
@@ -105,7 +107,7 @@ void DenseVector::CopyImpl(
    }
    else
    {
-      IpBlasDcopy(Dim(), dense_x->values_, 1, values_allocated(), 1);
+      IpBlasCopy(Dim(), dense_x->values_, 1, values_allocated(), 1);
    }
    initialized_ = true;
 }
@@ -121,7 +123,7 @@ void DenseVector::ScalImpl(
    }
    else
    {
-      IpBlasDscal(Dim(), alpha, values_, 1);
+      IpBlasScal(Dim(), alpha, values_, 1);
    }
 }
 
@@ -136,6 +138,12 @@ void DenseVector::AxpyImpl(
 
    DBG_ASSERT(dense_x->initialized_);
    DBG_ASSERT(Dim() == dense_x->Dim());
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
+
    if( homogeneous_ )
    {
       if( dense_x->homogeneous_ )
@@ -158,12 +166,12 @@ void DenseVector::AxpyImpl(
       {
          if( dense_x->scalar_ != 0. )
          {
-            IpBlasDaxpy(Dim(), alpha, &dense_x->scalar_, 0, values_, 1);
+            IpBlasAxpy(Dim(), alpha, &dense_x->scalar_, 0, values_, 1);
          }
       }
       else
       {
-         IpBlasDaxpy(Dim(), alpha, dense_x->values_, 1, values_, 1);
+         IpBlasAxpy(Dim(), alpha, dense_x->values_, 1, values_, 1);
       }
    }
 }
@@ -179,6 +187,12 @@ Number DenseVector::DotImpl(
 
    DBG_ASSERT(dense_x->initialized_);
    DBG_ASSERT(Dim() == dense_x->Dim());
+
+   if( Dim() == 0 )
+   {
+      return 0.0;
+   }
+
    if( homogeneous_ )
    {
       if( dense_x->homogeneous_ )
@@ -187,18 +201,18 @@ Number DenseVector::DotImpl(
       }
       else
       {
-         retValue = IpBlasDdot(Dim(), dense_x->values_, 1, &scalar_, 0);
+         retValue = IpBlasDot(Dim(), dense_x->values_, 1, &scalar_, 0);
       }
    }
    else
    {
       if( dense_x->homogeneous_ )
       {
-         retValue = IpBlasDdot(Dim(), &dense_x->scalar_, 0, values_, 1);
+         retValue = IpBlasDot(Dim(), &dense_x->scalar_, 0, values_, 1);
       }
       else
       {
-         retValue = IpBlasDdot(Dim(), dense_x->values_, 1, values_, 1);
+         retValue = IpBlasDot(Dim(), dense_x->values_, 1, values_, 1);
       }
    }
    return retValue;
@@ -209,11 +223,11 @@ Number DenseVector::Nrm2Impl() const
    DBG_ASSERT(initialized_);
    if( homogeneous_ )
    {
-      return sqrt((double) Dim()) * fabs(scalar_);
+      return std::sqrt((Number) Dim()) * std::abs(scalar_);
    }
    else
    {
-      return IpBlasDnrm2(Dim(), values_, 1);
+      return IpBlasNrm2(Dim(), values_, 1);
    }
 }
 
@@ -222,11 +236,11 @@ Number DenseVector::AsumImpl() const
    DBG_ASSERT(initialized_);
    if( homogeneous_ )
    {
-      return Dim() * fabs(scalar_);
+      return Dim() * std::abs(scalar_);
    }
    else
    {
-      return IpBlasDasum(Dim(), values_, 1);
+      return IpBlasAsum(Dim(), values_, 1);
    }
 }
 
@@ -237,17 +251,13 @@ Number DenseVector::AmaxImpl() const
    {
       return 0.;
    }
-   else
+
+   if( homogeneous_ )
    {
-      if( homogeneous_ )
-      {
-         return fabs(scalar_);
-      }
-      else
-      {
-         return fabs(values_[IpBlasIdamax(Dim(), values_, 1) - 1]);
-      }
+      return std::abs(scalar_);
    }
+
+   return std::abs(values_[IpBlasIamax(Dim(), values_, 1) - 1]);
 }
 
 void DenseVector::SetImpl(
@@ -276,6 +286,12 @@ void DenseVector::ElementWiseDivideImpl(
    DBG_ASSERT(dense_x->initialized_);
    const Number* values_x = dense_x->values_;
    DBG_ASSERT(Dim() == dense_x->Dim());
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
+
    if( homogeneous_ )
    {
       if( dense_x->homogeneous_ )
@@ -322,6 +338,12 @@ void DenseVector::ElementWiseMultiplyImpl(
    DBG_ASSERT(dense_x->initialized_);
    const Number* values_x = dense_x->values_;
    DBG_ASSERT(Dim() == dense_x->Dim());
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
+
    if( homogeneous_ )
    {
       if( dense_x->homogeneous_ )
@@ -360,6 +382,81 @@ void DenseVector::ElementWiseMultiplyImpl(
    }
 }
 
+void DenseVector::ElementWiseSelectImpl(
+   const Vector& x
+)
+{
+   DBG_ASSERT(initialized_);
+   const DenseVector* dense_x = static_cast<const DenseVector*>(&x);
+   DBG_ASSERT(dynamic_cast<const DenseVector*>(&x));
+
+   DBG_ASSERT(dense_x->initialized_);
+   const Number* values_x = dense_x->values_;
+   DBG_ASSERT(Dim() == dense_x->Dim());
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
+
+   if( homogeneous_ )
+   {
+      if( scalar_ == 0.0 )
+      {
+         return;
+      }
+      if( dense_x->homogeneous_ )
+      {
+         scalar_ *= dense_x->scalar_;
+      }
+      else
+      {
+         homogeneous_ = false;
+         Number* vals = values_allocated();
+         for( Index i = 0; i < Dim(); i++ )
+         {
+            vals[i] = scalar_ * values_x[i];
+         }
+      }
+   }
+   else
+   {
+      if( dense_x->homogeneous_ )
+      {
+         if( dense_x->scalar_ != 1.0 )
+         {
+            for( Index i = 0; i < Dim(); i++ )
+            {
+               if( values_[i] > 0.0 )
+               {
+                  values_[i] = dense_x->scalar_;
+               }
+               else if( values_[i] < 0.0 )
+               {
+                  values_[i] = -dense_x->scalar_;
+               }
+               // else values_[i] remains at 0.0
+            }
+         }
+      }
+      else
+      {
+         for( Index i = 0; i < Dim(); i++ )
+         {
+            if( values_[i] > 0.0 )
+            {
+               values_[i] = values_x[i];
+            }
+            else if( values_[i] < 0.0 )
+            {
+               values_[i] = -values_x[i];
+            }
+            // else values_[i] remains at 0.0
+         }
+      }
+   }
+}
+
 void DenseVector::ElementWiseMaxImpl(
    const Vector& x
 )
@@ -371,6 +468,12 @@ void DenseVector::ElementWiseMaxImpl(
    DBG_ASSERT(dense_x->initialized_);
    const Number* values_x = dense_x->values_;
    DBG_ASSERT(Dim() == dense_x->Dim());
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
+
    if( homogeneous_ )
    {
       if( dense_x->homogeneous_ )
@@ -417,6 +520,12 @@ void DenseVector::ElementWiseMinImpl(
    DBG_ASSERT(dense_x->initialized_);
    const Number* values_x = dense_x->values_;
    DBG_ASSERT(Dim() == dense_x->Dim());
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
+
    if( homogeneous_ )
    {
       if( dense_x->homogeneous_ )
@@ -455,6 +564,12 @@ void DenseVector::ElementWiseMinImpl(
 void DenseVector::ElementWiseReciprocalImpl()
 {
    DBG_ASSERT(initialized_);
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
+
    if( homogeneous_ )
    {
       scalar_ = 1.0 / scalar_;
@@ -473,13 +588,13 @@ void DenseVector::ElementWiseAbsImpl()
    DBG_ASSERT(initialized_);
    if( homogeneous_ )
    {
-      scalar_ = fabs(scalar_);
+      scalar_ = std::abs(scalar_);
    }
    else
    {
       for( Index i = 0; i < Dim(); i++ )
       {
-         values_[i] = fabs(values_[i]);
+         values_[i] = std::abs(values_[i]);
       }
    }
 }
@@ -489,13 +604,13 @@ void DenseVector::ElementWiseSqrtImpl()
    DBG_ASSERT(initialized_);
    if( homogeneous_ )
    {
-      scalar_ = sqrt(scalar_);
+      scalar_ = std::sqrt(scalar_);
    }
    else
    {
       for( Index i = 0; i < Dim(); i++ )
       {
-         values_[i] = sqrt(values_[i]);
+         values_[i] = std::sqrt(values_[i]);
       }
    }
 }
@@ -511,7 +626,7 @@ void DenseVector::AddScalarImpl(
    }
    else
    {
-      IpBlasDaxpy(Dim(), 1., &scalar, 0, values_, 1);
+      IpBlasAxpy(Dim(), 1., &scalar, 0, values_, 1);
    }
 }
 
@@ -586,16 +701,20 @@ Number DenseVector::SumLogsImpl() const
 {
    DBG_ASSERT(initialized_);
    Number sum;
-   if( homogeneous_ )
+   if( Dim() == 0 )
    {
-      sum = Dim() * log(scalar_);
+      sum = 0.0;
+   }
+   else if( homogeneous_ )
+   {
+      sum = Dim() * std::log(scalar_);
    }
    else
    {
       sum = 0.0;
       for( Index i = 0; i < Dim(); i++ )
       {
-         sum += log(values_[i]);
+         sum += std::log(values_[i]);
       }
    }
    return sum;
@@ -648,6 +767,12 @@ void DenseVector::AddTwoVectorsImpl(
    Number        c
 )
 {
+   if( Dim() == 0 )
+   {
+      DBG_ASSERT(initialized_);
+      return;
+   }
+
    const Number* values_v1 = NULL;
    bool homogeneous_v1 = false;
    Number scalar_v1 = 0;
@@ -709,16 +834,19 @@ void DenseVector::AddTwoVectorsImpl(
       Vector::AddTwoVectorsImpl(a, v1, b, v2, c);
       return;
    }
+   DBG_ASSERT(values_v1 != NULL || a == 0.);
+   DBG_ASSERT(values_v2 != NULL || b == 0.);
+   DBG_ASSERT(values_ != NULL);
 
    // I guess I'm going over board here, but it might be best to
    // capture all cases for a, b, and c separately...
-   if( c == 0 )
+   if( c == 0. )
    {
       if( a == 1. )
       {
          if( b == 0. )
          {
-            IpBlasDcopy(Dim(), values_v1, 1, values_, 1);
+            IpBlasCopy(Dim(), values_v1, 1, values_, 1);
          }
          else if( b == 1. )
          {
@@ -778,13 +906,13 @@ void DenseVector::AddTwoVectorsImpl(
          if( b == 0. )
          {
             Number zero = 0.;
-            IpBlasDcopy(Dim(), &zero, 0, values_, 1);
+            IpBlasCopy(Dim(), &zero, 0, values_, 1);
          }
          else if( b == 1. )
          {
             for( Index i = 0; i < Dim(); i++ )
             {
-               IpBlasDcopy(Dim(), values_v2, 1, values_, 1);
+               IpBlasCopy(Dim(), values_v2, 1, values_, 1);
             }
          }
          else if( b == -1. )
@@ -840,7 +968,7 @@ void DenseVector::AddTwoVectorsImpl(
       {
          if( b == 0. )
          {
-            IpBlasDaxpy(Dim(), 1., values_v1, 1, values_, 1);
+            IpBlasAxpy(Dim(), 1., values_v1, 1, values_, 1);
          }
          else if( b == 1. )
          {
@@ -868,7 +996,7 @@ void DenseVector::AddTwoVectorsImpl(
       {
          if( b == 0. )
          {
-            IpBlasDaxpy(Dim(), -1., values_v1, 1, values_, 1);
+            IpBlasAxpy(Dim(), -1., values_v1, 1, values_, 1);
          }
          else if( b == 1. )
          {
@@ -902,23 +1030,23 @@ void DenseVector::AddTwoVectorsImpl(
          {
             for( Index i = 0; i < Dim(); i++ )
             {
-               IpBlasDaxpy(Dim(), 1., values_v2, 1, values_, 1);
+               IpBlasAxpy(Dim(), 1., values_v2, 1, values_, 1);
             }
          }
          else if( b == -1. )
          {
-            IpBlasDaxpy(Dim(), -1., values_v2, 1, values_, 1);
+            IpBlasAxpy(Dim(), -1., values_v2, 1, values_, 1);
          }
          else
          {
-            IpBlasDaxpy(Dim(), b, values_v2, 1, values_, 1);
+            IpBlasAxpy(Dim(), b, values_v2, 1, values_, 1);
          }
       }
       else
       {
          if( b == 0. )
          {
-            IpBlasDaxpy(Dim(), a, values_v1, 1, values_, 1);
+            IpBlasAxpy(Dim(), a, values_v1, 1, values_, 1);
          }
          else if( b == 1. )
          {
@@ -1011,7 +1139,7 @@ void DenseVector::AddTwoVectorsImpl(
       {
          if( b == 0. )
          {
-            IpBlasDscal(Dim(), -1., values_, 1);
+            IpBlasScal(Dim(), -1., values_, 1);
          }
          else if( b == 1. )
          {
@@ -1135,7 +1263,7 @@ void DenseVector::AddTwoVectorsImpl(
       {
          if( b == 0. )
          {
-            IpBlasDscal(Dim(), c, values_, 1);
+            IpBlasScal(Dim(), c, values_, 1);
          }
          else if( b == 1. )
          {
@@ -1203,6 +1331,11 @@ Number DenseVector::FracToBoundImpl(
    DBG_ASSERT(tau >= 0.);
    const DenseVector* dense_delta = static_cast<const DenseVector*>(&delta);
    DBG_ASSERT(dynamic_cast<const DenseVector*>(&delta));
+
+   if( Dim() == 0 )
+   {
+      return 1.0;
+   }
 
    Number alpha = 1.;
    Number* values_x = values_;
@@ -1275,6 +1408,11 @@ void DenseVector::AddVectorQuotientImpl(
    DBG_ASSERT(c == 0. || initialized_);
    bool homogeneous_z = dense_z->homogeneous_;
    bool homogeneous_s = dense_s->homogeneous_;
+
+   if( Dim() == 0 )
+   {
+      return;
+   }
 
    if( (c == 0. || homogeneous_) && homogeneous_z && homogeneous_s )
    {
@@ -1414,11 +1552,11 @@ void DenseVector::CopyToPos(
 
    if( dense_x->homogeneous_ )
    {
-      IpBlasDcopy(dim_x, &scalar_, 0, vals + Pos, 1);
+      IpBlasCopy(dim_x, &scalar_, 0, vals + Pos, 1);
    }
    else
    {
-      IpBlasDcopy(dim_x, dense_x->values_, 1, vals + Pos, 1);
+      IpBlasCopy(dim_x, dense_x->values_, 1, vals + Pos, 1);
    }
    initialized_ = true;
    ObjectChanged();
@@ -1439,7 +1577,7 @@ void DenseVector::CopyFromPos(
    }
    else
    {
-      IpBlasDcopy(Dim(), dense_x->Values() + Pos, 1, Values(), 1);
+      IpBlasCopy(Dim(), dense_x->Values() + Pos, 1, Values(), 1);
       initialized_ = true;
       ObjectChanged();
    }
@@ -1456,7 +1594,7 @@ void DenseVector::PrintImplOffset(
 ) const
 {
    jnlst.PrintfIndented(level, category, indent,
-                        "%sDenseVector \"%s\" with %d elements:\n", prefix.c_str(),
+                        "%sDenseVector \"%s\" with %" IPOPT_INDEX_FORMAT " elements:\n", prefix.c_str(),
                         name.c_str(), Dim());
 
    if( initialized_ )
@@ -1475,7 +1613,7 @@ void DenseVector::PrintImplOffset(
             for( Index i = 0; i < Dim(); i++ )
             {
                jnlst.PrintfIndented(level, category, indent,
-                                    "%s%s[%5d]{%s}=%23.16e\n", prefix.c_str(), name.c_str(),
+                                    "%s%s[%5" IPOPT_INDEX_FORMAT "]{%s}=%23.16e\n", prefix.c_str(), name.c_str(),
                                     i + offset, idx_names[i].c_str(), values_[i]);
             }
          }
@@ -1484,7 +1622,7 @@ void DenseVector::PrintImplOffset(
             for( Index i = 0; i < Dim(); i++ )
             {
                jnlst.PrintfIndented(level, category, indent,
-                                    "%s%s[%5d]=%23.16e\n", prefix.c_str(), name.c_str(),
+                                    "%s%s[%5" IPOPT_INDEX_FORMAT "]=%23.16e\n", prefix.c_str(), name.c_str(),
                                     i + offset, values_[i]);
             }
          }

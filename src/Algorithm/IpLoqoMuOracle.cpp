@@ -12,7 +12,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -50,18 +50,16 @@ bool LoqoMuOracle::CalculateMu(
 
    //Number factor = 1.-tau_min_;   //This is the original values
    Number factor = 0.05;   //This is the value I used otherwise
-   Number sigma = 0.1 * pow(Min(factor * (1. - xi) / xi, 2.), 3.);
+   Number sigma = Number(0.1) * std::pow(Min(factor * (Number(1.) - xi) / xi, Number(2.)), Number(3.));
 
    Number mu = sigma * avrg_compl;
    Jnlst().Printf(J_DETAILED, J_BARRIER_UPDATE,
                   "  Barrier parameter proposed by LOQO rule is %lf\n", mu);
 
-   // DELETEME
-   char ssigma[40];
-   sprintf(ssigma, " sigma=%8.2e", sigma);
-   IpData().Append_info_string(ssigma);
-   sprintf(ssigma, " xi=%8.2e ", IpCq().curr_centrality_measure());
-   IpData().Append_info_string(ssigma);
+   /*
+   IpData().Append_info_string(" sigma", sigma);
+   IpData().Append_info_string(" xi", IpCq().curr_centrality_measure());
+   */
 
    new_mu = Max(Min(mu_max, mu), mu_min);
    return true;

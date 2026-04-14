@@ -11,25 +11,25 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
 bool InexactTSymScalingMethod::InitializeImpl(
-   const OptionsList& options,
-   const std::string& prefix
+   const OptionsList& /*options*/,
+   const std::string& /*prefix*/
 )
 {
    return true;
 }
 
 bool InexactTSymScalingMethod::ComputeSymTScalingFactors(
-   Index         n,
-   Index         nnz,
-   const ipfint* airn,
-   const ipfint* ajcn,
-   const double* a,
-   double*       scaling_factors
+   Index         /*n*/,
+   Index         /*nnz*/,
+   const Index*  /*airn*/,
+   const Index*  /*ajcn*/,
+   const Number* /*a*/,
+   Number*       scaling_factors
 )
 {
    DBG_START_METH("InexactTSymScalingMethod::ComputeTSymScalingFactors",

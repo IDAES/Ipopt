@@ -9,26 +9,28 @@
 //          Carl Laird, Andreas Waechter     IBM    2004-03-17
 
 #include "IpoptConfig.h"
+#include "IpMa86SolverInterface.hpp"
 
-#ifdef COIN_HAS_HSL
+#include <iostream>
+#include <cmath>
+
+#ifdef IPOPT_HAS_HSL
 #include "CoinHslConfig.h"
 #endif
 
-// if we do not have MA86 in HSL or the linear solver loader, then we want to build the MA86 interface
-#if defined(COINHSL_HAS_MA86) || defined(HAVE_LINEARSOLVERLOADER)
-
-#include "IpMa86SolverInterface.hpp"
-#include <iostream>
-#include <cmath>
 using namespace std;
-
-extern "C"
-{
-#include "hsl_mc68i.h"
-}
 
 namespace Ipopt
 {
+
+static IPOPT_DECL_MA86_DEFAULT_CONTROL(*user_ma86_default_control) = NULL;
+static IPOPT_DECL_MA86_ANALYSE(*user_ma86_analyse) = NULL;
+static IPOPT_DECL_MA86_FACTOR(*user_ma86_factor) = NULL;
+static IPOPT_DECL_MA86_FACTOR_SOLVE(*user_ma86_factor_solve) = NULL;
+static IPOPT_DECL_MA86_SOLVE(*user_ma86_solve) = NULL;
+static IPOPT_DECL_MA86_FINALISE(*user_ma86_finalise) = NULL;
+static IPOPT_DECL_MC68_DEFAULT_CONTROL(*user_mc68_default_control) = NULL;
+static IPOPT_DECL_MC68_ORDER(*user_mc68_order) = NULL;
 
 Ma86SolverInterface::~Ma86SolverInterface()
 {
@@ -48,13 +50,8 @@ void Ma86SolverInterface::RegisterOptions(
    roptions->AddIntegerOption(
       "ma86_print_level",
       "Debug printing level",
-      -1);
-   /*
-    "<0 no printing.\n"
-    "0  Error and warning messages only.\n"
-    "=1 Limited diagnostic printing.\n"
-    ">1 Additional diagnostic printing.");
-    */
+      -1,
+      "<0: no printing; 0: Error and warning messages only; 1: Limited diagnostic printing; >1 Additional diagnostic printing.");
    roptions->AddLowerBoundedIntegerOption(
       "ma86_nemin",
       "Node Amalgamation parameter",
@@ -109,18 +106,100 @@ void Ma86SolverInterface::RegisterOptions(
       "metis", "Use the MeTiS nested dissection algorithm (if available)");
 }
 
+void Ma86SolverInterface::SetFunctions(
+   IPOPT_DECL_MA86_DEFAULT_CONTROL(*ma86_default_control),
+   IPOPT_DECL_MA86_ANALYSE(*ma86_analyse),
+   IPOPT_DECL_MA86_FACTOR(*ma86_factor),
+   IPOPT_DECL_MA86_FACTOR_SOLVE(*ma86_factor_solve),
+   IPOPT_DECL_MA86_SOLVE(*ma86_solve),
+   IPOPT_DECL_MA86_FINALISE(*ma86_finalise),
+   IPOPT_DECL_MC68_DEFAULT_CONTROL(*mc68_default_control),
+   IPOPT_DECL_MC68_ORDER(*mc68_order)
+)
+{
+   DBG_ASSERT(ma86_default_control != NULL);
+   DBG_ASSERT(ma86_analyse != NULL);
+   DBG_ASSERT(ma86_factor != NULL);
+   DBG_ASSERT(ma86_factor_solve != NULL);
+   DBG_ASSERT(ma86_solve != NULL);
+   DBG_ASSERT(ma86_finalise != NULL);
+   DBG_ASSERT(mc68_default_control != NULL);
+   DBG_ASSERT(mc68_order != NULL);
+
+   user_ma86_default_control = ma86_default_control;
+   user_ma86_analyse = ma86_analyse;
+   user_ma86_factor = ma86_factor;
+   user_ma86_factor_solve = ma86_factor_solve;
+   user_ma86_solve = ma86_solve;
+   user_ma86_finalise = ma86_finalise;
+   user_mc68_default_control = mc68_default_control;
+   user_mc68_order = mc68_order;
+}
+
 bool Ma86SolverInterface::InitializeImpl(
    const OptionsList& options,
    const std::string& prefix
 )
 {
+   if( user_ma86_default_control != NULL )
+   {
+      ma86_default_control = user_ma86_default_control;
+      ma86_analyse = user_ma86_analyse;
+      ma86_factor = user_ma86_factor;
+      ma86_factor_solve = user_ma86_factor_solve;
+      ma86_solve = user_ma86_solve;
+      ma86_finalise = user_ma86_finalise;
+      mc68_default_control = user_mc68_default_control;
+      mc68_order = user_mc68_order;
+   }
+   else
+   {
+#if (defined(COINHSL_HAS_MA86) && !defined(IPOPT_SINGLE)) || (defined(COINHSL_HAS_MA86S) && defined(IPOPT_SINGLE))
+      // use HSL functions that should be available in linked HSL library
+      ma86_default_control = &::ma86_default_control;
+      ma86_analyse = &::ma86_analyse;
+      ma86_factor = &::ma86_factor;
+      ma86_factor_solve = &::ma86_factor_solve;
+      ma86_solve = &::ma86_solve;
+      ma86_finalise = &::ma86_finalise;
+      mc68_default_control = &::mc68_default_control;
+      mc68_order = &::mc68_order;
+#else
+      // try to load HSL functions from a shared library at runtime
+      DBG_ASSERT(IsValid(hslloader));
+
+#define STR2(x) #x
+#define STR(x) STR2(x)
+      ma86_default_control = (IPOPT_DECL_MA86_DEFAULT_CONTROL(*))hslloader->loadSymbol(STR(ma86_default_control));
+      ma86_analyse = (IPOPT_DECL_MA86_ANALYSE(*))hslloader->loadSymbol(STR(ma86_analyse));
+      ma86_factor = (IPOPT_DECL_MA86_FACTOR(*))hslloader->loadSymbol(STR(ma86_factor));
+      ma86_factor_solve = (IPOPT_DECL_MA86_FACTOR_SOLVE(*))hslloader->loadSymbol(STR(ma86_factor_solve));
+      ma86_solve = (IPOPT_DECL_MA86_SOLVE(*))hslloader->loadSymbol(STR(ma86_solve));
+      ma86_finalise = (IPOPT_DECL_MA86_FINALISE(*))hslloader->loadSymbol(STR(ma86_finalise));
+      mc68_default_control = (IPOPT_DECL_MC68_DEFAULT_CONTROL(*))hslloader->loadSymbol(STR(mc68_default_control));
+      mc68_order = (IPOPT_DECL_MC68_ORDER(*))hslloader->loadSymbol(STR(mc68_order));
+#endif
+   }
+
+   DBG_ASSERT(ma86_default_control != NULL);
+   DBG_ASSERT(ma86_analyse != NULL);
+   DBG_ASSERT(ma86_factor != NULL);
+   DBG_ASSERT(ma86_factor_solve != NULL);
+   DBG_ASSERT(ma86_solve != NULL);
+   DBG_ASSERT(ma86_finalise != NULL);
+   DBG_ASSERT(mc68_default_control != NULL);
+   DBG_ASSERT(mc68_order != NULL);
+
    ma86_default_control(&control_);
    control_.f_arrays = 1; // Use Fortran numbering (faster)
    /* Note: we can't set control_.action = false as we need to know the
     * intertia. (Otherwise we just enter the restoration phase and fail) */
 
-   options.GetIntegerValue("ma86_print_level", control_.diagnostics_level, prefix);
-   options.GetIntegerValue("ma86_nemin", control_.nemin, prefix);
+   Index temp;
+   options.GetIntegerValue("ma86_print_level", temp, prefix);
+   control_.diagnostics_level = temp;
+   options.GetIntegerValue("ma86_nemin", temp, prefix);
+   control_.nemin = temp;
    options.GetNumericValue("ma86_small", control_.small_, prefix);
    options.GetNumericValue("ma86_static", control_.static_, prefix);
    options.GetNumericValue("ma86_u", control_.u, prefix);
@@ -166,11 +245,18 @@ ESymSolverStatus Ma86SolverInterface::InitializeStructure(
    struct ma86_info info, info2;
    struct mc68_control control68;
    struct mc68_info info68;
-   Index* order_amd, *order_metis;
-   void* keep_amd, *keep_metis;
+   int* order_amd;
+   int* order_metis;
+   void* keep_amd;
+   void* keep_metis;
 
    // Store size for later use
    ndim_ = dim;
+
+   if( HaveIpData() )
+   {
+      IpData().TimingStats().LinearSystemSymbolicFactorization().Start();
+   }
 
    // Determine an ordering
    mc68_default_control(&control68);
@@ -178,15 +264,17 @@ ESymSolverStatus Ma86SolverInterface::InitializeStructure(
    control68.f_array_out = 1; // Use Fortran numbering (faster)
    order_amd = NULL;
    order_metis = NULL;
+   DBG_ASSERT(ordering_ == ORDER_METIS || ordering_ == ORDER_AMD || ordering_ == ORDER_AUTO);
    if( ordering_ == ORDER_METIS || ordering_ == ORDER_AUTO )
    {
-      order_metis = new Index[dim];
+      order_metis = new int[dim];
       mc68_order(3, dim, ia, ja, order_metis, &control68, &info68); /* MeTiS */
       if( info68.flag == -5 )
       {
          // MeTiS not available
          ordering_ = ORDER_AMD;
          delete[] order_metis;
+         order_metis = NULL;
       }
       else if( info68.flag < 0 )
       {
@@ -195,17 +283,12 @@ ESymSolverStatus Ma86SolverInterface::InitializeStructure(
    }
    if( ordering_ == ORDER_AMD || ordering_ == ORDER_AUTO )
    {
-      order_amd = new Index[dim];
+      order_amd = new int[dim];
       mc68_order(1, dim, ia, ja, order_amd, &control68, &info68); /* AMD */
    }
    if( info68.flag < 0 )
    {
       return SYMSOLVER_FATAL_ERROR;
-   }
-
-   if( HaveIpData() )
-   {
-      IpData().TimingStats().LinearSystemSymbolicFactorization().Start();
    }
 
    // perform analyse
@@ -263,7 +346,7 @@ ESymSolverStatus Ma86SolverInterface::InitializeStructure(
    {
       delete[] val_;
    }
-   val_ = new double[nonzeros];
+   val_ = new Number[nonzeros];
 
    if( info.flag >= 0 )
    {
@@ -280,7 +363,7 @@ ESymSolverStatus Ma86SolverInterface::MultiSolve(
    const Index* ia,
    const Index* ja,
    Index        nrhs,
-   double*      rhs_vals,
+   Number*      rhs_vals,
    bool         check_NegEVals,
    Index        numberOfNegEVals)
 {
@@ -303,7 +386,7 @@ ESymSolverStatus Ma86SolverInterface::MultiSolve(
       {
          return SYMSOLVER_FATAL_ERROR;
       }
-      if( info.flag == 2 || info.flag == -3 )
+      if( info.flag == 2 /* || info.flag == -3 */ )
       {
          return SYMSOLVER_SINGULAR;
       }
@@ -351,12 +434,10 @@ bool Ma86SolverInterface::IncreaseQuality()
 
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                   "Increasing pivot tolerance for HSL_MA86 from %7.2e ", control_.u);
-   control_.u = Min(umax_, pow(control_.u, 0.75));
+   control_.u = Min(umax_, std::pow(control_.u, Number(0.75)));
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                   "to %7.2e.\n", control_.u);
    return true;
 }
 
 } // namespace Ipopt
-
-#endif /* COINHSL_HAS_MA86 or HAVE_LINEARSOLVERLOADER */

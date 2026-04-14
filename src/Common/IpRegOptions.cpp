@@ -6,8 +6,8 @@
 
 #include "IpoptConfig.h"
 #include "IpRegOptions.hpp"
+#include "IpOptionsList.hpp"
 
-#include <set>
 #include <cstdio>
 #include <cctype>
 
@@ -33,7 +33,9 @@ void RegisteredOption::OutputDescription(
    }
 
    jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                "\n### %s (%s) ###\nCategory: %s\nDescription: %s\n", name_.c_str(), type_str.c_str(), registering_category_.c_str(), short_description_.c_str());
+                "\n### %s (%s) %s ###\nCategory: %s\nDescription: %s\n", name_.c_str(), type_str.c_str(),
+                advanced_ ? "(advanced)" : "",
+                IsValid(registering_category_) ? registering_category_->Name().c_str() : "n/a", short_description_.c_str());
 
    if( type_ == OT_Number )
    {
@@ -89,7 +91,7 @@ void RegisteredOption::OutputDescription(
       if( has_lower_ )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      "%d", (Index) lower_);
+                      "%" IPOPT_INDEX_FORMAT, (Index) lower_);
       }
       else
       {
@@ -98,12 +100,12 @@ void RegisteredOption::OutputDescription(
       }
 
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   " <= (%d) <= ", (Index) default_number_);
+                   " <= (%" IPOPT_INDEX_FORMAT ") <= ", (Index) default_number_);
 
       if( has_upper_ )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      "%d\n", (Index) upper_);
+                      "%" IPOPT_INDEX_FORMAT "\n", (Index) upper_);
       }
       else
       {
@@ -113,10 +115,9 @@ void RegisteredOption::OutputDescription(
    }
    else if( type_ == OT_String )
    {
-      std::vector<string_entry>::const_iterator i;
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                    "Valid Settings:\n");
-      for( i = valid_strings_.begin(); i != valid_strings_.end(); i++ )
+      for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                       "\t%s (%s)\n", (*i).value_.c_str(), (*i).description_.c_str());
@@ -136,6 +137,10 @@ void RegisteredOption::OutputLatexDescription(
    MakeValidLatexString(short_description_, latex_desc);
    jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                 "\\paragraph{%s:}\\label{opt:%s} ", latex_name.c_str(), name_.c_str());
+   if( advanced_ )
+   {
+      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "(advanced) ");
+   }
    if( short_description_.length() == 0 )
    {
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
@@ -143,7 +148,7 @@ void RegisteredOption::OutputLatexDescription(
    }
    else
    {
-      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
+      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "%s",
                    latex_desc.c_str());
    }
    jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
@@ -160,9 +165,7 @@ void RegisteredOption::OutputLatexDescription(
       MakeValidLatexString(long_description_,
                            latex_desc);
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   " ");
-      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   latex_desc.c_str());
+                   " %s", latex_desc.c_str());
    }
 
    if( type_ == OT_Number )
@@ -179,7 +182,7 @@ void RegisteredOption::OutputLatexDescription(
       else
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      "%s", "{\\tt -inf}");
+                      "{\\tt -inf}");
       }
 
       if( has_lower_ && !lower_strict_ )
@@ -216,7 +219,7 @@ void RegisteredOption::OutputLatexDescription(
       else
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      "%s", "{\\tt +inf}");
+                      "{\\tt +inf}");
       }
 
       buff = MakeValidLatexNumber(default_number_);
@@ -231,7 +234,7 @@ void RegisteredOption::OutputLatexDescription(
       if( has_lower_ )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      "%d \\le ", (Index) lower_);
+                      "%" IPOPT_INDEX_FORMAT " \\le ", (Index) lower_);
       }
       else
       {
@@ -245,7 +248,7 @@ void RegisteredOption::OutputLatexDescription(
       if( has_upper_ )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      " \\le %d", (Index) upper_);
+                      " \\le %" IPOPT_INDEX_FORMAT "", (Index) upper_);
       }
       else
       {
@@ -254,7 +257,7 @@ void RegisteredOption::OutputLatexDescription(
       }
 
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   "$\nand its default value is $%d$.\n\n", (Index) default_number_);
+                   "$\nand its default value is $%" IPOPT_INDEX_FORMAT "$.\n\n", (Index) default_number_);
    }
    else if( type_ == OT_String )
    {
@@ -267,7 +270,7 @@ void RegisteredOption::OutputLatexDescription(
                    "\\\\ \nPossible values:\n");
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                    "\\begin{itemize}\n");
-      for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); i++ )
+      for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
       {
          std::string latex_value;
          MakeValidLatexString((*i).value_, latex_value);
@@ -276,12 +279,9 @@ void RegisteredOption::OutputLatexDescription(
 
          if( (*i).description_.length() > 0 )
          {
-            std::string latex_desc;
             MakeValidLatexString((*i).description_, latex_desc);
             jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                         ": ");
-            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                         latex_desc.c_str());
+                         ": %s", latex_desc.c_str());
          }
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                       "\n");
@@ -289,17 +289,15 @@ void RegisteredOption::OutputLatexDescription(
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                    "\\end{itemize}\n");
    }
-   jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, ""
-                "\n");
+   jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
 }
 
 void RegisteredOption::MakeValidLatexString(
-   std::string source,
-   std::string& dest
+   const std::string& source,
+   std::string&       dest
 ) const
 {
-   std::string::iterator c;
-   for( c = source.begin(); c != source.end(); c++ )
+   for( std::string::const_iterator c = source.begin(); c != source.end(); ++c )
    {
       if( *c == '_' )
       {
@@ -325,9 +323,8 @@ std::string RegisteredOption::MakeValidLatexNumber(
    std::string source = buffer;
    std::string dest;
 
-   std::string::iterator c;
    bool found_e = false;
-   for( c = source.begin(); c != source.end(); c++ )
+   for( std::string::iterator c = source.begin(); c != source.end(); ++c )
    {
       if( *c == 'e' )
       {
@@ -352,7 +349,12 @@ void RegisteredOption::OutputDoxygenDescription(
 ) const
 {
    jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                "\\anchor OPT_%s\n <strong>%s</strong>", name_.c_str(), name_.c_str());
+                "\\anchor OPT_%s\n<strong>%s</strong>", name_.c_str(), name_.c_str());
+   if( advanced_ )
+   {
+      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, " (<em>advanced</em>)");
+   }
+
    if( short_description_.length() > 0 )
    {
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
@@ -377,7 +379,7 @@ void RegisteredOption::OutputDoxygenDescription(
          if( has_lower_ )
          {
             buff = MakeValidHTMLNumber(lower_);
-            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
+            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "%s",
                          buff.c_str());
 
             if( !lower_strict_ )
@@ -397,8 +399,7 @@ void RegisteredOption::OutputDoxygenDescription(
          //       "-&infin; < ");
          //}
 
-
-         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "%s",
                       name_.c_str());
 
          if( has_upper_ )
@@ -415,7 +416,7 @@ void RegisteredOption::OutputDoxygenDescription(
             }
 
             buff = MakeValidHTMLNumber(upper_);
-            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
+            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "%s",
                          buff.c_str());
          }
          // else
@@ -432,7 +433,7 @@ void RegisteredOption::OutputDoxygenDescription(
 
       buff = MakeValidHTMLNumber(default_number_);
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   " and its default value is %s.\n\n", buff.c_str());
+                   " and its default value is %s.\n", buff.c_str());
 
    }
    else if( type_ == OT_Integer )
@@ -444,7 +445,7 @@ void RegisteredOption::OutputDoxygenDescription(
          if( has_lower_ )
          {
             jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                         "%d &le; ", (Index) lower_);
+                         "%" IPOPT_INDEX_FORMAT " &le; ", (Index) lower_);
          }
          //else
          //{
@@ -452,13 +453,13 @@ void RegisteredOption::OutputDoxygenDescription(
          //        "-&infin; < ");
          //}
 
-         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "%s",
                       name_.c_str());
 
          if( has_upper_ )
          {
             jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                         " &le; %d", (Index) upper_);
+                         " &le; %" IPOPT_INDEX_FORMAT "", (Index) upper_);
          }
          //else
          //{
@@ -473,7 +474,7 @@ void RegisteredOption::OutputDoxygenDescription(
       }
 
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   " and its default value is %d.\n\n", (Index) default_number_);
+                   " and its default value is %" IPOPT_INDEX_FORMAT ".\n", (Index) default_number_);
    }
    else if( type_ == OT_String )
    {
@@ -481,19 +482,39 @@ void RegisteredOption::OutputDoxygenDescription(
                    " The default value for this string option is \"%s\".\n", default_string_.c_str());
 
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   "\nPossible values:\n");
-      for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); i++ )
-      {
-         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      " - %s", i->value_.c_str());
+                   "\nPossible values:");
 
+      bool havedescr = false;
+      for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end() && !havedescr; ++i )
          if( (*i).description_.length() > 0 )
          {
-            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                         ": %s", i->description_.c_str());
+            havedescr = true;
          }
-         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      "\n");
+
+      if( havedescr )
+      {
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
+         for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
+         {
+            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, " - %s", i->value_.c_str());
+            if( (*i).description_.length() > 0 )
+            {
+               jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, ": %s", i->description_.c_str());
+            }
+            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
+         }
+      }
+      else
+      {
+         for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
+         {
+            if( i != valid_strings_.begin() )
+            {
+               jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, ",");
+            }
+            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, " %s", i->value_.c_str());
+         }
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
       }
 
       /*
@@ -523,9 +544,8 @@ std::string RegisteredOption::MakeValidHTMLNumber(
    std::string source = buffer;
    std::string dest;
 
-   std::string::iterator c;
    bool found_e = false;
-   for( c = source.begin(); c != source.end(); c++ )
+   for( std::string::iterator c = source.begin(); c != source.end(); ++c )
    {
       if( *c == 'e' )
       {
@@ -618,7 +638,7 @@ void RegisteredOption::OutputShortDescription(
       if( has_lower_ )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      "%10d <= ", (Index) lower_);
+                      "%10" IPOPT_INDEX_FORMAT " <= ", (Index) lower_);
       }
       else
       {
@@ -627,12 +647,12 @@ void RegisteredOption::OutputShortDescription(
       }
 
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   "(%11d)", (Index) default_number_);
+                   "(%11" IPOPT_INDEX_FORMAT ")", (Index) default_number_);
 
       if( has_upper_ )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                      " <= %-10d\n", (Index) upper_);
+                      " <= %-10" IPOPT_INDEX_FORMAT "\n", (Index) upper_);
       }
       else
       {
@@ -645,20 +665,24 @@ void RegisteredOption::OutputShortDescription(
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                    "(\"%s\")\n", default_string_.c_str());
    }
+   if( advanced_ )
+   {
+      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "   Advanced option for expert users.\n");
+   }
    jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                 "   ");
-   jnlst.PrintStringOverLines(J_SUMMARY, J_DOCUMENTATION, 3, 76, short_description_.c_str());
+   jnlst.PrintStringOverLines(J_SUMMARY, J_DOCUMENTATION, 3, 76, short_description_);
    if( long_description_ != "" )
    {
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                    "\n     ");
-      jnlst.PrintStringOverLines(J_SUMMARY, J_DOCUMENTATION, 5, 74, long_description_.c_str());
+      jnlst.PrintStringOverLines(J_SUMMARY, J_DOCUMENTATION, 5, 74, long_description_);
    }
    if( type_ == OT_String )
    {
       jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                    "\n   Possible values:\n");
-      for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); i++ )
+      for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
       {
          jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                       "    - %-23s", (*i).value_.c_str());
@@ -667,7 +691,7 @@ void RegisteredOption::OutputShortDescription(
          {
             jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                          " [");
-            jnlst.PrintStringOverLines(J_SUMMARY, J_DOCUMENTATION, 31, 48, (*i).description_.c_str());
+            jnlst.PrintStringOverLines(J_SUMMARY, J_DOCUMENTATION, 31, 48, (*i).description_);
             jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                          "]");
          }
@@ -690,8 +714,7 @@ bool RegisteredOption::IsValidStringSetting(
 {
    DBG_ASSERT(type_ == OT_String);
 
-   std::vector<string_entry>::const_iterator i;
-   for( i = valid_strings_.begin(); i != valid_strings_.end(); i++ )
+   for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
    {
       if( i->value_ == "*" || string_equal_insensitive(i->value_, value) )
       {
@@ -709,8 +732,7 @@ std::string RegisteredOption::MapStringSetting(
 
    std::string matched_setting = "";
 
-   std::vector<string_entry>::const_iterator i;
-   for( i = valid_strings_.begin(); i != valid_strings_.end(); i++ )
+   for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
    {
       if( i->value_ == "*" )
       {
@@ -733,8 +755,7 @@ Index RegisteredOption::MapStringSettingToEnum(
    Index matched_setting = -1;
 
    Index cnt = 0;
-   std::vector<string_entry>::const_iterator i;
-   for( i = valid_strings_.begin(); i != valid_strings_.end(); i++ )
+   for( std::vector<string_entry>::const_iterator i = valid_strings_.begin(); i != valid_strings_.end(); ++i )
    {
       ASSERT_EXCEPTION(i->value_ != "*", IpoptException, "Cannot map a wildcard setting to an enumeration");
       if( string_equal_insensitive(i->value_, value) )
@@ -771,26 +792,80 @@ bool RegisteredOption::string_equal_insensitive(
       {
          return false;
       }
-      i1++;
-      i2++;
+      ++i1;
+      ++i2;
    }
    return true;
+}
+
+void RegisteredOptions::SetRegisteringCategory(
+   const std::string& registering_category,
+   int                priority
+)
+{
+   if( registering_category.empty() )
+   {
+      current_registering_category_ = NULL;
+      return;
+   }
+
+   SmartPtr<RegisteredCategory>& reg_categ = registered_categories_[registering_category];
+   if( !IsValid(reg_categ) )
+   {
+      reg_categ = new RegisteredCategory(registering_category, priority);
+   }
+   current_registering_category_ = reg_categ;
+}
+
+void RegisteredOptions::SetRegisteringCategory(
+   SmartPtr<RegisteredCategory> registering_category
+)
+{
+   current_registering_category_ = registering_category;
+   if( !IsValid(registering_category) )
+   {
+      return;
+   }
+
+   SmartPtr<RegisteredCategory>& reg_categ = registered_categories_[registering_category->Name()];
+   if( !IsValid(reg_categ) )
+   {
+      reg_categ = registering_category;
+   }
+   else
+   {
+      // if we already had a category under this name, then it should be the same as the given one
+      DBG_ASSERT(reg_categ == registering_category);
+   }
+}
+
+void RegisteredOptions::AddOption(
+   const SmartPtr<RegisteredOption>& option
+)
+{
+   ASSERT_EXCEPTION(registered_options_.find(option->Name()) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
+                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
+   registered_options_[option->Name()] = option;
+
+   if( IsValid(option->registering_category_) )
+   {
+      option->registering_category_->regoptions_.push_back(option);
+   }
 }
 
 void RegisteredOptions::AddNumberOption(
    const std::string& name,
    const std::string& short_description,
    Number             default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Number);
    option->SetDefaultNumber(default_value);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddLowerBoundedNumberOption(
@@ -799,17 +874,16 @@ void RegisteredOptions::AddLowerBoundedNumberOption(
    Number             lower,
    bool               strict,
    Number             default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Number);
    option->SetDefaultNumber(default_value);
    option->SetLowerNumber(lower, strict);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddUpperBoundedNumberOption(
@@ -818,17 +892,16 @@ void RegisteredOptions::AddUpperBoundedNumberOption(
    Number             upper,
    bool               strict,
    Number             default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Number);
    option->SetDefaultNumber(default_value);
    option->SetUpperNumber(upper, strict);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddBoundedNumberOption(
@@ -839,34 +912,32 @@ void RegisteredOptions::AddBoundedNumberOption(
    Number             upper,
    bool               upper_strict,
    Number             default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Number);
    option->SetDefaultNumber(default_value);
    option->SetLowerNumber(lower, lower_strict);
    option->SetUpperNumber(upper, upper_strict);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddIntegerOption(
    const std::string& name,
    const std::string& short_description,
    Index              default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Integer);
    option->SetDefaultInteger(default_value);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddLowerBoundedIntegerOption(
@@ -874,17 +945,16 @@ void RegisteredOptions::AddLowerBoundedIntegerOption(
    const std::string& short_description,
    Index              lower,
    Index              default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Integer);
    option->SetDefaultInteger(default_value);
    option->SetLowerInteger(lower);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddUpperBoundedIntegerOption(
@@ -892,17 +962,16 @@ void RegisteredOptions::AddUpperBoundedIntegerOption(
    const std::string& short_description,
    Index              upper,
    Index              default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Integer);
    option->SetDefaultInteger(default_value);
    option->SetUpperInteger(upper);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddBoundedIntegerOption(
@@ -911,18 +980,17 @@ void RegisteredOptions::AddBoundedIntegerOption(
    Index              lower,
    Index              upper,
    Index              default_value,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_Integer);
    option->SetDefaultInteger(default_value);
    option->SetLowerInteger(lower);
    option->SetUpperInteger(upper);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption(
@@ -931,21 +999,20 @@ void RegisteredOptions::AddStringOption(
    const std::string&              default_value,
    const std::vector<std::string>& settings,
    const std::vector<std::string>& descriptions,
-   const std::string&              long_description
+   const std::string&              long_description,
+   bool                            advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    DBG_ASSERT(settings.size() == descriptions.size());
-   for( int i = 0; i < (int) settings.size(); i++ )
+   for( size_t i = 0; i < settings.size(); i++ )
    {
       option->AddValidStringSetting(settings[i], descriptions[i]);
    }
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption1(
@@ -954,17 +1021,16 @@ void RegisteredOptions::AddStringOption1(
    const std::string& default_value,
    const std::string& setting1,
    const std::string& description1,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption2(
@@ -975,18 +1041,17 @@ void RegisteredOptions::AddStringOption2(
    const std::string& description1,
    const std::string& setting2,
    const std::string& description2,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
    option->AddValidStringSetting(setting2, description2);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption3(
@@ -999,19 +1064,18 @@ void RegisteredOptions::AddStringOption3(
    const std::string& description2,
    const std::string& setting3,
    const std::string& description3,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
    option->AddValidStringSetting(setting2, description2);
    option->AddValidStringSetting(setting3, description3);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption4(
@@ -1026,20 +1090,19 @@ void RegisteredOptions::AddStringOption4(
    const std::string& description3,
    const std::string& setting4,
    const std::string& description4,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
    option->AddValidStringSetting(setting2, description2);
    option->AddValidStringSetting(setting3, description3);
    option->AddValidStringSetting(setting4, description4);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption5(
@@ -1056,11 +1119,12 @@ void RegisteredOptions::AddStringOption5(
    const std::string& description4,
    const std::string& setting5,
    const std::string& description5,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
@@ -1068,9 +1132,7 @@ void RegisteredOptions::AddStringOption5(
    option->AddValidStringSetting(setting3, description3);
    option->AddValidStringSetting(setting4, description4);
    option->AddValidStringSetting(setting5, description5);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption6(
@@ -1089,11 +1151,12 @@ void RegisteredOptions::AddStringOption6(
    const std::string& description5,
    const std::string& setting6,
    const std::string& description6,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
@@ -1102,9 +1165,7 @@ void RegisteredOptions::AddStringOption6(
    option->AddValidStringSetting(setting4, description4);
    option->AddValidStringSetting(setting5, description5);
    option->AddValidStringSetting(setting6, description6);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption7(
@@ -1125,11 +1186,12 @@ void RegisteredOptions::AddStringOption7(
    const std::string& description6,
    const std::string& setting7,
    const std::string& description7,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
@@ -1139,9 +1201,7 @@ void RegisteredOptions::AddStringOption7(
    option->AddValidStringSetting(setting5, description5);
    option->AddValidStringSetting(setting6, description6);
    option->AddValidStringSetting(setting7, description7);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption8(
@@ -1164,11 +1224,12 @@ void RegisteredOptions::AddStringOption8(
    const std::string& description7,
    const std::string& setting8,
    const std::string& description8,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
@@ -1179,9 +1240,7 @@ void RegisteredOptions::AddStringOption8(
    option->AddValidStringSetting(setting6, description6);
    option->AddValidStringSetting(setting7, description7);
    option->AddValidStringSetting(setting8, description8);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption9(
@@ -1206,11 +1265,12 @@ void RegisteredOptions::AddStringOption9(
    const std::string& description8,
    const std::string& setting9,
    const std::string& description9,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
@@ -1222,9 +1282,7 @@ void RegisteredOptions::AddStringOption9(
    option->AddValidStringSetting(setting7, description7);
    option->AddValidStringSetting(setting8, description8);
    option->AddValidStringSetting(setting9, description9);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
 }
 
 void RegisteredOptions::AddStringOption10(
@@ -1251,11 +1309,12 @@ void RegisteredOptions::AddStringOption10(
    const std::string& description9,
    const std::string& setting10,
    const std::string& description10,
-   const std::string& long_description
+   const std::string& long_description,
+   bool               advanced
 )
 {
    SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
-         current_registering_category_, next_counter_++);
+      current_registering_category_, next_counter_++, advanced);
    option->SetType(OT_String);
    option->SetDefaultString(default_value);
    option->AddValidStringSetting(setting1, description1);
@@ -1268,9 +1327,25 @@ void RegisteredOptions::AddStringOption10(
    option->AddValidStringSetting(setting8, description8);
    option->AddValidStringSetting(setting9, description9);
    option->AddValidStringSetting(setting10, description10);
-   ASSERT_EXCEPTION(registered_options_.find(name) == registered_options_.end(), OPTION_ALREADY_REGISTERED,
-                    std::string("The option: ") + option->Name() + " has already been registered by someone else");
-   registered_options_[name] = option;
+   AddOption(option);
+}
+
+/** Create a string value with two possible settings: yes and no */
+void RegisteredOptions::AddBoolOption(
+   const std::string& name,
+   const std::string& short_description,
+   bool               default_value,
+   const std::string& long_description,
+   bool               advanced
+)
+{
+   SmartPtr<RegisteredOption> option = new RegisteredOption(name, short_description, long_description,
+      current_registering_category_, next_counter_++, advanced);
+   option->SetType(OT_String);
+   option->SetDefaultString(default_value ? "yes" : "no");
+   option->AddValidStringSetting("yes", "");
+   option->AddValidStringSetting("no", "");
+   AddOption(option);
 }
 
 SmartPtr<const RegisteredOption> RegisteredOptions::GetOption(
@@ -1297,118 +1372,283 @@ SmartPtr<const RegisteredOption> RegisteredOptions::GetOption(
    return option;
 }
 
-void RegisteredOptions::OutputOptionDocumentation(
-   const Journalist&       jnlst,
-   std::list<std::string>& categories
-)
+/** Giving access to registered categories ordered by priority (decreasing) */
+void RegisteredOptions::RegisteredCategoriesByPriority(
+   RegCategoriesByPriority& categories
+) const
 {
-   // create a set to print sorted output
-   //     std::set
-   //       <std::string> classes;
-   //     std::map <std::string, SmartPtr<RegisteredOption> >::iterator option;
-   //     for (option = registered_options_.begin(); option != registered_options_.end(); option++) {
-   //       classes.insert(option->second->RegisteringCategory());
-   //     }
-
-   std::list<std::string>::iterator i;
-   for( i = categories.begin(); i != categories.end(); i++ )
+   for( RegCategoriesList::const_iterator it = registered_categories_.begin(); it != registered_categories_.end(); ++it )
    {
-      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   "\n### %s ###\n\n", (*i).c_str());
-      std::map<Index, SmartPtr<RegisteredOption> > class_options;
-      std::map<std::string, SmartPtr<RegisteredOption> >::iterator option;
-      for( option = registered_options_.begin(); option != registered_options_.end(); option++ )
-      {
-         if( option->second->RegisteringCategory() == (*i) )
-         {
-
-            class_options[option->second->Counter()] = option->second;
-         }
-      }
-      std::map<Index, SmartPtr<RegisteredOption> >::const_iterator co;
-      for( co = class_options.begin(); co != class_options.end(); co++ )
-      {
-         co->second->OutputShortDescription(jnlst);
-      }
-      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                   "\n");
+      categories.insert(it->second);
    }
 }
 
-void RegisteredOptions::OutputLatexOptionDocumentation(
-   const Journalist&       jnlst,
-   std::list<std::string>& options_to_print
-)
+/** Output documentation
+ *
+ * Format is decided according to print_options_mode parameter.
+ */
+void RegisteredOptions::OutputOptionDocumentation(
+   const Journalist&             jnlst,
+   SmartPtr<OptionsList>         options,
+   int                           minpriority
+) const
 {
+   OutputMode printmode;
+   Index enum_int;
+   options->GetEnumValue("print_options_mode", enum_int, "");
+   printmode = OutputMode(enum_int);
 
-   if( !options_to_print.empty() )
+   bool printadvanced;
+   options->GetBoolValue("print_advanced_options", printadvanced, "");
+
+   RegCategoriesByPriority cats;
+   RegisteredCategoriesByPriority(cats);
+   for( RegCategoriesByPriority::const_iterator cat_it = cats.begin(); cat_it != cats.end(); ++cat_it )
    {
-      std::list<std::string>::iterator coption;
-      for( coption = options_to_print.begin(); coption != options_to_print.end(); coption++ )
+      if( (*cat_it)->Priority() < minpriority )
       {
-         // std::map <std::string, SmartPtr<RegisteredOption> >::iterator option;
-         if( coption->c_str()[0] == '#' )
+         break;
+      }
+
+      bool firstopt = true;
+      for( std::list<SmartPtr<RegisteredOption> >::const_iterator opt_it = (*cat_it)->RegisteredOptions().begin(); opt_it != (*cat_it)->RegisteredOptions().end(); ++opt_it )
+      {
+         if( !printadvanced && (*opt_it)->Advanced() )
          {
-            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
-                         "\\subsection{%s}\n\n", &coption->c_str()[1]);
+            continue;
          }
-         else
+
+         if( firstopt )
          {
-            SmartPtr<RegisteredOption> option = registered_options_[*coption];
-            DBG_ASSERT(IsValid(option));
-            option->OutputLatexDescription(jnlst);
+            const std::string& catname = (*cat_it)->Name();
+            switch( printmode )
+            {
+               case OUTPUTTEXT :
+               {
+                  jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n### %s ###\n\n", catname.c_str());
+                  break;
+               }
+
+               case OUTPUTLATEX:
+               {
+                  jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\\subsection{%s}\n\n", catname.c_str());
+                  break;
+               }
+
+               case OUTPUTDOXYGEN:
+               {
+                  std::string anchorname = catname;
+                  for( std::string::iterator it = anchorname.begin(); it != anchorname.end(); ++it )
+                     if( !isalnum(*it) )
+                     {
+                        *it = '_';
+                     }
+
+                  jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\\subsection OPT_%s %s\n\n", anchorname.c_str(), catname.c_str());
+               }
+            }
+
+            firstopt = false;
          }
+
+         switch( printmode )
+         {
+            case OUTPUTTEXT :
+               (*opt_it)->OutputShortDescription(jnlst);
+               break;
+
+            case OUTPUTLATEX:
+               (*opt_it)->OutputLatexDescription(jnlst);
+               break;
+
+            case OUTPUTDOXYGEN:
+               (*opt_it)->OutputDoxygenDescription(jnlst);
+               break;
+         }
+      }
+      jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
+   }
+}
+
+void RegisteredOptions::OutputOptionDocumentation(
+   const Journalist&             jnlst,
+   const std::list<std::string>& categories
+) const
+{
+   if( !categories.empty() )
+   {
+      for( std::list<std::string>::const_iterator i = categories.begin(); i != categories.end(); ++i )
+      {
+         RegCategoriesList::const_iterator cat_it = registered_categories_.find(*i);
+         // skip nonexisting category
+         if( cat_it == registered_categories_.end() )
+         {
+            continue;
+         }
+
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n### %s ###\n\n", i->c_str());
+
+         for( std::list<SmartPtr<RegisteredOption> >::const_iterator opt_it = cat_it->second->RegisteredOptions().begin(); opt_it != cat_it->second->RegisteredOptions().end(); ++opt_it )
+         {
+            (*opt_it)->OutputShortDescription(jnlst);
+         }
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
       }
    }
    else
    {
-      std::map<std::string, SmartPtr<RegisteredOption> >::iterator option;
-      for( option = registered_options_.begin(); option != registered_options_.end(); option++ )
+      for( RegCategoriesList::const_iterator cat_it = registered_categories_.begin(); cat_it != registered_categories_.end(); ++cat_it )
       {
-         option->second->OutputLatexDescription(jnlst);
+         if( cat_it->second->Priority() < 0 )
+         {
+            continue;
+         }
+
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n### %s ###\n\n", cat_it->first.c_str());
+
+         for( std::list<SmartPtr<RegisteredOption> >::const_iterator opt_it = cat_it->second->RegisteredOptions().begin(); opt_it != cat_it->second->RegisteredOptions().end(); ++opt_it )
+         {
+            if( (*opt_it)->Advanced() )
+            {
+               continue;
+            }
+
+            (*opt_it)->OutputShortDescription(jnlst);
+         }
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\n");
+      }
+   }
+}
+
+void RegisteredOptions::OutputLatexOptionDocumentation(
+   const Journalist&             jnlst,
+   const std::list<std::string>& options_to_print
+) const
+{
+   if( !options_to_print.empty() )
+   {
+      for( std::list<std::string>::const_iterator coption = options_to_print.begin(); coption != options_to_print.end(); ++coption )
+      {
+         if( coption->c_str()[0] == '#' )
+         {
+            jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\\subsection{%s}\n\n", &coption->c_str()[1]);
+            continue;
+         }
+
+         SmartPtr<RegisteredOption> option = registered_options_.at(*coption);
+         DBG_ASSERT(IsValid(option));
+
+         option->OutputLatexDescription(jnlst);
+      }
+   }
+   else
+   {
+      RegCategoriesByPriority cats;
+      RegisteredCategoriesByPriority(cats);
+      for( RegCategoriesByPriority::const_iterator cat_it = cats.begin(); cat_it != cats.end(); ++cat_it )
+      {
+         if( (*cat_it)->Priority() < 0 )
+         {
+            break;
+         }
+
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\\subsection{%s}\n\n", (*cat_it)->Name().c_str());
+
+         for( std::list<SmartPtr<RegisteredOption> >::const_iterator opt_it = (*cat_it)->RegisteredOptions().begin(); opt_it != (*cat_it)->RegisteredOptions().end(); ++opt_it )
+         {
+            if( (*opt_it)->Advanced() )
+            {
+               continue;
+            }
+
+            (*opt_it)->OutputLatexDescription(jnlst);
+         }
       }
    }
 }
 
 void RegisteredOptions::OutputDoxygenOptionDocumentation(
-   const Journalist&       jnlst,
-   std::list<std::string>& options_to_print
-)
+   const Journalist&             jnlst,
+   const std::list<std::string>& options_to_print
+) const
 {
-
    if( !options_to_print.empty() )
    {
-      std::list<std::string>::iterator coption;
-      for( coption = options_to_print.begin(); coption != options_to_print.end(); coption++ )
+      for( std::list<std::string>::const_iterator coption = options_to_print.begin(); coption != options_to_print.end(); ++coption )
       {
-         // std::map <std::string, SmartPtr<RegisteredOption> >::iterator option;
          if( (*coption)[0] == '#' )
          {
             std::string anchorname = &coption->c_str()[1];
             for( std::string::iterator it = anchorname.begin(); it != anchorname.end(); ++it )
-               if( *it == ' ' )
+               if( !isalnum(*it) )
                {
                   *it = '_';
                }
             jnlst.Printf(J_SUMMARY, J_DOCUMENTATION,
                          "\\subsection OPT_%s %s\n\n", anchorname.c_str(), &coption->c_str()[1]);
+
+            continue;
          }
-         else
-         {
-            SmartPtr<RegisteredOption> option = registered_options_[*coption];
-            DBG_ASSERT(IsValid(option));
-            option->OutputDoxygenDescription(jnlst);
-         }
+
+         SmartPtr<RegisteredOption> option = registered_options_.at(*coption);
+         DBG_ASSERT(IsValid(option));
+
+         option->OutputDoxygenDescription(jnlst);
       }
    }
    else
    {
-      std::map<std::string, SmartPtr<RegisteredOption> >::iterator option;
-      for( option = registered_options_.begin(); option != registered_options_.end(); option++ )
+      RegCategoriesByPriority cats;
+      RegisteredCategoriesByPriority(cats);
+      for( RegCategoriesByPriority::const_iterator cat_it = cats.begin(); cat_it != cats.end(); ++cat_it )
       {
-         option->second->OutputDoxygenDescription(jnlst);
+         if( (*cat_it)->Priority() < 0 )
+         {
+            break;
+         }
+
+         std::string anchorname = (*cat_it)->Name();
+         for( std::string::iterator it = anchorname.begin(); it != anchorname.end(); ++it )
+            if( !isalnum(*it) )
+            {
+               *it = '_';
+            }
+
+         jnlst.Printf(J_SUMMARY, J_DOCUMENTATION, "\\subsection OPT_%s %s\n\n", anchorname.c_str(), (*cat_it)->Name().c_str());
+
+         for( std::list<SmartPtr<RegisteredOption> >::const_iterator opt_it = (*cat_it)->RegisteredOptions().begin(); opt_it != (*cat_it)->RegisteredOptions().end(); ++opt_it )
+         {
+            if( (*opt_it)->Advanced() )
+            {
+               continue;
+            }
+
+            (*opt_it)->OutputDoxygenDescription(jnlst);
+         }
       }
    }
+}
+
+void RegisteredOptions::RegisterOptions(
+   SmartPtr<RegisteredOptions> roptions
+)
+{
+   roptions->SetRegisteringCategory("Output");
+   roptions->AddStringOption3(
+      "print_options_mode",
+      "format in which to print options documentation",
+      "text",
+      "text", "Ordinary text",
+      "latex", "LaTeX formatted",
+      "doxygen", "Doxygen (markdown) formatted");
+
+   roptions->AddBoolOption(
+      "print_advanced_options",
+      "whether to print also advanced options",
+      false,
+      "",
+      true);
+
 }
 
 } // namespace Ipopt

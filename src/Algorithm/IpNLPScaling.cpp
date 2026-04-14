@@ -12,7 +12,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -593,12 +593,12 @@ SmartPtr<const Matrix> StandardScalingBase::apply_jac_c_scaling(
    {
       SmartPtr<ScaledMatrix> ret = scaled_jac_c_space_->MakeNewScaledMatrix(false);
       ret->SetUnscaledMatrix(matrix);
-      return GetRawPtr(ret);
+      return ConstPtr(ret);
    }
    else
    {
       SmartPtr<const Matrix> ret = matrix;
-      matrix = NULL;
+      // matrix = NULL;
       return ret;
    }
 }
@@ -612,12 +612,12 @@ SmartPtr<const Matrix> StandardScalingBase::apply_jac_d_scaling(
    {
       SmartPtr<ScaledMatrix> ret = scaled_jac_d_space_->MakeNewScaledMatrix(false);
       ret->SetUnscaledMatrix(matrix);
-      return GetRawPtr(ret);
+      return ConstPtr(ret);
    }
    else
    {
       SmartPtr<const Matrix> ret = matrix;
-      matrix = NULL;
+      // matrix = NULL;
       return ret;
    }
 }
@@ -631,12 +631,12 @@ SmartPtr<const SymMatrix> StandardScalingBase::apply_hessian_scaling(
    {
       SmartPtr<SymScaledMatrix> ret = scaled_h_space_->MakeNewSymScaledMatrix(false);
       ret->SetUnscaledMatrix(matrix);
-      return GetRawPtr(ret);
+      return ConstPtr(ret);
    }
    else
    {
       SmartPtr<const SymMatrix> ret = matrix;
-      matrix = NULL;
+      // matrix = NULL;
       return ret;
    }
 }

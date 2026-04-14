@@ -25,13 +25,13 @@ class MumpsSolverInterface: public SparseSymLinearSolverInterface
 {
 public:
    /** @name Constructor/Destructor */
-   //@{
+   ///@{
    /** Constructor */
    MumpsSolverInterface();
 
    /** Destructor */
    virtual ~MumpsSolverInterface();
-   //@}
+   ///@}
 
    bool InitializeImpl(
       const OptionsList& options,
@@ -39,7 +39,7 @@ public:
    );
 
    /** @name Methods for requesting solution of the linear system. */
-   //@{
+   ///@{
    virtual ESymSolverStatus InitializeStructure(
       Index        dim,
       Index        nonzeros,
@@ -47,23 +47,23 @@ public:
       const Index* ajcn
    );
 
-   virtual double* GetValuesArrayPtr();
+   virtual Number* GetValuesArrayPtr();
 
    virtual ESymSolverStatus MultiSolve(
       bool         new_matrix,
       const Index* airn,
       const Index* ajcn,
       Index        nrhs,
-      double*      rhs_vals,
+      Number*      rhs_vals,
       bool         check_NegEVals,
       Index        numberOfNegEVals
    );
 
    virtual Index NumberOfNegEVals() const;
-   //@}
+   ///@}
 
    //* @name Options of Linear solver */
-   //@{
+   ///@{
    virtual bool IncreaseQuality();
 
    virtual bool ProvidesInertia() const
@@ -75,11 +75,15 @@ public:
    {
       return Triplet_Format;
    }
-   //@}
+   ///@}
 
    static void RegisterOptions(
       SmartPtr<RegisteredOptions> roptions
    );
+
+   /// give name of MUMPS with version info
+   /// @since 3.14.0
+   static std::string GetName();
 
    virtual bool ProvidesDegeneracyDetection() const;
 
@@ -97,7 +101,7 @@ private:
     * them for us, so we declare them private
     * and do not define them. This ensures that
     * they will not be implicitly created/called. */
-   //@{
+   ///@{
    /** Copy Constructor */
    MumpsSolverInterface(
       const MumpsSolverInterface&
@@ -107,22 +111,22 @@ private:
    void operator=(
       const MumpsSolverInterface&
    );
-   //@}
+   ///@}
 
    /** @name Information about the matrix */
-   //@{
+   ///@{
    /** Primary MUMP data structure */
    void* mumps_ptr_;
-   //@}
+   ///@}
 
    /** @name Information about most recent factorization/solve */
-   //@{
+   ///@{
    /** Number of negative eigenvalues */
    Index negevals_;
-   //@}
+   ///@}
 
    /** @name Initialization flags */
-   //@{
+   ///@{
    /** Flag indicating if internal data is initialized.
     *  For initialization, this object needs to have seen a matrix.
     */
@@ -136,15 +140,10 @@ private:
     *  again.
     */
    bool refactorize_;
-   /** Counter on number of alive Mumps interface objects, if we have called MPI_Initialize.
-    *
-    * When the last object is destroyed, we will call MPI_Finalize.
-    */
-   static int instancecount_mpi;
-   //@}
+   ///@}
 
    /** @name Solver specific data/options */
-   //@{
+   ///@{
    /** Pivot tolerance */
    Number pivtol_;
 
@@ -170,13 +169,13 @@ private:
     *  already been solved before.
     */
    bool warm_start_same_structure_;
-   //@}
+   ///@}
 
    /** Flag indicating if symbolic factorization has already been called */
    bool have_symbolic_factorization_;
 
    /** @name Internal functions */
-   //@{
+   ///@{
    /** Call MUMPS (job=1) to perform symbolic manipulations, and reserve
     *  memory.
     */
@@ -194,9 +193,9 @@ private:
    /** Call MUMPS (job=3) to do the solve. */
    ESymSolverStatus Solve(
       Index   nrhs,
-      double* rhs_vals
+      Number* rhs_vals
    );
-   //@}
+   ///@}
 };
 
 } // namespace Ipopt

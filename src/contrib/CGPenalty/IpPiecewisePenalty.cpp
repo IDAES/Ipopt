@@ -12,7 +12,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -20,8 +20,8 @@ PiecewisePenalty::PiecewisePenalty(
    Index dim
 )
    : dim_(dim),
-     min_piece_penalty_(0),  // @todo make it regular option here or elsewhere?
-     max_piece_number_(100)  // @todo make it regular option here or elsewhere?
+     min_piece_penalty_(0),  // ToDo make it regular option here or elsewhere?
+     max_piece_number_(100)  // ToDo make it regular option here or elsewhere?
 {
 }
 
@@ -31,6 +31,7 @@ bool PiecewisePenalty::Acceptable(
 )
 {
    DBG_START_METH("PiebcewisePenalty::Acceptable", dbg_verbosity);
+   // cppcheck-suppress assertWithSideEffect
    DBG_ASSERT(!IsPiecewisePenaltyListEmpty());
    bool acceptable = false;
    std::vector<PiecewisePenEntry>::iterator iter;
@@ -47,7 +48,7 @@ bool PiecewisePenalty::Acceptable(
       Number value = iter->barrier_obj + iter->pen_r * iter->infeasi - trial_barrier - iter->pen_r * trial_inf;
       if( value >= 0. )
       {
-         iter++;
+         ++iter;
          value = iter->barrier_obj + iter->pen_r * iter->infeasi - trial_barrier - iter->pen_r * trial_inf;
          if( value <= 0. )
          {
@@ -55,8 +56,7 @@ bool PiecewisePenalty::Acceptable(
          }
       }
       // Then check the ending entry of the list.
-      iter = PiecewisePenalty_list_.end();
-      iter--;
+      iter = PiecewisePenalty_list_.end()--;
       value = iter->barrier_obj + iter->pen_r * iter->infeasi - trial_barrier - iter->pen_r * trial_inf;
       if( value <= 0. && trial_inf <= iter->infeasi )
       {
@@ -73,15 +73,15 @@ bool PiecewisePenalty::Acceptable(
          }
       }
       // Finally, check the middle entries of the list.
-      Number value_left, value_mid, value_right;
-      for( iter = PiecewisePenalty_list_.begin() + 1; iter != PiecewisePenalty_list_.end(); iter++ )
+      for( iter = PiecewisePenalty_list_.begin() + 1; iter != PiecewisePenalty_list_.end(); ++iter )
       {
+         Number value_left, value_mid, value_right;
          value_mid = iter->barrier_obj + iter->pen_r * iter->infeasi - trial_barrier - iter->pen_r * trial_inf;
-         iter++;
+         ++iter;
          value_right = iter->barrier_obj + iter->pen_r * iter->infeasi - trial_barrier - iter->pen_r * trial_inf;
          iter -= 2;
          value_left = iter->barrier_obj + iter->pen_r * iter->infeasi - trial_barrier - iter->pen_r * trial_inf;
-         iter++;
+         ++iter;
          if( value_left <= 0. && value_mid >= 0. && value_right <= 0. )
          {
             return false;
@@ -89,10 +89,9 @@ bool PiecewisePenalty::Acceptable(
       }
    }
    // Check if the trial point is acceptable to the piecewise list
-   Number Fz;
-   for( iter = PiecewisePenalty_list_.begin(); iter != PiecewisePenalty_list_.end(); iter++ )
+   for( iter = PiecewisePenalty_list_.begin(); iter != PiecewisePenalty_list_.end(); ++iter )
    {
-      Fz = Fzconst + iter->pen_r * (Fzlin - iter->infeasi) - iter->barrier_obj;
+      Number Fz = Fzconst + iter->pen_r * (Fzlin - iter->infeasi) - iter->barrier_obj;
       if( Fz < 0. )
       {
          acceptable = true;
@@ -110,14 +109,12 @@ bool PiecewisePenalty::Acceptable(
 Number PiecewisePenalty::BiggestBarr()
 {
    DBG_START_METH("PiecewisePenalty::BiggestBarr", dbg_verbosity);
+   // cppcheck-suppress assertWithSideEffect
    DBG_ASSERT(!IsPiecewisePenaltyListEmpty());
    Number value = -1e20;
-   if( PiecewisePenalty_list_.size() > 0 )
+   if( !PiecewisePenalty_list_.empty() )
    {
-      std::vector<PiecewisePenEntry>::iterator iter;
-      iter = PiecewisePenalty_list_.end();
-      iter--;
-      value = iter->barrier_obj;
+      value = PiecewisePenalty_list_.back().barrier_obj;
    }
    return value;
 }
@@ -129,6 +126,7 @@ void PiecewisePenalty::UpdateEntry(
 {
 
    DBG_START_METH("PiecewisePenalty::UpdateEntry", dbg_verbosity);
+   // cppcheck-suppress assertWithSideEffect
    DBG_ASSERT(!IsPiecewisePenaltyListEmpty());
 
    Number Gzi1, Gzi2;
@@ -140,7 +138,7 @@ void PiecewisePenalty::UpdateEntry(
    PiecewisePenalty_list_.clear();
    std::vector<PiecewisePenEntry>::iterator iter = TmpList.begin(), iter2;
    Gzi1 = barrier_obj + iter->pen_r * (infeasi - iter->infeasi) - iter->barrier_obj;
-   for( ; iter <= TmpList.end() - 1; iter++ )
+   for( ; iter <= TmpList.end() - 1; ++iter )
    {
       // Be careful about this
       if( TmpList.size() > 1 && iter <= TmpList.end() - 2 )
@@ -213,18 +211,17 @@ void PiecewisePenalty::Print(
 {
    // DBG_START_METH("FilterLineSearch::Filter::Print", dbg_verbosity);
    jnlst.Printf(J_DETAILED, J_LINE_SEARCH,
-                "The current piecewise penalty has %d entries.\n", PiecewisePenalty_list_.size());
+                "The current piecewise penalty has %zd entries.\n", PiecewisePenalty_list_.size());
    jnlst.Printf(J_DETAILED, J_LINE_SEARCH,
-                "We only allow %d entries.\n", max_piece_number_);
+                "We only allow %" IPOPT_INDEX_FORMAT " entries.\n", max_piece_number_);
    jnlst.Printf(J_DETAILED, J_LINE_SEARCH,
-                "The min piecewise penalty is %d .\n", min_piece_penalty_);
+                "The min piecewise penalty is %g.\n", min_piece_penalty_);
    if( !jnlst.ProduceOutput(J_DETAILED, J_LINE_SEARCH) )
    {
       return;
    }
-   std::vector<PiecewisePenEntry>::iterator iter;
    Index count = 0;
-   for( iter = PiecewisePenalty_list_.begin(); iter != PiecewisePenalty_list_.end(); iter++ )
+   for( std::vector<PiecewisePenEntry>::iterator iter = PiecewisePenalty_list_.begin(); iter != PiecewisePenalty_list_.end(); ++iter )
    {
       if( count % 10 == 0 )
       {
@@ -233,9 +230,9 @@ void PiecewisePenalty::Print(
       }
       count++;
       jnlst.Printf(J_DETAILED, J_LINE_SEARCH,
-                   "%5d ", count);
+                   "%5" IPOPT_INDEX_FORMAT, count);
       jnlst.Printf(J_DETAILED, J_LINE_SEARCH,
-                   "%23.16e %23.16e  %23.16e \n", iter->pen_r, iter->barrier_obj, iter->infeasi);
+                   " %23.16e %23.16e  %23.16e \n", iter->pen_r, iter->barrier_obj, iter->infeasi);
    }
 }
 

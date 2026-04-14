@@ -11,7 +11,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -114,7 +114,7 @@ bool ProbingMuOracle::CalculateMu(
    DBG_ASSERT(mu_curr > 0.);
 
    // Apply Mehrotra's rule
-   Number sigma = pow((mu_aff / mu_curr), 3);
+   Number sigma = std::pow((mu_aff / mu_curr), 3);
    // Make sure, sigma is not too large
    sigma = Min(sigma, sigma_max_);
 
@@ -125,11 +125,8 @@ bool ProbingMuOracle::CalculateMu(
    IpData().set_delta_aff(step);
    IpData().SetHaveAffineDeltas(true);
 
-   char ssigma[40];
-   sprintf(ssigma, " sigma=%8.2e", sigma);
-   IpData().Append_info_string(ssigma);
-   //sprintf(ssigma, " xi=%8.2e ", IpCq().curr_centrality_measure());
-   //IpData().Append_info_string(ssigma);
+   IpData().Append_info_string(" sigma", sigma);
+   //IpData().Append_info_string(" xi", IpCq().curr_centrality_measure());
 
    new_mu = Max(Min(mu, mu_max), mu_min);
    return true;

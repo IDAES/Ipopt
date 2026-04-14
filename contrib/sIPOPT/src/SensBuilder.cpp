@@ -19,7 +19,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 1;
 #endif
 
@@ -77,7 +77,7 @@ SmartPtr<SensAlgorithm> SensBuilder::BuildSensAlg(
    }
 
    // Find out how many steps there are and create as many SchurSolveDrivers
-   int n_sens_steps;
+   Index n_sens_steps;
    options.GetIntegerValue("n_sens_steps", n_sens_steps, prefix);
 
    // Create std::vector container in which we are going to keep the SchurDrivers
@@ -141,7 +141,7 @@ SmartPtr<ReducedHessianCalculator> SensBuilder::BuildRedHessCalc(
    {
       jnlst.Printf(J_ERROR, J_MAIN,
                    "\nEXIT: An Error Occured while processing the Indices for the reduced Hessian computation: "
-                   "Something is wrong with index %d\n", setdata_error);
+                   "Something is wrong with index %" IPOPT_INDEX_FORMAT "\n", setdata_error);
       THROW_EXCEPTION(SENS_BUILDER_ERROR, "Reduced Hessian Index Error");
    }
 

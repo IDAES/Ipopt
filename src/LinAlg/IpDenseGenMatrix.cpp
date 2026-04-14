@@ -13,7 +13,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -47,7 +47,7 @@ void DenseGenMatrix::ScaleColumns(
 
    for( Index j = 0; j < NCols(); j++ )
    {
-      IpBlasDscal(NRows(), scal_values[j], &values_[j * NRows()], 1);
+      IpBlasScal(NRows(), scal_values[j], &values_[j * NRows()], 1);
    }
    ObjectChanged();
 }
@@ -59,7 +59,7 @@ void DenseGenMatrix::Copy(
    DBG_ASSERT(NCols() == M.NCols());
    DBG_ASSERT(NRows() == M.NRows());
 
-   IpBlasDcopy(NCols() * NRows(), M.Values(), 1, values_, 1);
+   IpBlasCopy(NCols() * NRows(), M.Values(), 1, values_, 1);
    initialized_ = true;
    ObjectChanged();
 }
@@ -71,7 +71,7 @@ void DenseGenMatrix::FillIdentity(
    DBG_ASSERT(NCols() == NRows());
 
    const Number zero = 0.;
-   IpBlasDcopy(NCols() * NRows(), &zero, 0, values_, 1);
+   IpBlasCopy(NCols() * NRows(), &zero, 0, values_, 1);
 
    if( factor != 0. )
    {
@@ -109,7 +109,7 @@ void DenseGenMatrix::AddMatrixProduct(
    DBG_ASSERT((transB && B.NCols() == k) || (!transB && B.NRows() == k));
    DBG_ASSERT(beta == 0. || initialized_);
 
-   IpBlasDgemm(transA, transB, m, n, k, alpha, A.Values(), A.NRows(), B.Values(), B.NRows(), beta, values_, NRows());
+   IpBlasGemm(transA, transB, m, n, k, alpha, A.Values(), A.NRows(), B.Values(), B.NRows(), beta, values_, NRows());
    initialized_ = true;
    ObjectChanged();
 }
@@ -171,7 +171,7 @@ bool DenseGenMatrix::ComputeCholeskyFactor(
 
    // Now call the lapack subroutine to perform the factorization
    Index info;
-   IpLapackDpotrf(dim, values_, dim, info);
+   IpLapackPotrf(dim, values_, dim, info);
 
    DBG_ASSERT(info >= 0);
    if( info != 0 )
@@ -218,7 +218,7 @@ bool DenseGenMatrix::ComputeEigenVectors(
    bool compute_eigenvectors = true;
    Number* Evals = Evalues.Values();
    Index info;
-   IpLapackDsyev(compute_eigenvectors, dim, values_, dim, Evals, info);
+   IpLapackSyev(compute_eigenvectors, dim, values_, dim, Evals, info);
 
    initialized_ = (info == 0);
    ObjectChanged();
@@ -228,6 +228,7 @@ bool DenseGenMatrix::ComputeEigenVectors(
 void DenseGenMatrix::CholeskyBackSolveMatrix(
    bool            trans,
    Number          alpha,
+   // cppcheck-suppress constParameter  // cannot be const since it is modified in Blas
    DenseGenMatrix& B
 ) const
 {
@@ -235,12 +236,11 @@ void DenseGenMatrix::CholeskyBackSolveMatrix(
    DBG_ASSERT(B.NRows() == NRows());
    DBG_ASSERT(initialized_);
 
-   Number* Bvalues = B.Values();
-
-   IpBlasDtrsm(trans, NRows(), B.NCols(), alpha, values_, NRows(), Bvalues, B.NRows());
+   IpBlasTrsm(trans, NRows(), B.NCols(), alpha, values_, NRows(), B.Values(), B.NRows());
 }
 
 void DenseGenMatrix::CholeskySolveVector(
+   // cppcheck-suppress constParameter  // cannot be const since it is modified in Blas
    DenseVector& b
 ) const
 {
@@ -249,12 +249,11 @@ void DenseGenMatrix::CholeskySolveVector(
    DBG_ASSERT(initialized_);
    DBG_ASSERT(factorization_ == CHOL);
 
-   Number* bvalues = b.Values();
-
-   IpLapackDpotrs(NRows(), 1, values_, NRows(), bvalues, b.Dim());
+   IpLapackPotrs(NRows(), 1, values_, NRows(), b.Values(), b.Dim());
 }
 
 void DenseGenMatrix::CholeskySolveMatrix(
+   // cppcheck-suppress constParameter  // cannot be const since it is modified in Blas
    DenseGenMatrix& B
 ) const
 {
@@ -263,9 +262,7 @@ void DenseGenMatrix::CholeskySolveMatrix(
    DBG_ASSERT(initialized_);
    DBG_ASSERT(factorization_ == CHOL);
 
-   Number* Bvalues = B.Values();
-
-   IpLapackDpotrs(NRows(), B.NCols(), values_, NRows(), Bvalues, B.NRows());
+   IpLapackPotrs(NRows(), B.NCols(), values_, NRows(), B.Values(), B.NRows());
 }
 
 bool DenseGenMatrix::ComputeLUFactorInPlace()
@@ -285,7 +282,7 @@ bool DenseGenMatrix::ComputeLUFactorInPlace()
 
    // call the lapack subroutine for the factorization (dgetrf )
    Index info;
-   IpLapackDgetrf(dim, values_, pivot_, dim, info);
+   IpLapackGetrf(dim, values_, pivot_, dim, info);
 
    DBG_ASSERT(info >= 0);
    if( info != 0 )
@@ -305,6 +302,7 @@ bool DenseGenMatrix::ComputeLUFactorInPlace()
 }
 
 void DenseGenMatrix::LUSolveMatrix(
+   // cppcheck-suppress constParameter  // cannot be const since it is modified in Blas
    DenseGenMatrix& B
 ) const
 {
@@ -313,12 +311,11 @@ void DenseGenMatrix::LUSolveMatrix(
    DBG_ASSERT(initialized_);
    DBG_ASSERT(factorization_ == LU);
 
-   Number* Bvalues = B.Values();
-
-   IpLapackDgetrs(NRows(), B.NCols(), values_, NRows(), pivot_, Bvalues, B.NRows());
+   IpLapackGetrs(NRows(), B.NCols(), values_, NRows(), pivot_, B.Values(), B.NRows());
 }
 
 void DenseGenMatrix::LUSolveVector(
+   // cppcheck-suppress constParameter  // cannot be const since it is modified in Blas
    DenseVector& b
 ) const
 {
@@ -327,9 +324,7 @@ void DenseGenMatrix::LUSolveVector(
    DBG_ASSERT(initialized_);
    DBG_ASSERT(factorization_ == LU);
 
-   Number* bvalues = b.Values();
-
-   IpLapackDgetrs(NRows(), 1, values_, NRows(), pivot_, bvalues, b.Dim());
+   IpLapackGetrs(NRows(), 1, values_, NRows(), pivot_, b.Values(), b.Dim());
 }
 
 void DenseGenMatrix::MultVectorImpl(
@@ -351,7 +346,7 @@ void DenseGenMatrix::MultVectorImpl(
    DBG_ASSERT(dynamic_cast<DenseVector*>(&y));
 
    bool trans = false;
-   IpBlasDgemv(trans, NRows(), NCols(), alpha, values_, NRows(), dense_x->Values(), 1, beta, dense_y->Values(), 1);
+   IpBlasGemv(trans, NRows(), NCols(), alpha, values_, NRows(), dense_x->Values(), 1, beta, dense_y->Values(), 1);
 }
 
 void DenseGenMatrix::TransMultVectorImpl(
@@ -373,7 +368,7 @@ void DenseGenMatrix::TransMultVectorImpl(
    DBG_ASSERT(dynamic_cast<DenseVector*>(&y));
 
    bool trans = true;
-   IpBlasDgemv(trans, NRows(), NCols(), alpha, values_, NRows(), dense_x->Values(), 1, beta, dense_y->Values(), 1);
+   IpBlasGemv(trans, NRows(), NCols(), alpha, values_, NRows(), dense_x->Values(), 1, beta, dense_y->Values(), 1);
 }
 
 void DenseGenMatrix::ComputeRowAMaxImpl(
@@ -388,12 +383,12 @@ void DenseGenMatrix::ComputeRowAMaxImpl(
    DBG_ASSERT(dynamic_cast<DenseVector*>(&rows_norms));
    Number* vec_vals = dense_vec->Values();
 
-   const double* vals = values_;
+   const Number* vals = values_;
    for( Index irow = 0; irow < NRows(); irow++ )
    {
       for( Index jcol = 0; jcol < NCols(); jcol++ )
       {
-         vec_vals[irow] = Max(vec_vals[irow], fabs(*vals));
+         vec_vals[irow] = Max(vec_vals[irow], std::abs(*vals));
          vals++;
       }
    }
@@ -411,11 +406,11 @@ void DenseGenMatrix::ComputeColAMaxImpl(
    DBG_ASSERT(dynamic_cast<DenseVector*>(&cols_norms));
    Number* vec_vals = dense_vec->Values();
 
-   const double* vals = values_;
+   const Number* vals = values_;
    for( Index jcol = 0; jcol < NCols(); jcol++ )
    {
-      Index i = IpBlasIdamax(NRows(), vals, 1);
-      vec_vals[jcol] = Max(vec_vals[jcol], fabs(vals[i]));
+      Index i = IpBlasIamax(NRows(), vals, 1);
+      vec_vals[jcol] = Max(vec_vals[jcol], std::abs(vals[i]));
       vals += NRows();
    }
 }
@@ -423,7 +418,7 @@ void DenseGenMatrix::ComputeColAMaxImpl(
 bool DenseGenMatrix::HasValidNumbersImpl() const
 {
    DBG_ASSERT(initialized_);
-   Number sum = IpBlasDasum(NRows() * NCols(), values_, 1);
+   Number sum = IpBlasAsum(NRows() * NCols(), values_, 1);
    return IsFiniteNumber(sum);
 }
 
@@ -439,7 +434,7 @@ void DenseGenMatrix::PrintImpl(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sDenseGenMatrix \"%s\" with %d rows and %d columns:\n", prefix.c_str(), name.c_str(), NRows(), NCols());
+                        "%sDenseGenMatrix \"%s\" with %" IPOPT_INDEX_FORMAT " rows and %" IPOPT_INDEX_FORMAT " columns:\n", prefix.c_str(), name.c_str(), NRows(), NCols());
 
    if( initialized_ )
    {
@@ -448,7 +443,7 @@ void DenseGenMatrix::PrintImpl(
          for( Index i = 0; i < NRows(); i++ )
          {
             jnlst.PrintfIndented(level, category, indent,
-                                 "%s%s[%5d,%5d]=%23.16e\n", prefix.c_str(), name.c_str(), i, j, values_[i + NRows() * j]);
+                                 "%s%s[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "]=%23.16e\n", prefix.c_str(), name.c_str(), i, j, values_[i + NRows() * j]);
          }
       }
    }

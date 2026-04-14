@@ -15,10 +15,9 @@ LuksanVlcek4::LuksanVlcek4(
    Number g_l,
    Number g_u
 )
-{
-   g_l_ = g_l;
-   g_u_ = g_u;
-}
+   : g_l_(g_l),
+     g_u_(g_u)
+{ }
 
 bool LuksanVlcek4::InitializeProblem(
    Index N
@@ -125,13 +124,13 @@ bool LuksanVlcek4::eval_f(
    obj_value = 0.;
    for( Index i = 0; i < N_ / 2; i++ )
    {
-      Number e0 = exp(x[2 * i]);
+      Number e0 = std::exp(x[2 * i]);
       Number e0mx1 = e0 - x[2 * i + 1];
       Number x1mx2 = x[2 * i + 1] - x[2 * i + 2];
       Number x2mx3 = x[2 * i + 2] - x[2 * i + 3];
-      Number t = tan(x2mx3);
+      Number t = std::tan(x2mx3);
       Number x3m1 = x[2 * i + 3] - 1.;
-      obj_value += pow(e0mx1, 4) + 100. * pow(x1mx2, 6) + pow(t, 4) + pow(x[2 * i], 8) + x3m1 * x3m1;
+      obj_value += std::pow(e0mx1, 4) + 100. * std::pow(x1mx2, 6) + std::pow(t, 4) + std::pow(x[2 * i], 8) + x3m1 * x3m1;
    }
 
    return true;
@@ -149,16 +148,16 @@ bool LuksanVlcek4::eval_grad_f(
    grad_f[1] = 0.;
    for( Index i = 0; i < N_ / 2; i++ )
    {
-      Number e0 = exp(x[2 * i]);
+      Number e0 = std::exp(x[2 * i]);
       Number e0mx1 = e0 - x[2 * i + 1];
       Number x1mx2 = x[2 * i + 1] - x[2 * i + 2];
       Number x2mx3 = x[2 * i + 2] - x[2 * i + 3];
       Number x3m1 = x[2 * i + 3] - 1.;
-      Number dt = 4. * pow(tan(x2mx3), 3) / pow(cos(x2mx3), 2);
+      Number dt = 4. * std::pow(std::tan(x2mx3), 3) / std::pow(std::cos(x2mx3), 2);
 
-      grad_f[2 * i] += 4. * e0 * pow(e0mx1, 3) + 8. * pow(x[2 * i], 7);
-      grad_f[2 * i + 1] += -4. * pow(e0mx1, 3) + 600. * pow(x1mx2, 5);
-      grad_f[2 * i + 2] = -600. * pow(x1mx2, 5) + dt;
+      grad_f[2 * i] += 4. * e0 * std::pow(e0mx1, 3) + 8. * std::pow(x[2 * i], 7);
+      grad_f[2 * i + 1] += -4. * std::pow(e0mx1, 3) + 600. * std::pow(x1mx2, 5);
+      grad_f[2 * i + 2] = -600. * std::pow(x1mx2, 5) + dt;
       grad_f[2 * i + 3] = -dt + 2. * x3m1;
    }
 
@@ -261,7 +260,7 @@ bool LuksanVlcek4::eval_h(
       }
       iRow[ihes] = n - 1;
       jCol[ihes] = n - 1;
-      ihes++;
+      DBG_DO(ihes++);
       DBG_ASSERT(ihes == nele_hess);
       (void) nele_hess;
    }
@@ -274,29 +273,29 @@ bool LuksanVlcek4::eval_h(
       values[2] = 0.;
       for( Index i = 0; i < N_ / 2; i++ )
       {
-         Number e0 = exp(x[2 * i]);
+         Number e0 = std::exp(x[2 * i]);
          Number e0mx1 = e0 - x[2 * i + 1];
          Number x1mx2 = x[2 * i + 1] - x[2 * i + 2];
          Number x2mx3 = x[2 * i + 2] - x[2 * i + 3];
-         Number s = sin(x2mx3);
+         Number s = std::sin(x2mx3);
          Number ss = s * s;
-         Number c = cos(x2mx3);
-         Number ddt = 4. * (3. * ss * c * c + 5. * ss * ss) / pow(c, 6);
+         Number c = std::cos(x2mx3);
+         Number ddt = 4. * (3. * ss * c * c + 5. * ss * ss) / std::pow(c, 6);
 
          // x[2*i] x[2*i]
-         values[ihes] += obj_factor * (4. * e0 * pow(e0mx1, 3) + 12 * e0 * e0 * e0mx1 * e0mx1 + 56. * pow(x[2 * i], 6));
+         values[ihes] += obj_factor * (4. * e0 * std::pow(e0mx1, 3) + 12 * e0 * e0 * e0mx1 * e0mx1 + 56. * std::pow(x[2 * i], 6));
          ihes++;
          // x[2*i] x[2*i+1]
          values[ihes] += obj_factor * (-12 * e0 * e0mx1 * e0mx1);
          ihes++;
          // x[2*i+1] x[2*i+1]
-         values[ihes] += obj_factor * (3000. * pow(x1mx2, 4) + 12. * e0mx1 * e0mx1);
+         values[ihes] += obj_factor * (3000. * std::pow(x1mx2, 4) + 12. * e0mx1 * e0mx1);
          ihes++;
          // x[2*i+1] x[2*i+2]
-         values[ihes] = -obj_factor * (3000. * pow(x1mx2, 4));
+         values[ihes] = -obj_factor * (3000. * std::pow(x1mx2, 4));
          ihes++;
          // x[2*i+2] x[2*i+2]
-         values[ihes] = obj_factor * (3000. * pow(x1mx2, 4) + ddt);
+         values[ihes] = obj_factor * (3000. * std::pow(x1mx2, 4) + ddt);
          // x[2*i+2] x[2*i+3]
          values[ihes + 1] = -obj_factor * ddt;
          // x[2*i+3] x[2*i+3]
@@ -304,7 +303,6 @@ bool LuksanVlcek4::eval_h(
       }
 
       // Now the constraints
-      ihes = 0;
       for( Index i = 0; i < N_ - 2; i++ )
       {
          // x[i] x[i+1]

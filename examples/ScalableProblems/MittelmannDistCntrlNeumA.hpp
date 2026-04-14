@@ -446,7 +446,7 @@ protected:
       Number x2
    ) const
    {
-      return sin(2. * pi_ * x1) * sin(2. * pi_ * x2);
+      return std::sin(2. * pi_ * x1) * std::sin(2. * pi_ * x2);
    }
 
    /** Integrant in objective function */
@@ -548,7 +548,7 @@ protected:
       Number u
    ) const
    {
-      return -exp(y) - u;
+      return -std::exp(y) - u;
    }
 
    /** First partial derivative of forcing function w.r.t. y */
@@ -559,7 +559,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
    /** First partial derivative of forcing function w.r.t. u */
@@ -581,7 +581,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
    /** returns true if second partial derivative of d_cont
@@ -689,7 +689,7 @@ protected:
       Number x2
    ) const
    {
-      return sin(2. * pi_ * x1) * sin(2. * pi_ * x2);
+      return std::sin(2. * pi_ * x1) * std::sin(2. * pi_ * x2);
    }
 
    /** Integrant in objective function */
@@ -791,7 +791,7 @@ protected:
       Number u
    ) const
    {
-      return -exp(y) - u;
+      return -std::exp(y) - u;
    }
 
    /** First partial derivative of forcing function w.r.t. y */
@@ -802,7 +802,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
    /** First partial derivative of forcing function w.r.t. u */
@@ -824,7 +824,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
    /** returns true if second partial derivative of d_cont
@@ -1144,7 +1144,7 @@ private:
       Number x2
    ) const
    {
-      return 7. + 4. * sin(2. * pi_ * x1 * x2);
+      return 7. + 4. * std::sin(2. * pi_ * x1 * x2);
    }
 };
 

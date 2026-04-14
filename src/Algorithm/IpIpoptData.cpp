@@ -11,11 +11,9 @@ namespace Ipopt
 {
 
 IpoptData::IpoptData(
-   SmartPtr<IpoptAdditionalData> add_data /*= NULL*/,
-   Number                        cpu_time_start /*= -1.*/
+   SmartPtr<IpoptAdditionalData> add_data /*= NULL*/
 )
-   : cpu_time_start_(cpu_time_start),
-     add_data_(add_data)
+   : add_data_(add_data)
 { }
 
 IpoptData::~IpoptData()
@@ -25,16 +23,20 @@ void IpoptData::RegisterOptions(
    const SmartPtr<RegisteredOptions>& roptions
 )
 {
-   roptions->SetRegisteringCategory("Convergence");
+   roptions->SetRegisteringCategory("Termination");
    roptions->AddLowerBoundedNumberOption(
       "tol",
       "Desired convergence tolerance (relative).",
       0., true,
+#ifdef IPOPT_SINGLE
+      1e-5,
+#else
       1e-8,
+#endif
       "Determines the convergence tolerance for the algorithm. "
       "The algorithm terminates successfully, if the (scaled) NLP error becomes smaller than this value, and "
       "if the (absolute) criteria according to \"dual_inf_tol\", \"constr_viol_tol\", and \"compl_inf_tol\" are met. "
-      "(This is epsilon_tol in Eqn. (6) in implementation paper). "
+      "This is epsilon_tol in Eqn. (6) in implementation paper. "
       "See also \"acceptable_tol\" as a second termination criterion. "
       "Note, some other algorithmic features also use this quantity to determine thresholds etc.");
 }
@@ -88,9 +90,6 @@ bool IpoptData::Initialize(
 
    initialize_called_ = true;
 
-   // will be set to cputime in IpoptApplication::call_optimize()
-   cpu_time_start_ = -1.;
-
    bool retval = true;
 
    if( IsValid(add_data_) )
@@ -125,6 +124,11 @@ bool IpoptData::InitializeDataStructures(
    SmartPtr<Vector> new_v_L;
    SmartPtr<Vector> new_v_U;
 
+   // clear curr_ from previous optimize, if any, in case ip_nlp.InitializeStructures() fails,
+   // e.g., because OrigIpoptNLP throws a too-few-degrees-of-freedom exception
+   curr_ = NULL;
+   iterates_space_ = NULL;
+
    // Get the required linear algebra structures from the model
    bool retValue = ip_nlp.InitializeStructures(new_x, want_x, new_y_c, want_y_c, new_y_d, want_y_d, new_z_L, want_z_L,
                    new_z_U, want_z_U, new_v_L, new_v_U);
@@ -136,12 +140,12 @@ bool IpoptData::InitializeDataStructures(
    new_s = new_y_d->MakeNew(); // same dimension as d
 
    iterates_space_ = new IteratesVectorSpace(*(new_x->OwnerSpace()), *(new_s->OwnerSpace()), *(new_y_c->OwnerSpace()),
-         *(new_y_d->OwnerSpace()), *(new_z_L->OwnerSpace()), *(new_z_U->OwnerSpace()), *(new_v_L->OwnerSpace()),
-         *(new_v_U->OwnerSpace()));
+      *(new_y_d->OwnerSpace()), *(new_z_L->OwnerSpace()), *(new_z_U->OwnerSpace()), *(new_v_L->OwnerSpace()),
+      *(new_v_U->OwnerSpace()));
 
    curr_ = iterates_space_->MakeNewIteratesVector(*new_x, *new_s, *new_y_c, *new_y_d, *new_z_L, *new_z_U, *new_v_L,
            *new_v_U);
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
 
    debug_curr_tag_ = curr_->GetTag();
    debug_curr_tag_sum_ = curr_->GetTagSum();

@@ -19,9 +19,11 @@ namespace Ipopt
  *
  *  This defines the general interface to linear solvers for sparse
  *  symmetric indefinite matrices.  The matrices can be provided
- *  either in "triplet format" (like for Harwell's MA27 solver), or
- *  in compressed sparse row (CSR) format for the lower triangular
- *  part of the symmetric matrix.
+ *  either in "triplet format" for the lower triangular part
+ *  (like for Harwell's MA27 solver), or in compressed sparse row
+ *  (CSR) format for the upper triangular part of the symmetric matrix.
+ *  The latter may equivalently (or better) be referred as compressed
+ *  sparse column (CSC) format for the lower triangular part.
  *
  *  The solver should be able to compute the inertia of the matrix,
  *  or more specifically, the number of negative eigenvalues in the
@@ -99,26 +101,26 @@ public:
    /** Enum to specify sparse matrix format. */
    enum EMatrixFormat
    {
-      /** Triplet (MA27) format */
+      /** Triplet (MA27) format for lower triangular part */
       Triplet_Format,
-      /** Compressed sparse row format for lower triangular part, with 0 offset */
+      /** Compressed sparse row format for upper triangular part, with 0 offset */
       CSR_Format_0_Offset,
-      /** Compressed sparse row format for lower triangular part, with 1 offset */
+      /** Compressed sparse row format for upper triangular part, with 1 offset */
       CSR_Format_1_Offset,
-      /** Compressed sparse row format for both lwr and upr parts, with 0 offset */
+      /** Compressed sparse row format for both lower and upper parts, with 0 offset */
       CSR_Full_Format_0_Offset,
-      /** Compressed sparse row format for both lwr and upr parts, with 1 offset */
+      /** Compressed sparse row format for both lower and upper parts, with 1 offset */
       CSR_Full_Format_1_Offset
    };
 
    /** @name Constructor/Destructor */
-   //@{
+   ///@{
    SparseSymLinearSolverInterface()
    { }
 
    virtual ~SparseSymLinearSolverInterface()
    { }
-   //@}
+   ///@}
 
    virtual bool InitializeImpl(
       const OptionsList& options,
@@ -126,7 +128,7 @@ public:
    ) = 0;
 
    /** @name Methods for requesting solution of the linear system. */
-   //@{
+   ///@{
    /** Method for initializing internal structures.
     *
     *  Here, ndim gives the number of rows and columns of the matrix,
@@ -150,7 +152,7 @@ public:
     *  The returned array must have space for at
     *  least nonzero elements.
     */
-   virtual double* GetValuesArrayPtr() = 0;
+   virtual Number* GetValuesArrayPtr() = 0;
 
    /** Solve operation for multiple right hand sides.
     *
@@ -190,7 +192,7 @@ public:
       const Index* ia,
       const Index* ja,
       Index        nrhs,
-      double*      rhs_vals,
+      Number*      rhs_vals,
       bool         check_NegEVals,
       Index        numberOfNegEVals
    ) = 0;
@@ -203,10 +205,10 @@ public:
     *  (see ProvidesInertia).
     */
    virtual Index NumberOfNegEVals() const = 0;
-   //@}
+   ///@}
 
    //* @name Options of Linear solver */
-   //@{
+   ///@{
    /** Request to increase quality of solution for next solve.
     *
     *  The calling class asks linear solver to increase quality of
@@ -227,11 +229,11 @@ public:
     *  understands.
     */
    virtual EMatrixFormat MatrixFormat() const = 0;
-   //@}
+   ///@}
 
    /** @name Methods related to the detection of linearly dependent
     *  rows in a matrix */
-   //@{
+   ///@{
    /** Query whether the indices of linearly dependent rows/columns
     *  can be determined by this linear solver.
     */

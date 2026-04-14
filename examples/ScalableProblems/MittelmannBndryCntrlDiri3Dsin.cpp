@@ -348,7 +348,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_f(
          {
             const Number D = (4 * x[y_index(i, j, 0)] - x[y_index(i - 1, j, 0)] - x[y_index(i + 1, j, 0)]
                               - x[y_index(i, j - 1, 0)] - x[y_index(i, j + 1, 0)]) / hh_;
-            const Number sinD = sin(D) - 0.5;
+            const Number sinD = std::sin(D) - 0.5;
             usum += sinD * sinD;
          }
       }
@@ -358,7 +358,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_f(
          {
             const Number D = (4 * x[y_index(i, j, N_ + 1)] - x[y_index(i - 1, j, N_ + 1)] - x[y_index(i + 1, j, N_ + 1)]
                               - x[y_index(i, j - 1, N_ + 1)] - x[y_index(i, j + 1, N_ + 1)]) / hh_;
-            const Number sinD = sin(D) - 0.5;
+            const Number sinD = std::sin(D) - 0.5;
             usum += sinD * sinD;
          }
       }
@@ -369,7 +369,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_f(
          {
             const Number D = (4 * x[y_index(0, i, j)] - x[y_index(0, i - 1, j)] - x[y_index(0, i + 1, j)]
                               - x[y_index(0, i, j - 1)] - x[y_index(0, i, j + 1)]) / hh_;
-            const Number sinD = sin(D) - 0.5;
+            const Number sinD = std::sin(D) - 0.5;
             usum += sinD * sinD;
          }
       }
@@ -379,7 +379,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_f(
          {
             const Number D = (4 * x[y_index(N_ + 1, i, j)] - x[y_index(N_ + 1, i - 1, j)] - x[y_index(N_ + 1, i + 1, j)]
                               - x[y_index(N_ + 1, i, j - 1)] - x[y_index(N_ + 1, i, j + 1)]) / hh_;
-            const Number sinD = sin(D) - 0.5;
+            const Number sinD = std::sin(D) - 0.5;
             usum += sinD * sinD;
          }
       }
@@ -390,7 +390,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_f(
          {
             const Number D = (4 * x[y_index(i, 0, j)] - x[y_index(i - 1, 0, j)] - x[y_index(i + 1, 0, j)]
                               - x[y_index(i, 0, j - 1)] - x[y_index(i, 0, j + 1)]) / hh_;
-            const Number sinD = sin(D) - 0.5;
+            const Number sinD = std::sin(D) - 0.5;
             usum += sinD * sinD;
          }
       }
@@ -400,7 +400,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_f(
          {
             const Number D = (4 * x[y_index(i, N_ + 1, j)] - x[y_index(i - 1, N_ + 1, j)] - x[y_index(i + 1, N_ + 1, j)]
                               - x[y_index(i, N_ + 1, j - 1)] - x[y_index(i, N_ + 1, j + 1)]) / hh_;
-            const Number sinD = sin(D) - 0.5;
+            const Number sinD = std::sin(D) - 0.5;
             usum += sinD * sinD;
          }
       }
@@ -488,7 +488,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_grad_f(
          {
             const Number D = (4 * x[y_index(i, j, 0)] - x[y_index(i - 1, j, 0)] - x[y_index(i + 1, j, 0)]
                               - x[y_index(i, j - 1, 0)] - x[y_index(i, j + 1, 0)]) / hh_;
-            const Number FD = alpha_ * h_ * (cos(D) * (sin(D) - 0.5) / hh_);
+            const Number FD = alpha_ * h_ * (std::cos(D) * (std::sin(D) - 0.5) / hh_);
             grad_f[y_index(i, j, 0)] += 4. * FD;
             grad_f[y_index(i - 1, j, 0)] += -1. * FD;
             grad_f[y_index(i + 1, j, 0)] += -1. * FD;
@@ -503,7 +503,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_grad_f(
          {
             const Number D = (4 * x[y_index(i, j, N_ + 1)] - x[y_index(i - 1, j, N_ + 1)] - x[y_index(i + 1, j, N_ + 1)]
                               - x[y_index(i, j - 1, N_ + 1)] - x[y_index(i, j + 1, N_ + 1)]) / hh_;
-            const Number FD = alpha_ * h_ * (cos(D) * (sin(D) - 0.5) / hh_);
+            const Number FD = alpha_ * h_ * (std::cos(D) * (std::sin(D) - 0.5) / hh_);
             grad_f[y_index(i, j, N_ + 1)] += 4. * FD;
             grad_f[y_index(i - 1, j, N_ + 1)] += -1. * FD;
             grad_f[y_index(i + 1, j, N_ + 1)] += -1. * FD;
@@ -518,7 +518,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_grad_f(
          {
             const Number D = (4 * x[y_index(0, i, j)] - x[y_index(0, i - 1, j)] - x[y_index(0, i + 1, j)]
                               - x[y_index(0, i, j - 1)] - x[y_index(0, i, j + 1)]) / hh_;
-            const Number FD = alpha_ * h_ * (cos(D) * (sin(D) - 0.5) / hh_);
+            const Number FD = alpha_ * h_ * (std::cos(D) * (std::sin(D) - 0.5) / hh_);
             grad_f[y_index(0, i, j)] += 4. * FD;
             grad_f[y_index(0, i - 1, j)] += -1. * FD;
             grad_f[y_index(0, i + 1, j)] += -1. * FD;
@@ -532,7 +532,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_grad_f(
          {
             const Number D = (4 * x[y_index(N_ + 1, i, j)] - x[y_index(N_ + 1, i - 1, j)] - x[y_index(N_ + 1, i + 1, j)]
                               - x[y_index(N_ + 1, i, j - 1)] - x[y_index(N_ + 1, i, j + 1)]) / hh_;
-            const Number FD = alpha_ * h_ * (cos(D) * (sin(D) - 0.5) / hh_);
+            const Number FD = alpha_ * h_ * (std::cos(D) * (std::sin(D) - 0.5) / hh_);
             grad_f[y_index(N_ + 1, i, j)] += 4. * FD;
             grad_f[y_index(N_ + 1, i - 1, j)] += -1. * FD;
             grad_f[y_index(N_ + 1, i + 1, j)] += -1. * FD;
@@ -547,7 +547,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_grad_f(
          {
             const Number D = (4 * x[y_index(i, 0, j)] - x[y_index(i - 1, 0, j)] - x[y_index(i + 1, 0, j)]
                               - x[y_index(i, 0, j - 1)] - x[y_index(i, 0, j + 1)]) / hh_;
-            const Number FD = alpha_ * h_ * (cos(D) * (sin(D) - 0.5) / hh_);
+            const Number FD = alpha_ * h_ * (std::cos(D) * (std::sin(D) - 0.5) / hh_);
             grad_f[y_index(i, 0, j)] += 4. * FD;
             grad_f[y_index(i - 1, 0, j)] += -1. * FD;
             grad_f[y_index(i + 1, 0, j)] += -1. * FD;
@@ -561,7 +561,7 @@ bool MittelmannBndryCntrlDiriBase3Dsin::eval_grad_f(
          {
             const Number D = (4 * x[y_index(i, N_ + 1, j)] - x[y_index(i - 1, N_ + 1, j)] - x[y_index(i + 1, N_ + 1, j)]
                               - x[y_index(i, N_ + 1, j - 1)] - x[y_index(i, N_ + 1, j + 1)]) / hh_;
-            const Number FD = alpha_ * h_ * (cos(D) * (sin(D) - 0.5) / hh_);
+            const Number FD = alpha_ * h_ * (std::cos(D) * (std::sin(D) - 0.5) / hh_);
             grad_f[y_index(i, N_ + 1, j)] += 4. * FD;
             grad_f[y_index(i - 1, N_ + 1, j)] += -1. * FD;
             grad_f[y_index(i + 1, N_ + 1, j)] += -1. * FD;
@@ -838,9 +838,8 @@ inline static void hessvals(
    Number        fact
 )
 {
-   //printf("ihes = %d\n",ihes);
    const Number D = (4 * x[ij] - x[imj] - x[ipj] - x[ijm] - x[ijp]) / hh_;
-   const Number val = fact * (1. + 0.5 * sin(D) - 2. * sin(D) * sin(D));
+   const Number val = fact * (1. + 0.5 * std::sin(D) - 2. * std::sin(D) * std::sin(D));
 
    values[ihes] = 16. * val;
    ihes++;
@@ -1002,7 +1001,9 @@ void MittelmannBndryCntrlDiriBase3Dsin::finalize_solution(
 
     for (Index i=0; i<=N_+1; i++) {
     for (Index j=0; j<=N_+1; j++) {
-    fprintf(fp, "y[%6d,%6d] = %15.8e\n", i, j, x[y_index(i,j)]);
+    for (Index k=0; k<=N_+1; k++) {
+    fprintf(fp, "y[%6d,%6d,%6d] = %15.8e\n", i, j, k, x[y_index(i,j,k)]);
+    }
     }
     }
 

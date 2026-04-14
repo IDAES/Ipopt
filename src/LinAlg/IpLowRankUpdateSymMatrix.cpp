@@ -9,7 +9,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -182,7 +182,7 @@ void LowRankUpdateSymMatrix::PrintImpl(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sLowRankUpdateSymMatrix \"%s\" with %d rows and columns:\n", prefix.c_str(), name.c_str(), Dim());
+                        "%sLowRankUpdateSymMatrix \"%s\" with %" IPOPT_INDEX_FORMAT " rows and columns:\n", prefix.c_str(), name.c_str(), Dim());
 
    if( ReducedDiag() )
    {

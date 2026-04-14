@@ -12,7 +12,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -54,7 +54,7 @@ void MonotoneMuUpdate::RegisterOptions(
       "The convergence tolerance for each barrier problem in the monotone mode is "
       "the value of the barrier parameter times \"barrier_tol_factor\". "
       "This option is also used in the adaptive mu strategy during the monotone mode. "
-      "(This is kappa_epsilon in implementation paper).");
+      "This is kappa_epsilon in implementation paper.");
    roptions->AddBoundedNumberOption(
       "mu_linear_decrease_factor",
       "Determines linear decrease rate of barrier parameter.",
@@ -63,7 +63,7 @@ void MonotoneMuUpdate::RegisterOptions(
       0.2,
       "For the Fiacco-McCormick update procedure the new barrier parameter mu is "
       "obtained by taking the minimum of mu*\"mu_linear_decrease_factor\" and mu^\"superlinear_decrease_power\". "
-      "(This is kappa_mu in implementation paper.) "
+      "This is kappa_mu in implementation paper. "
       "This option is also used in the adaptive mu strategy during the monotone mode.");
    roptions->AddBoundedNumberOption(
       "mu_superlinear_decrease_power",
@@ -73,24 +73,25 @@ void MonotoneMuUpdate::RegisterOptions(
       1.5,
       "For the Fiacco-McCormick update procedure the new barrier parameter mu is "
       "obtained by taking the minimum of mu*\"mu_linear_decrease_factor\" and mu^\"superlinear_decrease_power\". "
-      "(This is theta_mu in implementation paper.) "
+      "This is theta_mu in implementation paper. "
       "This option is also used in the adaptive mu strategy during the monotone mode.");
    roptions->AddStringOption2(
       "mu_allow_fast_monotone_decrease",
       "Allow skipping of barrier problem if barrier test is already met.",
       "yes",
-      "no", "Take at least one iteration per barrier problem",
+      "no", "Take at least one iteration per barrier problem even if the barrier test is already met for the updated barrier parameter",
       "yes", "Allow fast decrease of mu if barrier test it met",
-      "If set to \"no\", the algorithm enforces at least one iteration per barrier problem, "
-      "even if the barrier test is already met for the updated barrier parameter.");
+      "",
+      true);
    roptions->AddBoundedNumberOption(
       "tau_min",
       "Lower bound on fraction-to-the-boundary parameter tau.",
       0., true,
       1., true,
       0.99,
-      "(This is tau_min in the implementation paper.) "
-      "This option is also used in the adaptive mu strategy during the monotone mode.");
+      "This is tau_min in the implementation paper. "
+      "This option is also used in the adaptive mu strategy during the monotone mode.",
+      true);
 }
 
 bool MonotoneMuUpdate::InitializeImpl(
@@ -108,7 +109,7 @@ bool MonotoneMuUpdate::InitializeImpl(
    options.GetNumericValue("mu_target", mu_target_, prefix);
 
    IpData().Set_mu(mu_init_);
-   Number tau = Max(tau_min_, 1.0 - mu_init_);
+   Number tau = Max(tau_min_, Number(1.0) - mu_init_);
    IpData().Set_tau(tau);
 
    initialized_ = false;
@@ -158,19 +159,6 @@ bool MonotoneMuUpdate::UpdateBarrierParameter()
       {
          THROW_EXCEPTION(TINY_STEP_DETECTED, "Problem solved to best possible numerical accuracy");
       }
-
-#if 0
-      //DELETEME
-      if (mu_changed)
-      {
-         SmartPtr<IteratesVector> iterates = IpData().curr()->MakeNewContainer();
-         SmartPtr<Vector> z_L = iterates->z_L()->MakeNewCopy();
-         z_L->Scal(sqrt(new_mu / mu));
-         iterates->Set_z_L(*z_L);
-         IpData().set_trial(iterates);
-         IpData().AcceptTrialPoint();
-      }
-#endif
 
       // Set the new values for mu and tau
       IpData().Set_mu(new_mu);
@@ -222,13 +210,12 @@ void MonotoneMuUpdate::CalcNewMuAndTau(
 
    // Here we need the complementarity tolerance that is posed to the
    // scaled problem
-   Number compl_inf_tol = IpNLP().NLP_scaling()->apply_obj_scaling(compl_inf_tol_);
-
-   new_mu = Min(mu_linear_decrease_factor_ * mu, pow(mu, mu_superlinear_decrease_power_));
-   new_mu = Max(new_mu, mu_target_, Min(tol, compl_inf_tol) / (barrier_tol_factor_ + 1.));
+   Number compl_inf_tol = std::abs(IpNLP().NLP_scaling()->apply_obj_scaling(compl_inf_tol_));
+   new_mu = Min(mu_linear_decrease_factor_ * mu, std::pow(mu, mu_superlinear_decrease_power_));
+   new_mu = Max(new_mu, mu_target_, Min(tol, compl_inf_tol) / (barrier_tol_factor_ + Number(1.)));
 
    // update the fraction to the boundary parameter
-   new_tau = Max(tau_min_, 1. - new_mu);
+   new_tau = Max(tau_min_, Number(1.) - new_mu);
 }
 
 } // namespace Ipopt

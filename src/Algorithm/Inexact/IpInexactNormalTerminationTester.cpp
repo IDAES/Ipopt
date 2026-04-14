@@ -11,7 +11,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -89,9 +89,9 @@ InexactNormalTerminationTester::ETerminationTest InexactNormalTerminationTester:
 
    ETerminationTest retval = CONTINUE;
 
-   double norm2_resid = IpBlasDnrm2(ndim, resid, 1);
+   Number norm2_resid = IpBlasNrm2(ndim, resid, 1);
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                  "TTNormal: iter = %d ||resid|| = %23.16e ||rhs|| = %23.16e\n", iter,  norm2_resid, norm2_rhs);
+                  "TTNormal: iter = %" IPOPT_INDEX_FORMAT " ||resid|| = %23.16e ||rhs|| = %23.16e\n", iter,  norm2_resid, norm2_rhs);
 
    if( iter > inexact_normal_max_iter_ )
    {

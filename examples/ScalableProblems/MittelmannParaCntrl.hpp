@@ -798,11 +798,11 @@ public:
    public:
       ProblemSpecs()
          : pi_(4. * atan(1.)),
-           exp13_(exp(1. / 3.)),
-           exp23_(exp(2. / 3.)),
-           exp1_(exp(1.)),
-           expm1_(exp(-1.)),
-           sqrt2_(sqrt(2.))
+           exp13_(std::exp(1. / 3.)),
+           exp23_(std::exp(2. / 3.)),
+           exp1_(std::exp(1.)),
+           expm1_(std::exp(-1.)),
+           sqrt2_(std::sqrt(2.))
       { }
 
       Number T()
@@ -849,21 +849,21 @@ public:
          Number x
       )
       {
-         return (exp1_ + expm1_) * cos(x);
+         return (exp1_ + expm1_) * std::cos(x);
       }
 
       inline Number a(
          Number x
       )
       {
-         return cos(x);
+         return std::cos(x);
       }
 
       inline Number a_y(
          Number t
       )
       {
-         return -exp(-2. * t);
+         return -std::exp(-2. * t);
       }
 
       inline Number a_u(
@@ -877,21 +877,21 @@ public:
          Number t
       )
       {
-         return exp(-4. * t) / 4. - Min(1., Max(0., (exp(t) - exp13_) / (exp23_ - exp13_)));
+         return std::exp(Number(-4.) * t) / Number(4.) - Min(Number(1.), Max(Number(0.), (std::exp(t) - exp13_) / (exp23_ - exp13_)));
       }
 
       inline Number phi(
          Number y
       )
       {
-         return y * pow(fabs(y), 3);
+         return y * std::pow(std::abs(y), 3);
       }
 
       inline Number phi_dy(
          Number y
       )
       {
-         return 4. * pow(fabs(y), 3);
+         return 4. * std::pow(std::abs(y), 3);
       }
 
       inline Number phi_dydy(
@@ -1261,11 +1261,11 @@ public:
    public:
       ProblemSpecs()
          : pi_(4. * atan(1.)),
-           exp13_(exp(1. / 3.)),
-           exp23_(exp(2. / 3.)),
-           exp1_(exp(1.)),
-           expm1_(exp(-1.)),
-           sqrt2_(sqrt(2.))
+           exp13_(std::exp(1. / 3.)),
+           exp23_(std::exp(2. / 3.)),
+           exp1_(std::exp(1.)),
+           expm1_(std::exp(-1.)),
+           sqrt2_(std::sqrt(2.))
       { }
 
       Number T()
@@ -1312,21 +1312,21 @@ public:
          Number x
       )
       {
-         return (exp1_ + expm1_) * cos(x);
+         return (exp1_ + expm1_) * std::cos(x);
       }
 
       inline Number a(
          Number x
       )
       {
-         return cos(x);
+         return std::cos(x);
       }
 
       inline Number a_y(
          Number t
       )
       {
-         return -exp(-2. * t);
+         return -std::exp(-2. * t);
       }
 
       inline Number a_u(
@@ -1340,28 +1340,28 @@ public:
          Number t
       )
       {
-         return exp(-4. * t) / 4. - Min(1., Max(0., (exp(t) - exp13_) / (exp23_ - exp13_)));
+         return std::exp(Number(-4.) * t) / 4. - Min(Number(1.), Max(Number(0.), (std::exp(t) - exp13_) / (exp23_ - exp13_)));
       }
 
       inline Number phi(
          Number y
       )
       {
-         return -y * sin(y / 10.);
+         return -y * std::sin(y / 10.);
       }
 
       inline Number phi_dy(
          Number y
       )
       {
-         return -y * cos(y / 10.) / 10. - sin(y / 10.);
+         return -y * std::cos(y / 10.) / 10. - std::sin(y / 10.);
       }
 
       inline Number phi_dydy(
          Number y
       )
       {
-         return y * sin(y / 10.) / 100.;
+         return y * std::sin(y / 10.) / 100.;
       }
 
       inline bool phi_dydy_always_zero()

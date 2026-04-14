@@ -10,7 +10,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -87,7 +87,7 @@ void DefaultIterateInitializer::RegisterOptions(
       "mu-based", "initialize to mu_init/x_slack",
       "This option defines how the iterates for the bound multipliers are initialized. "
       "If \"constant\" is chosen, then all bound multipliers are initialized to the value of \"bound_mult_init_val\". "
-      "If \"mu-based\" is chosen, the each value is initialized to the the value of \"mu_init\" "
+      "If \"mu-based\" is chosen, then each value is initialized to the the value of \"mu_init\" "
       "divided by the corresponding slack variable. "
       "This latter option might be useful if the starting point is close to the optimal solution.");
    reg_options->AddStringOption2(
@@ -109,7 +109,7 @@ void DefaultIterateInitializer::RegisterOptions(
       "If successful, the bound multipliers are possibly corrected to be at least bound_mult_init_val. "
       "This might be useful if the user doesn't know anything about the starting point, or for solving an LP or QP. "
       "This overwrites option \"bound_mult_init_method\".");
-   reg_options->SetRegisteringCategory("Warm Start");
+   reg_options->SetRegisteringCategory("Warm Start", 370000);
    reg_options->AddStringOption2(
       "warm_start_init_point",
       "Warm-start for initial point",
@@ -145,7 +145,7 @@ bool DefaultIterateInitializer::InitializeImpl(
    options.GetBoolValue("least_square_init_duals", least_square_init_duals_, prefix);
    ASSERT_EXCEPTION(!least_square_init_duals_ || IsValid(aug_system_solver_), OPTION_INVALID,
                     "The least_square_init_duals can only be chosen if the DefaultInitializer object has an AugSystemSolver.\n");
-   int enum_int;
+   Index enum_int;
    options.GetEnumValue("bound_mult_init_method", enum_int, prefix);
    bound_mult_init_method_ = BoundMultInitMethod(enum_int);
    if( bound_mult_init_method_ == B_MU_BASED )
@@ -182,7 +182,7 @@ bool DefaultIterateInitializer::SetInitialIterates()
 
    // Get the starting values provided by the NLP and store them
    // in the ip_data current fields.  The following line only requests
-   // intial values for the primal variables x, but later we might
+   // initial values for the primal variables x, but later we might
    // make this more flexible based on user options.
 
    /////////////////////////////////////////////////////////////////////
@@ -208,7 +208,7 @@ bool DefaultIterateInitializer::SetInitialIterates()
       if( retval )
       {
          Jnlst().Printf(J_DETAILED, J_INITIALIZATION,
-                        "Least square intial values for x and s computed.\n");
+                        "Least square initial values for x and s computed.\n");
          x_ls->Print(Jnlst(), J_VECTOR, J_INITIALIZATION, "x_ls");
          s_ls->Print(Jnlst(), J_VECTOR, J_INITIALIZATION, "s_ls");
          iterates->Set_x(*x_ls);
@@ -290,7 +290,7 @@ bool DefaultIterateInitializer::SetInitialIterates()
    bool call_least_square_mults = true;
    if( least_square_init_duals_ )
    {
-      // We try to compute a least square estimate of all multiplers,
+      // We try to compute a least square estimate of all multipliers,
       // and if successful,we make sure they are sufficiently positive
       SmartPtr<Vector> zL_new = IpData().trial()->z_L()->MakeNew();
       SmartPtr<Vector> zU_new = IpData().trial()->z_U()->MakeNew();
@@ -316,7 +316,7 @@ bool DefaultIterateInitializer::SetInitialIterates()
          IpData().set_trial(iterates);
 
          Jnlst().Printf(J_DETAILED, J_INITIALIZATION,
-                        "Least square intial values for z_L, z_U,v_L, v_U, y_c, y_d computed.\n");
+                        "Least square initial values for z_L, z_U,v_L, v_U, y_c, y_d computed.\n");
          zL_new->Print(Jnlst(), J_VECTOR, J_INITIALIZATION, "zL_new");
          zU_new->Print(Jnlst(), J_VECTOR, J_INITIALIZATION, "zU_new");
          vL_new->Print(Jnlst(), J_VECTOR, J_INITIALIZATION, "vL_new");
@@ -505,14 +505,15 @@ void DefaultIterateInitializer::push_variables(
    SmartPtr<Vector> tmp_l = x_L.MakeNew();
    SmartPtr<Vector> tmp_u = x_U.MakeNew();
 
-   const double dbl_min = std::numeric_limits<double>::min();
-   const double tiny_double = 100.0 * dbl_min;
+   const Number dbl_min = std::numeric_limits<Number>::min();
+   const Number tiny_double = 100.0 * dbl_min;
 
    // Calculate any required shift in x0 and s0
    SmartPtr<Vector> tmp = my_orig_x->MakeNew();
    SmartPtr<Vector> tiny_l = x_L.MakeNew();
    tiny_l->Set(tiny_double);
 
+   // cppcheck-suppress duplicateAssignExpression
    SmartPtr<Vector> q_l = x_L.MakeNew();
    SmartPtr<Vector> p_l = x_L.MakeNew();
    SmartPtr<Vector> delta_x = my_orig_x->MakeNew();
@@ -561,7 +562,9 @@ void DefaultIterateInitializer::push_variables(
       DBG_PRINT_VECTOR(1, "p_l", *p_l);
 
       // Calculate p_u
+      // cppcheck-suppress duplicateAssignExpression
       SmartPtr<Vector> q_u = x_U.MakeNew();
+      // cppcheck-suppress duplicateAssignExpression
       SmartPtr<Vector> p_u = x_U.MakeNew();
       SmartPtr<Vector> tiny_u = x_U.MakeNew();
       tiny_u->Set(tiny_double);

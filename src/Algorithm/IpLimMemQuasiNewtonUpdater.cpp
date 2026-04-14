@@ -13,7 +13,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -37,11 +37,10 @@ void LimMemQuasiNewtonUpdater::RegisterOptions(
 
    roptions->AddStringOption2(
       "limited_memory_update_type",
-      "Quasi-Newton update formula for the limited memory approximation.",
+      "Quasi-Newton update formula for the limited memory quasi-Newton approximation.",
       "bfgs",
       "bfgs", "BFGS update (with skipping)",
-      "sr1", "SR1 (not working well)",
-      "Determines which update formula is to be used for the limited-memory quasi-Newton approximation.");
+      "sr1", "SR1 (not working well)");
 
    roptions->AddStringOption5(
       "limited_memory_initialization",
@@ -86,12 +85,10 @@ void LimMemQuasiNewtonUpdater::RegisterOptions(
       2,
       "If the update is skipped more than this number of successive iterations, the quasi-Newton approximation is reset.");
 
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "limited_memory_special_for_resto",
       "Determines if the quasi-Newton updates should be special during the restoration phase.",
-      "no",
-      "no", "use the same update as in regular iterations",
-      "yes", "use the a special update during restoration phase",
+      false,
       "Until Nov 2010, Ipopt used a special update during the restoration phase, but it turned out that this does not work well. "
       "The new default uses the regular update procedure and it improves results. "
       "If for some reason you want to get back to the original update, set this option to \"yes\".");
@@ -409,16 +406,16 @@ void LimMemQuasiNewtonUpdater::UpdateHessian()
                switch( limited_memory_initialization_ )
                {
                   case SCALAR1:
-                     sigma_ = sTy_new / pow(s_new->Nrm2(), 2);
+                     sigma_ = sTy_new / std::pow(s_new->Nrm2(), 2);
                      break;
                   case SCALAR2:
-                     sigma_ = pow(y_new->Nrm2(), 2) / sTy_new;
+                     sigma_ = std::pow(y_new->Nrm2(), 2) / sTy_new;
                      break;
                   case SCALAR3:
-                     sigma_ = (sTy_new / pow(s_new->Nrm2(), 2) + pow(y_new->Nrm2(), 2) / sTy_new) / 2.;
+                     sigma_ = (sTy_new / std::pow(s_new->Nrm2(), 2) + std::pow(y_new->Nrm2(), 2) / sTy_new) / 2.;
                      break;
                   case SCALAR4:
-                     sigma_ = sqrt(sTy_new / pow(s_new->Nrm2(), 2) * pow(y_new->Nrm2(), 2) / sTy_new);
+                     sigma_ = std::sqrt(sTy_new / std::pow(s_new->Nrm2(), 2) * std::pow(y_new->Nrm2(), 2) / sTy_new);
                      break;
                   case CONSTANT:
                      sigma_ = limited_memory_init_val_;
@@ -443,7 +440,7 @@ void LimMemQuasiNewtonUpdater::UpdateHessian()
             // First update V - here only the last column is updated
             DBG_ASSERT(sTy_new > 0.);
             SmartPtr<Vector> v_new = y_new->MakeNewCopy();
-            v_new->Scal(1. / sqrt(sTy_new));
+            v_new->Scal(1. / std::sqrt(sTy_new));
             if( augment_memory )
             {
                AugmentMultiVector(V_, *v_new);
@@ -558,21 +555,21 @@ void LimMemQuasiNewtonUpdater::UpdateHessian()
                else
                {
                   // ToDo: What lower bound to use?
-                  Number sTy_new = Max(1e-8, fabs(s_new->Dot(*y_new)));
+                  Number sTy_new = Max(Number(1e-8), std::abs(s_new->Dot(*y_new)));
                   DBG_ASSERT(sTy_new != 0.);
                   switch( limited_memory_initialization_ )
                   {
                      case SCALAR1:
-                        sigma_ = sTy_new / pow(s_new->Nrm2(), 2);
+                        sigma_ = sTy_new / std::pow(s_new->Nrm2(), 2);
                         break;
                      case SCALAR2:
-                        sigma_ = pow(y_new->Nrm2(), 2) / sTy_new;
+                        sigma_ = std::pow(y_new->Nrm2(), 2) / sTy_new;
                         break;
                      case SCALAR3:
-                        sigma_ = (sTy_new / pow(s_new->Nrm2(), 2) + pow(y_new->Nrm2(), 2) / sTy_new) / 2.;
+                        sigma_ = (sTy_new / std::pow(s_new->Nrm2(), 2) + std::pow(y_new->Nrm2(), 2) / sTy_new) / 2.;
                         break;
                      case SCALAR4:
-                        sigma_ = sqrt(sTy_new / pow(s_new->Nrm2(), 2) * pow(y_new->Nrm2(), 2) / sTy_new);
+                        sigma_ = std::sqrt(sTy_new / std::pow(s_new->Nrm2(), 2) * std::pow(y_new->Nrm2(), 2) / sTy_new);
                         break;
                      case CONSTANT:
                         sigma_ = limited_memory_init_val_;
@@ -647,7 +644,7 @@ void LimMemQuasiNewtonUpdater::UpdateHessian()
             if( IsValid(Qminus) )
             {
                SmartPtr<MultiVectorMatrixSpace> U_space = new MultiVectorMatrixSpace(Qminus->NCols(),
-                     *s_new->OwnerSpace());
+                  *s_new->OwnerSpace());
                U_ = U_space->MakeNewMultiVectorMatrix();
                U_->AddRightMultMatrix(1., *Vtilde, *Qminus, 0.);
                DBG_PRINT_MATRIX(3, "U", *U_);
@@ -661,7 +658,7 @@ void LimMemQuasiNewtonUpdater::UpdateHessian()
             if( IsValid(Qplus) )
             {
                SmartPtr<MultiVectorMatrixSpace> V_space = new MultiVectorMatrixSpace(Qplus->NCols(),
-                     *s_new->OwnerSpace());
+                  *s_new->OwnerSpace());
                V_ = V_space->MakeNewMultiVectorMatrix();
                V_->AddRightMultMatrix(1., *Vtilde, *Qplus, 0.);
                DBG_PRINT_MATRIX(3, "V", *V_);
@@ -693,7 +690,7 @@ void LimMemQuasiNewtonUpdater::UpdateHessian()
       lm_skipped_iter_++;
    }
    Jnlst().Printf(J_DETAILED, J_HESSIAN_APPROXIMATION,
-                  "Number of successive iterations with skipping: %d\n", lm_skipped_iter_);
+                  "Number of successive iterations with skipping: %" IPOPT_INDEX_FORMAT "\n", lm_skipped_iter_);
 
    // Keep stuff around in case we want to skip SR1 retroactively
    // because of negative curvature!
@@ -750,6 +747,7 @@ void LimMemQuasiNewtonUpdater::RestoreInternalDataBackup()
    U_ = U_old_;
 }
 
+#if 0
 void LimMemQuasiNewtonUpdater::ReleaseInternalDataBackup()
 {
    DBG_START_METH("LimMemQuasiNewtonUpdater::ReleaseInternalDataBackup",
@@ -766,6 +764,7 @@ void LimMemQuasiNewtonUpdater::ReleaseInternalDataBackup()
    V_old_ = NULL;
    U_old_ = NULL;
 }
+#endif
 
 bool LimMemQuasiNewtonUpdater::UpdateInternalData(
    const Vector&    s_new,
@@ -899,7 +898,7 @@ bool LimMemQuasiNewtonUpdater::SplitEigenvalues(
    }
 
    // Determine the ratio of smallest over the largest eigenvalue
-   Number emax = Max(fabs(Evals[0]), fabs(Evals[dim - 1]));
+   Number emax = Max(std::abs(Evals[0]), std::abs(Evals[dim - 1]));
    if( emax == 0. )
    {
       return true;
@@ -959,7 +958,7 @@ bool LimMemQuasiNewtonUpdater::SplitEigenvalues(
    Number* Qminus_vals = Qminus->Values();
    for( Index j = 0; j < nneg; j++ )
    {
-      Number esqrt = sqrt(-Evals[j]);
+      Number esqrt = std::sqrt(-Evals[j]);
       for( Index i = 0; i < dim; i++ )
       {
          Qminus_vals[i + j * dim] = Qvals[i + j * dim] / esqrt;
@@ -973,7 +972,7 @@ bool LimMemQuasiNewtonUpdater::SplitEigenvalues(
    for( Index j = 0; j < dim - nneg; j++ )
    {
       DBG_ASSERT(Evals[j + nneg] > 0.);
-      Number esqrt = sqrt(Evals[j + nneg]);
+      Number esqrt = std::sqrt(Evals[j + nneg]);
       for( Index i = 0; i < dim; i++ )
       {
          Qplus_vals[i + j * dim] = Qvals[i + (j + nneg) * dim] / esqrt;
@@ -984,8 +983,8 @@ bool LimMemQuasiNewtonUpdater::SplitEigenvalues(
 }
 
 bool LimMemQuasiNewtonUpdater::CheckSkippingBFGS(
-   Vector& s_new,
-   Vector& y_new
+   const Vector& s_new,
+   const Vector& y_new
 )
 {
    Number sTy = s_new.Dot(y_new);
@@ -993,7 +992,7 @@ bool LimMemQuasiNewtonUpdater::CheckSkippingBFGS(
    Number ynrm = y_new.Nrm2();
 
    // ToDo make a parameter?
-   Number tol = sqrt(std::numeric_limits<Number>::epsilon());
+   Number tol = std::sqrt(std::numeric_limits<Number>::epsilon());
 
    Jnlst().Printf(J_DETAILED, J_HESSIAN_APPROXIMATION,
                   "Limited-Memory test for skipping:\n");
@@ -1378,29 +1377,6 @@ void LimMemQuasiNewtonUpdater::SetW()
    {
       IpData().Set_W(GetRawPtr(W));
    }
-
-#ifdef PRINT_W
-   // DELETEME
-   const DenseVector* dx = static_cast<const DenseVector*>
-                           (GetRawPtr(IpData().curr()->x()));
-   DBG_ASSERT(dynamic_cast<const DenseVector*>(GetRawPtr(IpData().curr()->x())));
-   SmartPtr<DenseVector> tmpx = dx->MakeNewDenseVector();
-   SmartPtr<DenseVector> tmpy = dx->MakeNewDenseVector();
-   for (Index i = 0; i < dx->Dim(); i++)
-   {
-      Number* tmpx_vals = tmpx->Values();
-      for (Index j = 0; j < dx->Dim(); j++)
-      {
-         tmpx_vals[j] = 0.;
-      }
-      tmpx_vals[i] = 1.;
-      W->MultVector(1., *tmpx, 0., *tmpy);
-      tmpx->Print(Jnlst(), J_DETAILED, J_MAIN, "tmpx");
-      tmpy->Print(Jnlst(), J_DETAILED, J_MAIN, "tmpy");
-   }
-   // ENDDELETEME
-#endif
-
 }
 
 void LimMemQuasiNewtonUpdater::RecalcY(
@@ -1418,9 +1394,9 @@ void LimMemQuasiNewtonUpdater::RecalcY(
 }
 
 void LimMemQuasiNewtonUpdater::RecalcD(
-   MultiVectorMatrix&     S,
-   MultiVectorMatrix&     Y,
-   SmartPtr<DenseVector>& D
+   const MultiVectorMatrix& S,
+   const MultiVectorMatrix& Y,
+   SmartPtr<DenseVector>&   D
 )
 {
    SmartPtr<DenseVectorSpace> space = new DenseVectorSpace(S.NCols());
@@ -1433,8 +1409,8 @@ void LimMemQuasiNewtonUpdater::RecalcD(
 }
 
 void LimMemQuasiNewtonUpdater::RecalcL(
-   MultiVectorMatrix&        S,
-   MultiVectorMatrix&        Y,
+   const MultiVectorMatrix&  S,
+   const MultiVectorMatrix&  Y,
    SmartPtr<DenseGenMatrix>& L
 )
 {

@@ -10,7 +10,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -47,12 +47,10 @@ TSymLinearSolver::~TSymLinearSolver()
 void TSymLinearSolver::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions)
 {
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "linear_scaling_on_demand",
       "Flag indicating that linear scaling is only done if it seems required.",
-      "yes",
-      "no", "Always scale the linear system.",
-      "yes", "Start using linear system scaling if solutions seem not good.",
+      true,
       "This option is only important if a linear scaling method (e.g., mc19) is used. "
       "If you choose \"no\", then the scaling factors are computed for every linear system from the start. "
       "This can be quite expensive. "
@@ -200,18 +198,18 @@ ESymSolverStatus TSymLinearSolver::MultiSolve(
 
    // Retrieve the right hand sides and scale if required
    Index nrhs = (Index) rhsV.size();
-   double* rhs_vals = new double[dim_ * nrhs];
+   Number* rhs_vals = new Number[dim_ * nrhs];
    for( Index irhs = 0; irhs < nrhs; irhs++ )
    {
       TripletHelper::FillValuesFromVector(dim_, *rhsV[irhs], &rhs_vals[irhs * (dim_)]);
       if( Jnlst().ProduceOutput(J_MOREMATRIX, J_LINEAR_ALGEBRA) )
       {
          Jnlst().Printf(J_MOREMATRIX, J_LINEAR_ALGEBRA,
-                        "Right hand side %d in TSymLinearSolver:\n", irhs);
+                        "Right hand side %" IPOPT_INDEX_FORMAT " in TSymLinearSolver:\n", irhs);
          for( Index i = 0; i < dim_; i++ )
          {
             Jnlst().Printf(J_MOREMATRIX, J_LINEAR_ALGEBRA,
-                           "Trhs[%5d,%5d] = %23.16e\n", irhs, i, rhs_vals[irhs * (dim_) + i]);
+                           "Trhs[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "] = %23.16e\n", irhs, i, rhs_vals[irhs * (dim_) + i]);
          }
       }
       if( use_scaling_ )
@@ -297,11 +295,11 @@ ESymSolverStatus TSymLinearSolver::MultiSolve(
          if( Jnlst().ProduceOutput(J_MOREMATRIX, J_LINEAR_ALGEBRA) )
          {
             Jnlst().Printf(J_MOREMATRIX, J_LINEAR_ALGEBRA,
-                           "Solution %d in TSymLinearSolver:\n", irhs);
+                           "Solution %" IPOPT_INDEX_FORMAT " in TSymLinearSolver:\n", irhs);
             for( Index i = 0; i < dim_; i++ )
             {
                Jnlst().Printf(J_MOREMATRIX, J_LINEAR_ALGEBRA,
-                              "Tsol[%5d,%5d] = %23.16e\n", irhs, i, rhs_vals[irhs * (dim_) + i]);
+                              "Tsol[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "] = %23.16e\n", irhs, i, rhs_vals[irhs * (dim_) + i]);
             }
          }
          TripletHelper::PutValuesInVector(dim_, &rhs_vals[irhs * (dim_)], *solV[irhs]);
@@ -384,7 +382,7 @@ ESymSolverStatus TSymLinearSolver::InitializeStructure(
          {
             IpData().TimingStats().LinearSystemScaling().Start();
          }
-         scaling_factors_ = new double[dim_];
+         scaling_factors_ = new Number[dim_];
          if( HaveIpData() )
          {
             IpData().TimingStats().LinearSystemScaling().End();
@@ -460,12 +458,12 @@ void TSymLinearSolver::GiveMatrixToSolver(
    DBG_START_METH("TSymLinearSolver::GiveMatrixToSolver", dbg_verbosity);
    DBG_PRINT((1, "new_matrix = %d\n", new_matrix));
 
-   double* pa = solver_interface_->GetValuesArrayPtr();
-   double* atriplet;
+   Number* pa = solver_interface_->GetValuesArrayPtr();
+   Number* atriplet;
 
    if( matrix_format_ != SparseSymLinearSolverInterface::Triplet_Format )
    {
-      atriplet = new double[nonzeros_triplet_];
+      atriplet = new Number[nonzeros_triplet_];
    }
    else
    {
@@ -478,7 +476,7 @@ void TSymLinearSolver::GiveMatrixToSolver(
    {
       for( Index i = 0; i < nonzeros_triplet_; i++ )
       {
-         DBG_PRINT((3, "KKTunscaled(%6d,%6d) = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
+         DBG_PRINT((3, "KKTunscaled(%6" IPOPT_INDEX_FORMAT ",%6" IPOPT_INDEX_FORMAT ") = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
       }
    }
 
@@ -505,7 +503,7 @@ void TSymLinearSolver::GiveMatrixToSolver(
             for( Index i = 0; i < dim_; i++ )
             {
                Jnlst().Printf(J_MOREVECTOR, J_LINEAR_ALGEBRA,
-                              "scaling factor[%6d] = %22.17e\n", i, scaling_factors_[i]);
+                              "scaling factor[%6" IPOPT_INDEX_FORMAT "] = %22.17e\n", i, scaling_factors_[i]);
             }
          }
          just_switched_on_scaling_ = false;
@@ -518,7 +516,7 @@ void TSymLinearSolver::GiveMatrixToSolver(
       {
          for( Index i = 0; i < nonzeros_triplet_; i++ )
          {
-            DBG_PRINT((3, "KKTscaled(%6d,%6d) = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
+            DBG_PRINT((3, "KKTscaled(%6" IPOPT_INDEX_FORMAT ",%6" IPOPT_INDEX_FORMAT ") = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
          }
       }
       IpData().TimingStats().LinearSystemScaling().End();
@@ -562,12 +560,12 @@ ESymSolverStatus TSymLinearSolver::DetermineDependentRows(
    airn_ = new Index[nonzeros_triplet_];
    ajcn_ = new Index[nonzeros_triplet_];
 
-   for( int i = 0; i < n_jac_nz; i++ )
+   for( Index i = 0; i < n_jac_nz; i++ )
    {
       airn_[i] = jac_c_iRow[i] + n_cols;
       ajcn_[i] = jac_c_jCol[i];
    }
-   for( int i = 0; i < dim_; i++ )
+   for( Index  i = 0; i < dim_; i++ )
    {
       airn_[n_jac_nz + i] = i + 1;
       ajcn_[n_jac_nz + i] = i + 1;
@@ -619,36 +617,36 @@ ESymSolverStatus TSymLinearSolver::DetermineDependentRows(
       {
          IpData().TimingStats().LinearSystemScaling().Start();
       }
-      scaling_factors_ = new double[dim_];
+      scaling_factors_ = new Number[dim_];
       if( HaveIpData() )
       {
          IpData().TimingStats().LinearSystemScaling().End();
       }
    }
 
-   double* pa = solver_interface_->GetValuesArrayPtr();
-   double* atriplet;
+   Number* pa = solver_interface_->GetValuesArrayPtr();
+   Number* atriplet;
 
    if( matrix_format_ != SparseSymLinearSolverInterface::Triplet_Format )
    {
-      atriplet = new double[nonzeros_triplet_];
+      atriplet = new Number[nonzeros_triplet_];
    }
    else
    {
       atriplet = pa;
    }
 
-   IpBlasDcopy(n_jac_nz, jac_c_vals, 1, atriplet, 1);
+   IpBlasCopy(n_jac_nz, jac_c_vals, 1, atriplet, 1);
    const Number one = 1.;
-   IpBlasDcopy(n_cols, &one, 0, atriplet + n_jac_nz, 1);
+   IpBlasCopy(n_cols, &one, 0, atriplet + n_jac_nz, 1);
    const Number zero = 0.;
-   IpBlasDcopy(n_rows, &zero, 0, atriplet + n_jac_nz + n_cols, 1);
+   IpBlasCopy(n_rows, &zero, 0, atriplet + n_jac_nz + n_cols, 1);
 
    if( DBG_VERBOSITY() >= 3 )
    {
       for( Index i = 0; i < nonzeros_triplet_; i++ )
       {
-         DBG_PRINT((3, "KKTunscaled(%6d,%6d) = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
+         DBG_PRINT((3, "KKTunscaled(%6" IPOPT_INDEX_FORMAT ",%6" IPOPT_INDEX_FORMAT ") = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
       }
    }
 
@@ -672,7 +670,7 @@ ESymSolverStatus TSymLinearSolver::DetermineDependentRows(
          for( Index i = 0; i < dim_; i++ )
          {
             Jnlst().Printf(J_MOREVECTOR, J_LINEAR_ALGEBRA,
-                           "scaling factor[%6d] = %22.17e\n", i, scaling_factors_[i]);
+                           "scaling factor[%6" IPOPT_INDEX_FORMAT "] = %22.17e\n", i, scaling_factors_[i]);
          }
       }
       for( Index i = 0; i < nonzeros_triplet_; i++ )
@@ -683,7 +681,7 @@ ESymSolverStatus TSymLinearSolver::DetermineDependentRows(
       {
          for( Index i = 0; i < nonzeros_triplet_; i++ )
          {
-            DBG_PRINT((3, "KKTscaled(%6d,%6d) = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
+            DBG_PRINT((3, "KKTscaled(%6" IPOPT_INDEX_FORMAT ",%6" IPOPT_INDEX_FORMAT ") = %24.16e\n", airn_[i], ajcn_[i], atriplet[i]));
          }
       }
       IpData().TimingStats().LinearSystemScaling().End();
@@ -708,7 +706,7 @@ ESymSolverStatus TSymLinearSolver::DetermineDependentRows(
    // We need to correct the indices
    if( retval == SYMSOLVER_SUCCESS )
    {
-      for( std::list<Index>::iterator i = c_deps.begin(); i != c_deps.end(); i++ )
+      for( std::list<Index>::iterator i = c_deps.begin(); i != c_deps.end(); ++i )
       {
          *i -= n_cols;
       }

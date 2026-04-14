@@ -48,6 +48,7 @@ int main(
       {
          SmartPtr<OptionsList> options = app->Options();
          options->SetStringValue("print_options_documentation", "yes");
+         options->SetStringValue("print_advanced_options", "yes");
          options->SetStringValue("print_options_mode", print_options_mode);
          app->Initialize("");
          return 0;
@@ -82,7 +83,7 @@ int main(
    suffix_handler->AddAvailableSuffix("ipopt_zU_in", AmplSuffixHandler::Variable_Source,
                                       AmplSuffixHandler::Number_Type);
 
-   SmartPtr<TNLP> ampl_tnlp = new AmplTNLP(ConstPtr(app->Jnlst()), app->Options(), args, suffix_handler);
+   SmartPtr<TNLP> ampl_tnlp = new AmplTNLP(ConstPtr(app->Jnlst()), app->RegOptions(), app->Options(), args, suffix_handler, false, NULL, NULL, NULL, NULL, NULL, true);
 
    // Call Initialize again to process output related options
    retval = app->Initialize();
@@ -95,7 +96,7 @@ int main(
    const int n_loops = 1; // make larger for profiling
    for( Index i = 0; i < n_loops; i++ )
    {
-      retval = app->OptimizeTNLP(ampl_tnlp);
+      app->OptimizeTNLP(ampl_tnlp);
    }
 
    // finalize_solution method in AmplTNLP writes the solution file

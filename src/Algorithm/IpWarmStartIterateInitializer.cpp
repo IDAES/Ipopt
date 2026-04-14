@@ -15,7 +15,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -29,29 +29,29 @@ void WarmStartIterateInitializer::RegisterOptions(
 {
    roptions->AddLowerBoundedNumberOption(
       "warm_start_bound_push",
-      "same as bound_push for the regular initializer.",
+      "same as bound_push for the regular initializer",
       0., true,
       1e-3);
    roptions->AddBoundedNumberOption(
       "warm_start_bound_frac",
-      "same as bound_frac for the regular initializer.",
+      "same as bound_frac for the regular initializer",
       0., true,
       0.5, false,
       1e-3);
    roptions->AddLowerBoundedNumberOption(
       "warm_start_slack_bound_push",
-      "same as slack_bound_push for the regular initializer.",
+      "same as slack_bound_push for the regular initializer",
       0., true,
       1e-3);
    roptions->AddBoundedNumberOption(
       "warm_start_slack_bound_frac",
-      "same as slack_bound_frac for the regular initializer.",
+      "same as slack_bound_frac for the regular initializer",
       0., true,
       0.5, false,
       1e-3);
    roptions->AddLowerBoundedNumberOption(
       "warm_start_mult_bound_push",
-      "same as mult_bound_push for the regular initializer.",
+      "same as mult_bound_push for the regular initializer",
       0., true,
       1e-3);
    roptions->AddNumberOption(
@@ -63,12 +63,15 @@ void WarmStartIterateInitializer::RegisterOptions(
       "Tells algorithm whether to use the GetWarmStartIterate method in the NLP.",
       "no",
       "no", "call GetStartingPoint in the NLP",
-      "yes", "call GetWarmStartIterate in the NLP");
-   roptions->SetRegisteringCategory("Uncategorized");
+      "yes", "call GetWarmStartIterate in the NLP",
+      "",
+      true);
    roptions->AddNumberOption(
       "warm_start_target_mu",
-      "Unsupported!",
-      0.);
+      "",
+      0.,
+      "Experimental!",
+      true);
 }
 
 bool WarmStartIterateInitializer::InitializeImpl(
@@ -187,7 +190,7 @@ bool WarmStartIterateInitializer::SetInitialIterates()
       //                   Initialize primal variables                   //
       /////////////////////////////////////////////////////////////////////
 
-      // Get the intial values for x, y_c, y_d, z_L, z_U,
+      // Get the initial values for x, y_c, y_d, z_L, z_U,
       if( !IpData().InitializeDataStructures(IpNLP(), true, true, true, true, true) )
       {
          return false;
@@ -406,7 +409,7 @@ void WarmStartIterateInitializer::adapt_to_target_mu(
          values_z[i] = target_mu / values_s[i];
          if( values_z[i] > values_s[i] )
          {
-            values_s[i] = values_z[i] = sqrt(target_mu);
+            values_s[i] = values_z[i] = std::sqrt(target_mu);
          }
       }
       else if( values_z[i] > 1e4 * values_s[i] )
@@ -414,12 +417,12 @@ void WarmStartIterateInitializer::adapt_to_target_mu(
          values_s[i] = target_mu / values_z[i];
          if( values_s[i] > values_z[i] )
          {
-            values_s[i] = values_z[i] = sqrt(target_mu);
+            values_s[i] = values_z[i] = std::sqrt(target_mu);
          }
       }
       else
       {
-         values_s[i] = values_z[i] = sqrt(target_mu);
+         values_s[i] = values_z[i] = std::sqrt(target_mu);
       }
    }
 }

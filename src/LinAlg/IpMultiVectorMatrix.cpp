@@ -13,7 +13,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -313,7 +313,7 @@ void MultiVectorMatrix::PrintImpl(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sMultiVectorMatrix \"%s\" with %d columns:\n", prefix.c_str(), name.c_str(), NCols());
+                        "%sMultiVectorMatrix \"%s\" with %" IPOPT_INDEX_FORMAT " columns:\n", prefix.c_str(), name.c_str(), NCols());
 
    for( Index i = 0; i < NCols(); i++ )
    {
@@ -321,14 +321,14 @@ void MultiVectorMatrix::PrintImpl(
       {
          DBG_ASSERT(name.size() < 200);
          char buffer[256];
-         Snprintf(buffer, 255, "%s[%2d]", name.c_str(), i);
+         Snprintf(buffer, 255, "%s[%2" IPOPT_INDEX_FORMAT "]", name.c_str(), i);
          std::string term_name = buffer;
          ConstVec(i)->Print(&jnlst, level, category, term_name, indent + 1, prefix);
       }
       else
       {
          jnlst.PrintfIndented(level, category, indent,
-                              "%sVector in column %d is not yet set!\n", prefix.c_str(), i);
+                              "%sVector in column %" IPOPT_INDEX_FORMAT " is not yet set!\n", prefix.c_str(), i);
       }
    }
 }

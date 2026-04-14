@@ -6,12 +6,19 @@
 
 #include "IpoptConfig.h"
 #include "IpBlas.hpp"
+#include "IpTypes.h"
 
 /* we currently have no separate check for Blas, but assume that Blas comes with Lapack
  * thus, we use the nameing convention of Lapack for Blas, too
  */
-#ifndef COIN_BLAS_FUNC
-#define COIN_BLAS_FUNC(name,NAME) COIN_LAPACK_FUNC(name,NAME)
+#ifndef IPOPT_BLAS_FUNC
+#define IPOPT_BLAS_FUNC(name,NAME) IPOPT_LAPACK_FUNC(name,NAME)
+#endif
+
+#ifdef IPOPT_SINGLE
+#define IPOPT_BLAS_FUNCP(name,NAME) IPOPT_BLAS_FUNC(s ## name,S ## NAME)
+#else
+#define IPOPT_BLAS_FUNCP(name,NAME) IPOPT_BLAS_FUNC(d ## name,D ## NAME)
 #endif
 
 #include <cstring>
@@ -19,152 +26,157 @@
 // Prototypes for the BLAS routines
 extern "C"
 {
-   /** BLAS Fortran function DDOT */
-   double COIN_BLAS_FUNC(ddot, DDOT)(
-      ipfint*       n,
-      const double* x,
-      ipfint*       incX,
-      const double* y,
-      ipfint*       incY
+   /** BLAS Fortran function XDOT */
+   ipnumber IPOPT_BLAS_FUNCP(dot, DOT)(
+      ipindex*        n,
+      const ipnumber* x,
+      ipindex*        incX,
+      const ipnumber* y,
+      ipindex*        incY
    );
 
-   /** BLAS Fortran function DNRM2 */
-   double COIN_BLAS_FUNC(dnrm2, DNRM2)(
-      ipfint*       n,
-      const double* x,
-      ipfint*       incX
+   /** BLAS Fortran function XNRM2 */
+   ipnumber IPOPT_BLAS_FUNCP(nrm2, NRM2)(
+      ipindex*        n,
+      const ipnumber* x,
+      ipindex*        incX
    );
 
-   /** BLAS Fortran function DASUM */
-   double COIN_BLAS_FUNC(dasum, DASUM)(
-      ipfint*       n,
-      const double* x,
-      ipfint*       incX
+   /** BLAS Fortran function XASUM */
+   ipnumber IPOPT_BLAS_FUNCP(asum, ASUM)(
+      ipindex*        n,
+      const ipnumber* x,
+      ipindex*        incX
    );
 
+#ifdef IPOPT_SINGLE
+   /** BLAS Fortran function ISAMAX */
+   ipindex IPOPT_BLAS_FUNC(isamax, ISAMAX)(
+#else
    /** BLAS Fortran function IDAMAX */
-   ipfint COIN_BLAS_FUNC(idamax, IDAMAX)(
-      ipfint*       n,
-      const double* x,
-      ipfint*       incX
+   ipindex IPOPT_BLAS_FUNC(idamax, IDAMAX)(
+#endif
+      ipindex*        n,
+      const ipnumber* x,
+      ipindex*        incX
    );
 
-   /** BLAS Fortran subroutine DCOPY */
-   void COIN_BLAS_FUNC(dcopy, DCOPY)(
-      ipfint*       n,
-      const double* x,
-      ipfint*       incX,
-      double*       y,
-      ipfint*       incY
+   /** BLAS Fortran subroutine XCOPY */
+   void IPOPT_BLAS_FUNCP(copy, COPY)(
+      ipindex*        n,
+      const ipnumber* x,
+      ipindex*        incX,
+      ipnumber*       y,
+      ipindex*        incY
    );
 
-   /** BLAS Fortran subroutine DAXPY */
-   void COIN_BLAS_FUNC(daxpy, DAXPY)(
-      ipfint*       n,
-      const double* alpha,
-      const double* x,
-      ipfint*       incX,
-      double*       y,
-      ipfint*       incY
+   /** BLAS Fortran subroutine XAXPY */
+   void IPOPT_BLAS_FUNCP(axpy, AXPY)(
+      ipindex*        n,
+      const ipnumber* alpha,
+      const ipnumber* x,
+      ipindex*        incX,
+      ipnumber*       y,
+      ipindex*        incY
    );
 
-   /** BLAS Fortran subroutine DSCAL */
-   void COIN_BLAS_FUNC(dscal, DSCAL)(
-      ipfint*       n,
-      const double* alpha,
-      const double* x,
-      ipfint*       incX
+   /** BLAS Fortran subroutine XSCAL */
+   void IPOPT_BLAS_FUNCP(scal, SCAL)(
+      ipindex*        n,
+      const ipnumber* alpha,
+      const ipnumber* x,
+      ipindex*        incX
    );
 
-   /** BLAS Fortran subroutine DGEMV */
-   void COIN_BLAS_FUNC(dgemv, DGEMV)(
-      char*         trans,
-      ipfint*       m,
-      ipfint*       n,
-      const double* alpha,
-      const double* a,
-      ipfint*       lda,
-      const double* x,
-      ipfint*       incX,
-      const double* beta,
-      double*       y,
-      ipfint*       incY,
-      int           trans_len
+   /** BLAS Fortran subroutine XGEMV */
+   void IPOPT_BLAS_FUNCP(gemv, GEMV)(
+      char*           trans,
+      ipindex*        m,
+      ipindex*        n,
+      const ipnumber* alpha,
+      const ipnumber* a,
+      ipindex*        lda,
+      const ipnumber* x,
+      ipindex*        incX,
+      const ipnumber* beta,
+      ipnumber*       y,
+      ipindex*        incY,
+      int             trans_len
    );
 
-   /** BLAS Fortran subroutine DSYMV */
-   void COIN_BLAS_FUNC(dsymv, DSYMV)(
-      char*         uplo,
-      ipfint*       n,
-      const double* alpha,
-      const double* a,
-      ipfint*       lda,
-      const double* x,
-      ipfint*       incX,
-      const double* beta,
-      double*       y,
-      ipfint*       incY,
-      int           uplo_len
+   /** BLAS Fortran subroutine XSYMV */
+   void IPOPT_BLAS_FUNCP(symv, SYMV)(
+      char*           uplo,
+      ipindex*        n,
+      const ipnumber* alpha,
+      const ipnumber* a,
+      ipindex*        lda,
+      const ipnumber* x,
+      ipindex*        incX,
+      const ipnumber* beta,
+      ipnumber*       y,
+      ipindex*        incY,
+      int             uplo_len
    );
 
-   /** BLAS Fortran subroutine DGEMM */
-   void COIN_BLAS_FUNC(dgemm, DGEMM)(
-      char*         transa,
-      char*         transb,
-      ipfint*       m,
-      ipfint*       n,
-      ipfint*       k,
-      const double* alpha,
-      const double* a,
-      ipfint*       lda,
-      const double* b,
-      ipfint*       ldb,
-      const double* beta,
-      double*       c,
-      ipfint*       ldc,
-      int           transa_len,
-      int           transb_len
+   /** BLAS Fortran subroutine XGEMM */
+   void IPOPT_BLAS_FUNCP(gemm, GEMM)(
+      char*           transa,
+      char*           transb,
+      ipindex*        m,
+      ipindex*        n,
+      ipindex*        k,
+      const ipnumber* alpha,
+      const ipnumber* a,
+      ipindex*        lda,
+      const ipnumber* b,
+      ipindex*        ldb,
+      const ipnumber* beta,
+      ipnumber*       c,
+      ipindex*        ldc,
+      int             transa_len,
+      int             transb_len
    );
 
-   /** BLAS Fortran subroutine DSYRK */
-   void COIN_BLAS_FUNC(dsyrk, DSYRK)(
-      char*         uplo,
-      char*         trans,
-      ipfint*       n,
-      ipfint*       k,
-      const double* alpha,
-      const double* a,
-      ipfint*       lda,
-      const double* beta,
-      double*       c,
-      ipfint*       ldc,
-      int           uplo_len,
-      int           trans_len
+   /** BLAS Fortran subroutine XSYRK */
+   void IPOPT_BLAS_FUNCP(syrk, SYRK)(
+      char*           uplo,
+      char*           trans,
+      ipindex*        n,
+      ipindex*        k,
+      const ipnumber* alpha,
+      const ipnumber* a,
+      ipindex*        lda,
+      const ipnumber* beta,
+      ipnumber*       c,
+      ipindex*        ldc,
+      int             uplo_len,
+      int             trans_len
    );
 
-   /** BLAS Fortran subroutine DTRSM */
-   void COIN_BLAS_FUNC(dtrsm, DTRSM)(
-      char*         side,
-      char*         uplo,
-      char*         transa,
-      char*         diag,
-      ipfint*       m,
-      ipfint*       n,
-      const double* alpha,
-      const double* a,
-      ipfint*       lda,
-      const double* b,
-      ipfint*       ldb,
-      int           side_len,
-      int           uplo_len,
-      int           transa_len,
-      int           diag_len
+   /** BLAS Fortran subroutine XTRSM */
+   void IPOPT_BLAS_FUNCP(trsm, TRSM)(
+      char*           side,
+      char*           uplo,
+      char*           transa,
+      char*           diag,
+      ipindex*        m,
+      ipindex*        n,
+      const ipnumber* alpha,
+      const ipnumber* a,
+      ipindex*        lda,
+      const ipnumber* b,
+      ipindex*        ldb,
+      int             side_len,
+      int             uplo_len,
+      int             transa_len,
+      int             diag_len
    );
 }
 
 namespace Ipopt
 {
-Number IpBlasDdot(
+Number IpBlasDot(
    Index         size,
    const Number* x,
    Index         incX,
@@ -174,9 +186,8 @@ Number IpBlasDdot(
 {
    if( incX > 0 && incY > 0 )
    {
-      ipfint n = size, INCX = incX, INCY = incY;
-
-      return COIN_BLAS_FUNC(ddot, DDOT)(&n, x, &INCX, y, &INCY);
+      ipindex n = size, INCX = incX, INCY = incY;
+      return IPOPT_BLAS_FUNCP(dot, DOT)(&n, x, &INCX, y, &INCY);
    }
    else
    {
@@ -191,42 +202,43 @@ Number IpBlasDdot(
    }
 }
 
-Number IpBlasDnrm2(
+Number IpBlasNrm2(
    Index         size,
    const Number* x,
    Index         incX
 )
 {
-   ipfint n = size, INCX = incX;
-
-   return COIN_BLAS_FUNC(dnrm2, DNRM2)(&n, x, &INCX);
+   ipindex n = size, INCX = incX;
+   return IPOPT_BLAS_FUNCP(nrm2, NRM2)(&n, x, &INCX);
 }
 
-Number IpBlasDasum(
+Number IpBlasAsum(
    Index         size,
    const Number* x,
    Index         incX
 )
 {
-   ipfint n = size, INCX = incX;
-
-   return COIN_BLAS_FUNC(dasum, DASUM)(&n, x, &INCX);
+   ipindex n = size, INCX = incX;
+   return IPOPT_BLAS_FUNCP(asum, ASUM)(&n, x, &INCX);
 }
 
-/** interface to FORTRAN routine IDAMAX */
-Index IpBlasIdamax(
+/** interface to FORTRAN routine IXAMAX */
+Index IpBlasIamax(
    Index         size,
    const Number* x,
    Index         incX
 )
 {
-   ipfint n = size, INCX = incX;
-
-   return (Index) COIN_BLAS_FUNC(idamax, IDAMAX)(&n, x, &INCX);
+   ipindex n = size, INCX = incX;
+#ifdef IPOPT_SINGLE
+   return IPOPT_BLAS_FUNC(isamax, ISAMAX)(&n, x, &INCX);
+#else
+   return IPOPT_BLAS_FUNC(idamax, IDAMAX)(&n, x, &INCX);
+#endif
 }
 
-/** interface to FORTRAN routine DCOPY */
-void IpBlasDcopy(
+/** interface to FORTRAN routine XCOPY */
+void IpBlasCopy(
    Index         size,
    const Number* x,
    Index         incX,
@@ -236,9 +248,8 @@ void IpBlasDcopy(
 {
    if( incX > 0 )
    {
-      ipfint N = size, INCX = incX, INCY = incY;
-
-      COIN_BLAS_FUNC(dcopy, DCOPY)(&N, x, &INCX, y, &INCY);
+      ipindex N = size, INCX = incX, INCY = incY;
+      IPOPT_BLAS_FUNCP(copy, COPY)(&N, x, &INCX, y, &INCY);
    }
    else if( incY == 1 )
    {
@@ -256,7 +267,7 @@ void IpBlasDcopy(
    }
 }
 
-void IpBlasDaxpy(
+void IpBlasAxpy(
    Index         size,
    Number        alpha,
    const Number* x,
@@ -267,9 +278,8 @@ void IpBlasDaxpy(
 {
    if( incX > 0 )
    {
-      ipfint N = size, INCX = incX, INCY = incY;
-
-      COIN_BLAS_FUNC(daxpy, DAXPY)(&N, &alpha, x, &INCX, y, &INCY);
+      ipindex N = size, INCX = incX, INCY = incY;
+      IPOPT_BLAS_FUNCP(axpy, AXPY)(&N, &alpha, x, &INCX, y, &INCY);
    }
    else if( incY == 1 )
    {
@@ -287,19 +297,18 @@ void IpBlasDaxpy(
    }
 }
 
-void IpBlasDscal(
+void IpBlasScal(
    Index   size,
    Number  alpha,
    Number* x,
    Index   incX
 )
 {
-   ipfint N = size, INCX = incX;
-
-   COIN_BLAS_FUNC(dscal, DSCAL)(&N, &alpha, x, &INCX);
+   ipindex N = size, INCX = incX;
+   IPOPT_BLAS_FUNCP(scal, SCAL)(&N, &alpha, x, &INCX);
 }
 
-void IpBlasDgemv(
+void IpBlasGemv(
    bool          trans,
    Index         nRows,
    Index         nCols,
@@ -313,7 +322,7 @@ void IpBlasDgemv(
    Index         incY
 )
 {
-   ipfint M = nCols, N = nRows, LDA = ldA, INCX = incX, INCY = incY;
+   ipindex M = nCols, N = nRows, LDA = ldA, INCX = incX, INCY = incY;
 
    char TRANS;
    if( trans )
@@ -324,11 +333,10 @@ void IpBlasDgemv(
    {
       TRANS = 'N';
    }
-
-   COIN_BLAS_FUNC(dgemv, DGEMV)(&TRANS, &M, &N, &alpha, A, &LDA, x, &INCX, &beta, y, &INCY, 1);
+   IPOPT_BLAS_FUNCP(gemv, GEMV)(&TRANS, &M, &N, &alpha, A, &LDA, x, &INCX, &beta, y, &INCY, 1);
 }
 
-void IpBlasDsymv(
+void IpBlasSymv(
    Index         n,
    Number        alpha,
    const Number* A,
@@ -340,14 +348,13 @@ void IpBlasDsymv(
    Index         incY
 )
 {
-   ipfint N = n, LDA = ldA, INCX = incX, INCY = incY;
+   ipindex N = n, LDA = ldA, INCX = incX, INCY = incY;
 
    char UPLO = 'L';
-
-   COIN_BLAS_FUNC(dsymv, DSYMV)(&UPLO, &N, &alpha, A, &LDA, x, &INCX, &beta, y, &INCY, 1);
+   IPOPT_BLAS_FUNCP(symv, SYMV)(&UPLO, &N, &alpha, A, &LDA, x, &INCX, &beta, y, &INCY, 1);
 }
 
-void IpBlasDgemm(
+void IpBlasGemm(
    bool          transa,
    bool          transb,
    Index         m,
@@ -363,7 +370,7 @@ void IpBlasDgemm(
    Index         ldC
 )
 {
-   ipfint M = m, N = n, K = k, LDA = ldA, LDB = ldB, LDC = ldC;
+   ipindex M = m, N = n, K = k, LDA = ldA, LDB = ldB, LDC = ldC;
 
    char TRANSA;
    if( transa )
@@ -383,11 +390,10 @@ void IpBlasDgemm(
    {
       TRANSB = 'N';
    }
-
-   COIN_BLAS_FUNC(dgemm, DGEMM)(&TRANSA, &TRANSB, &M, &N, &K, &alpha, A, &LDA, B, &LDB, &beta, C, &LDC, 1, 1);
+   IPOPT_BLAS_FUNCP(gemm, GEMM)(&TRANSA, &TRANSB, &M, &N, &K, &alpha, A, &LDA, B, &LDB, &beta, C, &LDC, 1, 1);
 }
 
-void IpBlasDsyrk(
+void IpBlasSyrk(
    bool          trans,
    Index         ndim,
    Index         nrank,
@@ -399,7 +405,7 @@ void IpBlasDsyrk(
    Index         ldC
 )
 {
-   ipfint N = ndim, K = nrank, LDA = ldA, LDC = ldC;
+   ipindex N = ndim, K = nrank, LDA = ldA, LDC = ldC;
 
    char UPLO = 'L';
    char TRANS;
@@ -411,11 +417,10 @@ void IpBlasDsyrk(
    {
       TRANS = 'N';
    }
-
-   COIN_BLAS_FUNC(dsyrk, DSYRK)(&UPLO, &TRANS, &N, &K, &alpha, A, &LDA, &beta, C, &LDC, 1, 1);
+   IPOPT_BLAS_FUNCP(syrk, SYRK)(&UPLO, &TRANS, &N, &K, &alpha, A, &LDA, &beta, C, &LDC, 1, 1);
 }
 
-void IpBlasDtrsm(
+void IpBlasTrsm(
    bool          trans,
    Index         ndim,
    Index         nrhs,
@@ -426,7 +431,7 @@ void IpBlasDtrsm(
    Index         ldB
 )
 {
-   ipfint M = ndim, N = nrhs, LDA = ldA, LDB = ldB;
+   ipindex M = ndim, N = nrhs, LDA = ldA, LDB = ldB;
 
    char SIDE = 'L';
    char UPLO = 'L';
@@ -440,8 +445,7 @@ void IpBlasDtrsm(
       TRANSA = 'N';
    }
    char DIAG = 'N';
-
-   COIN_BLAS_FUNC(dtrsm, DTRSM)(&SIDE, &UPLO, &TRANSA, &DIAG, &M, &N, &alpha, A, &LDA, B, &LDB, 1, 1, 1, 1);
+   IPOPT_BLAS_FUNCP(trsm, TRSM)(&SIDE, &UPLO, &TRANSA, &DIAG, &M, &N, &alpha, A, &LDA, B, &LDB, 1, 1, 1, 1);
 }
 
 } // namespace Ipopt

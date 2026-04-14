@@ -18,7 +18,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -41,13 +41,11 @@ void RestoIpoptNLP::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions
 )
 {
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "evaluate_orig_obj_at_resto_trial",
       "Determines if the original objective function should be evaluated at restoration phase trial points.",
-      "yes",
-      "no", "skip evaluation",
-      "yes", "evaluate at every trial point",
-      "Setting this option to \"yes\" makes the restoration phase algorithm evaluate the objective function "
+      true,
+      "Enabling this option makes the restoration phase algorithm evaluate the objective function "
       "of the original problem at every trial point encountered during the restoration phase, "
       "even if this value is not required.  "
       "In this way, it is guaranteed that the original objective function can be evaluated without error "
@@ -60,14 +58,16 @@ void RestoIpoptNLP::RegisterOptions(
       "Penalty parameter in the restoration phase objective function.",
       0., true,
       1e3,
-      "This is the parameter rho in equation (31a) in the Ipopt implementation paper.");
+      "This is the parameter rho in equation (31a) in the Ipopt implementation paper.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "resto_proximity_weight",
       "Weighting factor for the proximity term in restoration phase objective.",
       0., false,
       1.,
       "This determines how the parameter zeta in equation (29a) in the implementation paper is computed. "
-      "zeta here is resto_proximity_weight*sqrt(mu), where mu is the current barrier parameter.");
+      "zeta here is resto_proximity_weight*sqrt(mu), where mu is the current barrier parameter.",
+      true);
 }
 
 bool RestoIpoptNLP::Initialize(
@@ -203,7 +203,7 @@ bool RestoIpoptNLP::InitializeStructures(
    // matrix px_u
    total_rows = orig_x_space->Dim() + 2 * orig_c_space->Dim() + 2 * orig_d_space->Dim();
    total_cols = orig_x_u_space->Dim();
-   DBG_PRINT((1, "total_rows = %d, total_cols = %d\n", total_rows, total_cols));
+   DBG_PRINT((1, "total_rows = %" IPOPT_INDEX_FORMAT ", total_cols = %" IPOPT_INDEX_FORMAT "\n", total_rows, total_cols));
    px_u_space_ = new CompoundMatrixSpace(5, 1, total_rows, total_cols);
    px_u_space_->SetBlockRows(0, orig_x_space->Dim());
    px_u_space_->SetBlockRows(1, orig_c_space->Dim());
@@ -274,7 +274,7 @@ bool RestoIpoptNLP::InitializeStructures(
    jac_d_space_->SetBlockCols(4, orig_d_space->Dim());
 
    jac_d_space_->SetCompSpace(0, 0, *orig_jac_d_space);
-   DBG_PRINT((1, "orig_jac_d_space = %x\n", GetRawPtr(orig_jac_d_space)))
+   DBG_PRINT((1, "orig_jac_d_space = %p\n", GetRawPtr(orig_jac_d_space)))
    // Blocks (0,1) and (0,2) are zero'ed out
    // **NOTE: By placing "flat" identity matrices here, we are creating
    //         potential issues for linalg operations that arise when the original
@@ -294,21 +294,21 @@ bool RestoIpoptNLP::InitializeStructures(
    h_space_->SetBlockDim(3, orig_d_space->Dim());
    h_space_->SetBlockDim(4, orig_d_space->Dim());
 
-   SmartPtr<DiagMatrixSpace> DR_x_space = new DiagMatrixSpace(orig_x_space->Dim());
+   SmartPtr<DiagMatrixSpace> DR2_x_space = new DiagMatrixSpace(orig_x_space->Dim());
    if( hessian_approximation_ == LIMITED_MEMORY )
    {
       const LowRankUpdateSymMatrixSpace* LR_h_space = static_cast<const LowRankUpdateSymMatrixSpace*>(GetRawPtr(
-               orig_h_space));
+            orig_h_space));
       DBG_ASSERT(LR_h_space);
       SmartPtr<LowRankUpdateSymMatrixSpace> new_orig_h_space = new LowRankUpdateSymMatrixSpace(LR_h_space->Dim(),
-            NULL, orig_x_space, false);
+         NULL, orig_x_space, false);
       h_space_->SetCompSpace(0, 0, *new_orig_h_space, true);
    }
    else
    {
       SmartPtr<SumSymMatrixSpace> sumsym_mat_space = new SumSymMatrixSpace(orig_x_space->Dim(), 2);
       sumsym_mat_space->SetTermSpace(0, *orig_h_space);
-      sumsym_mat_space->SetTermSpace(1, *DR_x_space);
+      sumsym_mat_space->SetTermSpace(1, *DR2_x_space);
       h_space_->SetCompSpace(0, 0, *sumsym_mat_space, true);
       // All remaining blocks are zero'ed out
    }
@@ -424,20 +424,29 @@ bool RestoIpoptNLP::InitializeStructures(
    // Initialize other data needed by the restoration nlp.  x_ref is
    // the point to reference to which we based the regularization
    // term
-   x_ref_ = orig_x_space->MakeNew();
-   x_ref_->Copy(*orig_ip_data_->curr()->x());
+   SmartPtr<Vector> x_ref = orig_x_space->MakeNew();
+   x_ref->Copy(*orig_ip_data_->curr()->x());
+   x_ref_ = x_ref;
 
-   dr_x_ = orig_x_space->MakeNew();
-   dr_x_->Set(1.0);
-   SmartPtr<Vector> tmp = dr_x_->MakeNew();
+   SmartPtr<Vector> dr_x = orig_x_space->MakeNew();
+   dr_x->Set(1.0);
+   SmartPtr<Vector> tmp = dr_x->MakeNew();
    tmp->Copy(*x_ref_);
-   dr_x_->ElementWiseMax(*tmp);
+   dr_x->ElementWiseMax(*tmp);
    tmp->Scal(-1.);
-   dr_x_->ElementWiseMax(*tmp);
-   dr_x_->ElementWiseReciprocal();
+   dr_x->ElementWiseMax(*tmp);
+   dr_x->ElementWiseReciprocal();
+   dr_x_ = dr_x;
    DBG_PRINT_VECTOR(2, "dr_x_", *dr_x_);
-   DR_x_ = DR_x_space->MakeNewDiagMatrix();
-   DR_x_->SetDiag(*dr_x_);
+
+   // dr_x^2
+   SmartPtr<Vector> dr2_x = dr_x->MakeNewCopy();
+   dr2_x->ElementWiseMultiply(*dr_x_);
+   dr2_x_ = dr2_x;
+
+   SmartPtr<DiagMatrix> DR2_x = DR2_x_space->MakeNewDiagMatrix();
+   DR2_x->SetDiag(*dr2_x_);
+   DR2_x_ = DR2_x;
 
    return true;
 }
@@ -507,7 +516,7 @@ SmartPtr<const Vector> RestoIpoptNLP::grad_f(
    SmartPtr<Vector> x_only = c_vec->GetCompNonConst(0);
    x_only->Copy(*x_only_in);
    x_only->Axpy(-1.0, *x_ref_);
-   x_only->ElementWiseMultiply(*dr_x_);
+   x_only->ElementWiseMultiply(*dr2_x_);
    x_only->Scal(Eta(mu));
 
    return ConstPtr(retPtr);
@@ -620,7 +629,7 @@ SmartPtr<const Matrix> RestoIpoptNLP::jac_d(
    // The zero parts remain NULL, the identities are created from the matrix
    // space (since auto_allocate was set to true in SetCompSpace)
    SmartPtr<CompoundMatrix> retPtr = jac_d_space_->MakeNewCompoundMatrix();
-   DBG_PRINT((1, "jac_d_space_ = %x\n", GetRawPtr(jac_d_space_)))
+   DBG_PRINT((1, "jac_d_space_ = %p\n", GetRawPtr(jac_d_space_)))
 
    // Set the block for the original Jacobian
    retPtr->SetComp(0, 0, *jac_d_only);
@@ -689,7 +698,7 @@ SmartPtr<const SymMatrix> RestoIpoptNLP::h(
    SmartPtr<Matrix> h_sum_mat = retPtr->GetCompNonConst(0, 0);
    SmartPtr<SumSymMatrix> h_sum = static_cast<SumSymMatrix*>(GetRawPtr(h_sum_mat));
    h_sum->SetTerm(0, 1.0, *h_con_orig);
-   h_sum->SetTerm(1, obj_factor * Eta(mu), *DR_x_);
+   h_sum->SetTerm(1, obj_factor * Eta(mu), *DR2_x_);
 
    return GetRawPtr(retPtr);
 }
@@ -708,7 +717,7 @@ SmartPtr<const SymMatrix> RestoIpoptNLP::uninitialized_h()
       SmartPtr<Matrix> h_sum_mat = retPtr->GetCompNonConst(0, 0);
       SmartPtr<SumSymMatrix> h_sum = static_cast<SumSymMatrix*>(GetRawPtr(h_sum_mat));
       h_sum->SetTerm(0, 1.0, *h_con_orig);
-      h_sum->SetTerm(1, 1.0, *DR_x_);
+      h_sum->SetTerm(1, 1.0, *DR2_x_);
    }
 
    return GetRawPtr(retPtr);
@@ -751,7 +760,7 @@ Number RestoIpoptNLP::Eta(
    Number mu
 ) const
 {
-   return eta_factor_ * pow(mu, eta_mu_exponent_);
+   return eta_factor_ * std::pow(mu, eta_mu_exponent_);
 }
 
 void RestoIpoptNLP::AdjustVariableBounds(

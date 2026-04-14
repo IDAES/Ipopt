@@ -16,14 +16,11 @@
 #include <ctime>
 #include <cstdio>
 #include <cstdarg>
+#include <csignal>
 #include <limits>
 
-// The special treatment of vsnprintf on SUN has been suggsted by Lou Hafer 2010/07/04
-#if defined(HAVE_VSNPRINTF) && defined(__SUNPRO_CC)
-namespace std
-{
-#include <iso/stdio_c99.h>
-}
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define vsnprintf _vsnprintf
 #endif
 
 // The following code has been copied from CoinUtils' CoinTime
@@ -53,6 +50,9 @@ namespace std
 /* for some unfathomable reason (to me) rpcndr.h (pulled in by windows.h) does a
    '#define small char' */
 #undef small
+#endif
+#ifdef max
+#undef max
 #endif
 #define TWO_TO_THE_THIRTYTWO 4294967296.0
 #define DELTA_EPOCH_IN_SECS  11644473600.0
@@ -100,8 +100,8 @@ bool IsFiniteNumber(
    Number val
 )
 {
-#ifdef COIN_C_FINITE
-   return (bool)COIN_C_FINITE(val);
+#ifdef IPOPT_C_FINITE
+   return (bool)IPOPT_C_FINITE(val);
 #else
    return true;
 #endif
@@ -110,13 +110,13 @@ bool IsFiniteNumber(
 
 Number IpRandom01()
 {
-#ifdef HAVE_DRAND48
+#ifdef IPOPT_HAS_DRAND48
    return Number(drand48());
 #else
-# ifdef HAVE_RAND
+# ifdef IPOPT_HAS_RAND
    return Number(rand()) / Number(RAND_MAX);
 # else
-#  ifdef HAVE_STD__RAND
+#  ifdef IPOPT_HAS_STD__RAND
    return Number(std::rand()) / Number(RAND_MAX);
 #  else
 #   error "don't have function for random number generator"
@@ -127,13 +127,13 @@ Number IpRandom01()
 
 void IpResetRandom01()
 {
-#ifdef HAVE_DRAND48
+#ifdef IPOPT_HAS_DRAND48
    srand48(1);
 #else
-# ifdef HAVE_RAND
+# ifdef IPOPT_HAS_RAND
    srand(1);
 # else
-#  ifdef HAVE_STD__RAND
+#  ifdef IPOPT_HAS_STD__RAND
    std::srand(1);
 #  else
 #   error "don't have function for random number generator"
@@ -141,7 +141,6 @@ void IpResetRandom01()
 # endif
 #endif
 }
-
 
 static double Wallclock_firstCall_ = -1.;
 
@@ -193,6 +192,105 @@ Number WallclockTime()
    return callTime - Wallclock_firstCall_;
 }
 
+static bool registered_handler = false;
+static unsigned int abortcountdown_ = std::numeric_limits<unsigned int>::max();
+static void (*handle_interrupt_)(void) = NULL;
+static bool* interrupt_flag_ = NULL;
+
+static void sighandler(
+   int /* signum */
+)
+{
+   if( interrupt_flag_ != NULL )
+   {
+      *interrupt_flag_ = true;
+   }
+
+   if( handle_interrupt_ != NULL )
+   {
+      (*handle_interrupt_)();
+   }
+
+   if( --abortcountdown_ == 0 )
+   {
+      fputs("Ipopt sighandler: Too many interrupt signals. Forcing termination.\n", stderr);
+      exit(1);
+   }
+}
+
+bool RegisterInterruptHandler(
+   void        (*handle_interrupt)(void),
+   bool*         interrupt_flag,
+   unsigned int  abortlimit
+)
+{
+   if( registered_handler )
+   {
+      return false;
+   }
+   registered_handler = true;
+   abortcountdown_ = abortlimit;
+
+   handle_interrupt_ = handle_interrupt;
+   interrupt_flag_ = interrupt_flag;
+
+#ifdef IPOPT_HAS_SIGACTION
+   struct sigaction sa;
+   sa.sa_handler = &sighandler;
+   sa.sa_flags = SA_RESTART;
+   sigfillset(&sa.sa_mask);
+   if( sigaction(SIGINT, &sa, NULL) == -1 )
+   {
+      return false;
+   }
+   if( sigaction(SIGHUP, &sa, NULL) == -1 )
+   {
+      return false;
+   }
+
+#else
+   signal(SIGINT, sighandler);
+   signal(SIGTERM, sighandler);
+   signal(SIGABRT, sighandler);
+
+#endif
+
+   return true;
+}
+
+bool UnregisterInterruptHandler(void)
+{
+   if( !registered_handler )
+   {
+      return false;
+   }
+
+#ifdef IPOPT_HAS_SIGACTION
+   struct sigaction sa;
+   sa.sa_handler = SIG_DFL;
+   sa.sa_flags = SA_RESTART;
+   sigfillset(&sa.sa_mask);
+   if( sigaction(SIGINT, &sa, NULL) == -1 )
+   {
+      return false;
+   }
+   if( sigaction(SIGHUP, &sa, NULL) == -1 )
+   {
+      return false;
+   }
+
+#else
+   signal(SIGINT, SIG_DFL);
+   signal(SIGTERM, SIG_DFL);
+   signal(SIGABRT, SIG_DFL);
+
+#endif
+
+   registered_handler = false;
+
+   return true;
+}
+
 bool Compare_le(
    Number lhs,
    Number rhs,
@@ -200,7 +298,7 @@ bool Compare_le(
 )
 {
    Number mach_eps = std::numeric_limits<Number>::epsilon();
-   return (lhs - rhs <= 10.*mach_eps * fabs(BasVal));
+   return (lhs - rhs <= 10.*mach_eps * std::abs(BasVal));
 }
 
 int Snprintf(
@@ -210,47 +308,10 @@ int Snprintf(
    ...
 )
 {
-#if defined(HAVE_VSNPRINTF) && defined(__SUNPRO_CC)
-   std::va_list ap;
-#else
    va_list ap;
-#endif
    va_start(ap, format);
    int ret;
-#ifdef HAVE_VA_COPY
-   va_list apcopy;
-   va_copy(apcopy, ap);
-# ifdef HAVE_VSNPRINTF
-#  ifdef __SUNPRO_CC
-   ret = std::vsnprintf(str, size, format, apcopy);
-#  else
-   ret = vsnprintf(str, size, format, apcopy);
-#  endif
-# else
-#  ifdef HAVE__VSNPRINTF
-   ret = _vsnprintf(str, size, format, apcopy);
-#  else
-   ret = vsprintf(str, format, apcopy);
-   (void) size;
-#  endif
-   va_end(apcopy);
-# endif
-#else
-# ifdef HAVE_VSNPRINTF
-#  ifdef __SUNPRO_CC
-   ret = std::vsnprintf(str, size, format, ap);
-#  else
    ret = vsnprintf(str, size, format, ap);
-#  endif
-# else
-#  ifdef HAVE__VSNPRINTF
-   ret = _vsnprintf(str, size, format, ap);
-#  else
-   ret = vsprintf(str, format, ap);
-   (void) size;
-#  endif
-# endif
-#endif
    va_end(ap);
    return ret;
 }

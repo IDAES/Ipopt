@@ -10,7 +10,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -25,6 +25,7 @@ void IterativeSolverTerminationTester::GetVectors(
 {
    DBG_ASSERT(ndim == IpData().curr()->x()->Dim() + IpData().curr()->s()->Dim() +
               IpData().curr()->y_c()->Dim() + IpData().curr()->y_d()->Dim());
+   (void)ndim;
 
    // x
    SmartPtr<Vector> sol_x = IpData().curr()->x()->MakeNew();
@@ -51,7 +52,7 @@ void IterativeSolverTerminationTester::GetVectors(
    SmartPtr<Vector> sol_d = IpData().curr()->y_d()->MakeNew();
    dim = sol_d->Dim();
    TripletHelper::PutValuesInVector(dim, array, *sol_d);
-   array += dim;
+   // array += dim;
    comp_d = ConstPtr(sol_d);
 }
 

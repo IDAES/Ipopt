@@ -7,8 +7,6 @@
 #include "IpStdInterfaceTNLP.hpp"
 #include "IpBlas.hpp"
 
-/// @todo use more memcpy
-
 namespace Ipopt
 {
 
@@ -73,7 +71,9 @@ StdInterfaceTNLP::StdInterfaceTNLP(
      z_U_sol_(z_U_sol),
      g_sol_(g_sol),
      lambda_sol_(lam_sol),
-     obj_sol_(obj_sol)
+     obj_sol_(obj_sol),
+     ip_data_(NULL),
+     ip_cq_(NULL)
 {
    ASSERT_EXCEPTION(n_var_ > 0, INVALID_STDINTERFACE_NLP, "The number of variables must be at least 1.");
    ASSERT_EXCEPTION(n_con_ >= 0, INVALID_STDINTERFACE_NLP, "The number of constrains must be non-negative.");
@@ -94,19 +94,13 @@ StdInterfaceTNLP::StdInterfaceTNLP(
    if( x_scaling != NULL )
    {
       Number* tmp = new Number[n_var_];
-      for( Index i = 0; i < n_var_; i++ )
-      {
-         tmp[i] = x_scaling[i];
-      }
+      Ipopt::IpBlasCopy(n_var_, x_scaling, 1, tmp, 1);
       x_scaling_ = tmp;
    }
    if( g_scaling )
    {
       Number* tmp = new Number[n_con_];
-      for( Index i = 0; i < n_con_; i++ )
-      {
-         tmp[i] = g_scaling[i];
-      }
+      Ipopt::IpBlasCopy(n_con_, g_scaling, 1, tmp, 1);
       g_scaling_ = tmp;
    }
 }
@@ -148,17 +142,11 @@ bool StdInterfaceTNLP::get_bounds_info(
    DBG_ASSERT(n == n_var_);
    DBG_ASSERT(m == n_con_);
 
-   for( Index i = 0; i < n; i++ )
-   {
-      x_l[i] = x_L_[i];
-      x_u[i] = x_U_[i];
-   }
+   Ipopt::IpBlasCopy(n, x_L_, 1, x_l, 1);
+   Ipopt::IpBlasCopy(n, x_U_, 1, x_u, 1);
 
-   for( Index i = 0; i < m; i++ )
-   {
-      g_l[i] = g_L_[i];
-      g_u[i] = g_U_[i];
-   }
+   Ipopt::IpBlasCopy(m, g_L_, 1, g_l, 1);
+   Ipopt::IpBlasCopy(m, g_U_, 1, g_u, 1);
 
    return true;
 }
@@ -182,10 +170,7 @@ bool StdInterfaceTNLP::get_scaling_parameters(
    if( x_scaling_ != NULL )
    {
       use_x_scaling = true;
-      for( Index i = 0; i < n_var_; i++ )
-      {
-         x_scaling[i] = x_scaling_[i];
-      }
+      Ipopt::IpBlasCopy(n_var_, x_scaling_, 1, x_scaling, 1);
    }
    else
    {
@@ -195,10 +180,7 @@ bool StdInterfaceTNLP::get_scaling_parameters(
    if( g_scaling_ != NULL )
    {
       use_g_scaling = true;
-      for( Index i = 0; i < n_con_; i++ )
-      {
-         g_scaling[i] = g_scaling_[i];
-      }
+      Ipopt::IpBlasCopy(n_con_, g_scaling_, 1, g_scaling, 1);
    }
    else
    {
@@ -226,10 +208,9 @@ bool StdInterfaceTNLP::get_starting_point(
    DBG_ASSERT(m == n_con_);
 
    if( init_x )
-      for( Index i = 0; i < n; ++i )
-      {
-         x[i] = start_x_[i];
-      }
+   {
+      Ipopt::IpBlasCopy(n, start_x_, 1, x, 1);
+   }
 
    if( init_z )
    {
@@ -238,20 +219,18 @@ bool StdInterfaceTNLP::get_starting_point(
          retval = false;
       }
       else
-         for( Index i = 0; i < n; i++ )
-         {
-            z_L[i] = start_z_L_[i];
-         }
+      {
+         Ipopt::IpBlasCopy(n, start_z_L_, 1, z_L, 1);
+      }
 
       if( start_z_U_ == NULL )
       {
          retval = false;
       }
       else
-         for( Index i = 0; i < n; i++ )
-         {
-            z_U[i] = start_z_U_[i];
-         }
+      {
+         Ipopt::IpBlasCopy(n, start_z_U_, 1, z_U, 1);
+      }
    }
 
    if( init_lambda )
@@ -261,10 +240,9 @@ bool StdInterfaceTNLP::get_starting_point(
          retval = false;
       }
       else
-         for( Index i = 0; i < m; i++ )
-         {
-            lambda[i] = start_lam_[i];
-         }
+      {
+         Ipopt::IpBlasCopy(m, start_lam_, 1, lambda, 1);
+      }
    }
 
    return retval;
@@ -365,10 +343,9 @@ bool StdInterfaceTNLP::eval_h(
 
    Number* non_const_lambda = new Number[m];
    if( lambda )
-      for( Index i = 0; i < m; i++ )
-      {
-         non_const_lambda[i] = lambda[i];
-      }
+   {
+      Ipopt::IpBlasCopy(m, lambda, 1, non_const_lambda, 1);
+   }
 
    Bool retval = (*eval_h_)(n, non_const_x_, (Bool) new_x, obj_factor, m, non_const_lambda, (Bool) new_lambda, nele_hess, iRow, jCol, values, user_data_);
 
@@ -389,15 +366,25 @@ bool StdInterfaceTNLP::intermediate_callback(
    Number                     alpha_du,
    Number                     alpha_pr,
    Index                      ls_trials,
-   const IpoptData*           /*ip_data*/,
-   IpoptCalculatedQuantities* /*ip_cq*/
+   const IpoptData*           ip_data,
+   IpoptCalculatedQuantities* ip_cq
 )
 {
-   Bool retval = 1;
+   if( !intermediate_cb_ )
+   {
+      return true;
+   }
 
-   if( intermediate_cb_ )
-      retval = (*intermediate_cb_)((Index) mode, iter, obj_value, inf_pr, inf_du, mu, d_norm, regularization_size,
-                                   alpha_du, alpha_pr, ls_trials, user_data_);
+   ip_data_ = ip_data;
+   ip_cq_ = ip_cq;
+
+   Bool retval = (*intermediate_cb_)((Index) mode, iter, obj_value, inf_pr, inf_du, mu, d_norm, regularization_size,
+                                     alpha_du, alpha_pr, ls_trials, user_data_);
+
+   // cppcheck-suppress redundantAssignment
+   ip_data_ = NULL;
+   // cppcheck-suppress redundantAssignment
+   ip_cq_ = NULL;
 
    return (retval != 0);
 }
@@ -418,27 +405,27 @@ void StdInterfaceTNLP::finalize_solution(
 {
    if( x_sol_ != NULL )
    {
-      IpBlasDcopy(n, x, 1, x_sol_, 1);
+      IpBlasCopy(n, x, 1, x_sol_, 1);
    }
 
    if( z_L_sol_ != NULL )
    {
-      IpBlasDcopy(n, z_L, 1, z_L_sol_, 1);
+      IpBlasCopy(n, z_L, 1, z_L_sol_, 1);
    }
 
    if( z_U_sol_ != NULL )
    {
-      IpBlasDcopy(n, z_U, 1, z_U_sol_, 1);
+      IpBlasCopy(n, z_U, 1, z_U_sol_, 1);
    }
 
    if( g_sol_ != NULL )
    {
-      IpBlasDcopy(m, g, 1, g_sol_, 1);
+      IpBlasCopy(m, g, 1, g_sol_, 1);
    }
 
    if( lambda_sol_ != NULL )
    {
-      IpBlasDcopy(m, lambda, 1, lambda_sol_, 1);
+      IpBlasCopy(m, lambda, 1, lambda_sol_, 1);
    }
 
    if( obj_sol_ != NULL )
@@ -460,15 +447,12 @@ void StdInterfaceTNLP::apply_new_x(
       DBG_ASSERT(x != NULL);
 
       //copy the data to the non_const_x_
-      if( !non_const_x_ )
+      if( non_const_x_ == NULL )
       {
          non_const_x_ = new Number[n];
       }
 
-      for( Index i = 0; i < n; i++ )
-      {
-         non_const_x_[i] = x[i];
-      }
+      Ipopt::IpBlasCopy(n, x, 1, non_const_x_, 1);
    }
 }
 

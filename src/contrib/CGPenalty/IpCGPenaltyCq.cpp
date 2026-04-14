@@ -13,7 +13,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -83,11 +83,11 @@ Number CGPenaltyCq::curr_jac_cd_norm(
    {
       if( nrm_type == 3 )
       {
-         result = Max(result, fabs(values[i]));
+         result = Max(result, std::abs(values[i]));
       }
       if( nrm_type == 1 )
       {
-         result += fabs(values[i]);
+         result += std::abs(values[i]);
          count++;
       }
    }
@@ -100,11 +100,11 @@ Number CGPenaltyCq::curr_jac_cd_norm(
    {
       if( nrm_type == 3 )
       {
-         result = Max(result, fabs(values[i]));
+         result = Max(result, std::abs(values[i]));
       }
       if( nrm_type == 1 )
       {
-         result += fabs(values[i]);
+         result += std::abs(values[i]);
          count++;
       }
    }
@@ -230,6 +230,7 @@ Number CGPenaltyCq::curr_fast_direct_deriv_penalty_function()
    Number result;
    SmartPtr<const Vector> x = ip_data_->curr()->x();
    SmartPtr<const Vector> s = ip_data_->curr()->s();
+   // cppcheck-suppress assertWithSideEffect
    DBG_ASSERT(CGPenData().HaveCgPenDeltas());
    SmartPtr<const Vector> dy_c = CGPenData().delta_cgfast()->y_c();
    SmartPtr<const Vector> dy_d = CGPenData().delta_cgfast()->y_d();
@@ -348,8 +349,8 @@ Number CGPenaltyCq::compute_curr_cg_penalty(
    Number d_xs_times_damped_Hessian_times_d_xs = -deriv_barrier_dx_ds;
    d_xs_times_damped_Hessian_times_d_xs += -(tem_jac_cT_times_y_c_plus_dy_c->Dot(*d_x)
                                            + tem_jac_dT_times_y_d_plus_dy_d->Dot(*d_x) - y_d->Dot(*d_s) - dy_d->Dot(*d_s));
-   Number dxs_nrm = pow(d_x->Nrm2(), 2.) + pow(d_s->Nrm2(), 2.);
-   d_xs_times_damped_Hessian_times_d_xs = Max(1e-8 * dxs_nrm, d_xs_times_damped_Hessian_times_d_xs);
+   Number dxs_nrm = std::pow(d_x->Nrm2(), 2.) + std::pow(d_s->Nrm2(), 2.);
+   d_xs_times_damped_Hessian_times_d_xs = Max(Number(1e-8) * dxs_nrm, d_xs_times_damped_Hessian_times_d_xs);
    Number infeasibility = ip_cq_->curr_primal_infeasibility(NORM_2);
    Number penalty = 0.;
    if( infeasibility > 0. )
@@ -393,7 +394,7 @@ Number CGPenaltyCq::compute_curr_cg_penalty_scale()
    Number infeasibility = ip_cq_->curr_primal_infeasibility(NORM_2);
    if( !CGPenData().NeverTryPureNewton() )
    {
-      penalty = Min(1e13, infeasibility * 1e9);
+      penalty = Min(Number(1e13), infeasibility * Number(1e9));
    }
    else
    {
@@ -403,12 +404,12 @@ Number CGPenaltyCq::compute_curr_cg_penalty_scale()
           / (ip_data_->curr()->y_c()->Dim() + ip_data_->curr()->y_d()->Dim())) / 2.;
       if( CGPenData().restor_iter() == ip_data_->iter_count() || ip_data_->iter_count() == 0 )
       {
-         reference_infeasibility_ = Min(1., infeasibility);
+         reference_infeasibility_ = Min(Number(1.), infeasibility);
       }
       Number i = CGPenData().restor_counter();
-      Number fac = 4 * 1e-2 * pow(1e1, i);
+      Number fac = 4. * 1e-2 * std::pow(1e1, i);
       //Number fac = 1e-2;
-      penalty = Min(1e4, infeasibility) / (reference * fac * pow(reference_infeasibility_, 1));
+      penalty = Min(Number(1e4), infeasibility) / (reference * fac * std::pow(reference_infeasibility_, 1));
    }
 
    return penalty;
@@ -430,7 +431,7 @@ Number CGPenaltyCq::curr_scaled_y_Amax()
    if( !curr_scaled_y_Amax_cache_.GetCachedResult(result, deps) )
    {
       result = Max(y_c->Amax(), y_d->Amax());
-      result /= Max(1., ip_cq_->curr_grad_f()->Amax());
+      result /= Max(Number(1.), ip_cq_->curr_grad_f()->Amax());
       curr_scaled_y_Amax_cache_.AddCachedResult(result, deps);
    }
    return result;
@@ -455,7 +456,7 @@ Number CGPenaltyCq::curr_added_y_nrm2()
       SmartPtr<Vector> y_d_plus_dy_d = ip_data_->delta()->y_d()->MakeNew();
       y_c_plus_dy_c->AddTwoVectors(1., *ip_data_->delta()->y_c(), 1., *ip_data_->curr()->y_c(), 0.);
       y_d_plus_dy_d->AddTwoVectors(1., *ip_data_->delta()->y_d(), 1., *ip_data_->curr()->y_d(), 0.);
-      result = sqrt(pow(y_c_plus_dy_c->Nrm2(), 2) + pow(y_d_plus_dy_d->Nrm2(), 2));
+      result = std::sqrt(std::pow(y_c_plus_dy_c->Nrm2(), 2) + std::pow(y_d_plus_dy_d->Nrm2(), 2));
       curr_added_y_nrm2_cache_.AddCachedResult(result, deps);
    }
    return result;

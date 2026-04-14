@@ -4,8 +4,8 @@
 //
 // Authors:  Andreas Waechter     IBM    2007-03-01
 
-#ifndef __IP_STDAUGSYSTEMSOLVER_HPP__
-#define __IP_STDAUGSYSTEMSOLVER_HPP__
+#ifndef __IP_GENAUGSYSTEMSOLVER_HPP__
+#define __IP_GENAUGSYSTEMSOLVER_HPP__
 
 #include "IpAugSystemSolver.hpp"
 #include "IpGenKKTSolverInterface.hpp"
@@ -22,7 +22,7 @@ class GenAugSystemSolver: public AugSystemSolver
 {
 public:
    /**@name Constructors/Destructors */
-   //@{
+   ///@{
    /** Constructor using only a linear solver object */
    GenAugSystemSolver(
       GenKKTSolverInterface& SolverInterface
@@ -30,7 +30,7 @@ public:
 
    /** Destructor */
    virtual ~GenAugSystemSolver();
-   //@}
+   ///@}
 
    /** overloaded from AlgorithmStrategyObject */
    bool InitializeImpl(
@@ -44,17 +44,17 @@ public:
     */
    virtual ESymSolverStatus MultiSolve(
       const SymMatrix*                      W,
-      double                                W_factor,
+      Number                                W_factor,
       const Vector*                         D_x,
-      double                                delta_x,
+      Number                                delta_x,
       const Vector*                         D_s,
-      double                                delta_s,
+      Number                                delta_s,
       const Matrix*                         J_c,
       const Vector*                         D_c,
-      double                                delta_c,
+      Number                                delta_c,
       const Matrix*                         J_d,
       const Vector*                         D_d,
-      double                                delta_d,
+      Number                                delta_d,
       std::vector<SmartPtr<const Vector> >& rhs_xV,
       std::vector<SmartPtr<const Vector> >& rhs_sV,
       std::vector<SmartPtr<const Vector> >& rhs_cV,
@@ -102,7 +102,7 @@ private:
     * and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** Default constructor. */
    GenAugSystemSolver();
    /** Copy Constructor */
@@ -114,39 +114,39 @@ private:
    void operator=(
       const GenAugSystemSolver&
    );
-   //@}
+   ///@}
 
    /** Check the internal tags and decide if the passed variables are
     *  different from what is in the augmented_system_
     */
    bool AugmentedSystemChanged(
       const SymMatrix* W,
-      double           W_factor,
+      Number           W_factor,
       const Vector*    D_x,
-      double           delta_x,
+      Number           delta_x,
       const Vector*    D_s,
-      double           delta_s,
+      Number           delta_s,
       const Matrix&    J_c,
       const Vector*    D_c,
-      double           delta_c,
+      Number           delta_c,
       const Matrix&    J_d,
       const Vector*    D_d,
-      double           delta_d
+      Number           delta_d
    );
 
    void UpdateTags(
       const SymMatrix* W,
-      double           W_factor,
+      Number           W_factor,
       const Vector*    D_x,
-      double           delta_x,
+      Number           delta_x,
       const Vector*    D_s,
-      double           delta_s,
+      Number           delta_s,
       const Matrix&    J_c,
       const Vector*    D_c,
-      double           delta_c,
+      Number           delta_c,
       const Matrix&    J_d,
       const Vector*    D_d,
-      double           delta_d
+      Number           delta_d
    );
 
    /** The linear solver object that is to be used to solve the
@@ -158,28 +158,28 @@ private:
     * matrix has to be updated compared to the most recent call of
     * the Set method.
     */
-   //@{
+   ///@{
    /** Tag for W matrix.
     *
     *  If W has been given to Set as NULL, then this tag is set to 0
     */
    TaggedObject::Tag w_tag_;
    /** Most recent value of W_factor */
-   double w_factor_;
+   Number w_factor_;
    /** Tag for D_x vector, representing the diagonal matrix D_x.
     *
     *  If D_x has been given to Set as NULL, then this tag is set to 0
     */
    TaggedObject::Tag d_x_tag_;
    /** Most recent value of delta_x from Set method */
-   double delta_x_;
+   Number delta_x_;
    /** Tag for D_s vector, representing the diagonal matrix D_s.
     *
     *  If D_s has been given to Set as NULL, then this tag is set to 0
     */
    TaggedObject::Tag d_s_tag_;
    /** Most recent value of delta_s from Set method */
-   double delta_s_;
+   Number delta_s_;
    /** Tag for J_c matrix.
     *
     *  If J_c has been given to Set as NULL, then this tag is set to 0
@@ -191,7 +191,7 @@ private:
     */
    TaggedObject::Tag d_c_tag_;
    /** Most recent value of delta_c from Set method */
-   double delta_c_;
+   Number delta_c_;
    /** Tag for J_d matrix.
     *
     *  If J_d has been given to Set as NULL, then this tag is set to 0
@@ -203,27 +203,27 @@ private:
     */
    TaggedObject::Tag d_d_tag_;
    /** Most recent value of delta_d from Set method */
-   double delta_d_;
-   //@}
+   Number delta_d_;
+   ///@}
 
    /** @name Space for storing the diagonal matrices.
     *
     *  If the matrix hasn't changed, we can use it from the last call.
     */
-   //@{
+   ///@{
    Number* dx_vals_copy_;
    Number* ds_vals_copy_;
    Number* dc_vals_copy_;
    Number* dd_vals_copy_;
-   //@}
+   ///@}
 
    /** @name Algorithmic parameters */
-   //@{
+   ///@{
    /** Flag indicating whether the TNLP with identical structure has
     *  already been solved before.
     */
    bool warm_start_same_structure_;
-   //@}
+   ///@}
 };
 
 } // namespace Ipopt

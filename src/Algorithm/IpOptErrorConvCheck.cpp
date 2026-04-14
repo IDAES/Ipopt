@@ -10,7 +10,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -29,14 +29,21 @@ void OptimalityErrorConvergenceCheck::RegisterOptions(
       "Maximum number of iterations.",
       0,
       3000,
-      "The algorithm terminates with an error message if the number of iterations exceeded this number.");
+      "The algorithm terminates with a message if the number of iterations exceeded this number.");
+   roptions->AddLowerBoundedNumberOption(
+      "max_wall_time",
+      "Maximum number of walltime clock seconds.",
+      0.0, true,
+      1e20,
+      "A limit on walltime clock seconds that Ipopt can use to solve one problem. "
+      "If during the convergence check this limit is exceeded, Ipopt will terminate with a corresponding message.");
    roptions->AddLowerBoundedNumberOption(
       "max_cpu_time",
       "Maximum number of CPU seconds.",
       0.0, true,
-      1e6,
+      1e20,
       "A limit on CPU seconds that Ipopt can use to solve one problem. "
-      "If during the convergence check this limit is exceeded, Ipopt will terminate with a corresponding error message.");
+      "If during the convergence check this limit is exceeded, Ipopt will terminate with a corresponding message.");
    roptions->AddLowerBoundedNumberOption(
       "dual_inf_tol",
       "Desired threshold for the dual infeasibility.",
@@ -46,11 +53,13 @@ void OptimalityErrorConvergenceCheck::RegisterOptions(
       "Successful termination requires that the max-norm of the (unscaled) dual infeasibility is less than this threshold.");
    roptions->AddLowerBoundedNumberOption(
       "constr_viol_tol",
-      "Desired threshold for the constraint violation.",
+      "Desired threshold for the constraint and variable bound violation.",
       0.0, true,
       1e-4,
-      "Absolute tolerance on the constraint violation. "
-      "Successful termination requires that the max-norm of the (unscaled) constraint violation is less than this threshold.");
+      "Absolute tolerance on the constraint and variable bound violation. "
+      "Successful termination requires that the max-norm of the (unscaled) constraint violation is less than this threshold. "
+      "If option bound_relax_factor is not zero 0, then Ipopt relaxes given variable bounds. "
+      "The value of constr_viol_tol is used to restrict the absolute amount of this bound relaxation. ");
    roptions->AddLowerBoundedNumberOption(
       "compl_inf_tol",
       "Desired threshold for the complementarity conditions.",
@@ -135,6 +144,7 @@ bool OptimalityErrorConvergenceCheck::InitializeImpl(
 )
 {
    options.GetIntegerValue("max_iter", max_iterations_, prefix);
+   options.GetNumericValue("max_wall_time", max_wall_time_, prefix);
    options.GetNumericValue("max_cpu_time", max_cpu_time_, prefix);
    options.GetNumericValue("dual_inf_tol", dual_inf_tol_, prefix);
    options.GetNumericValue("constr_viol_tol", constr_viol_tol_, prefix);
@@ -200,14 +210,6 @@ ConvergenceCheck::ConvergenceStatus OptimalityErrorConvergenceCheck::CheckConver
    Number constr_viol = IpCq().unscaled_curr_nlp_constraint_violation(NORM_MAX);
    Number compl_inf = IpCq().unscaled_curr_complementarity(mu_target_, NORM_MAX);
 
-   if( IpData().curr()->x()->Dim() == IpData().curr()->y_c()->Dim() )
-   {
-      // the problem is square, there is no point in looking at dual
-      // infeasibility and complementarity as termination criterion
-      dual_inf_tol_ = 1e300;
-      compl_inf_tol_ = 1e300;
-   }
-
    if( Jnlst().ProduceOutput(J_MOREDETAILED, J_MAIN) )
    {
       Jnlst().Printf(J_MOREDETAILED, J_MAIN,
@@ -225,6 +227,15 @@ ConvergenceCheck::ConvergenceStatus OptimalityErrorConvergenceCheck::CheckConver
        && compl_inf <= compl_inf_tol_ )
    {
       return ConvergenceCheck::CONVERGED;
+   }
+
+   if( IpData().curr()->x()->Dim() == 0 )
+   {
+      if( constr_viol <= constr_viol_tol_ )
+      {
+         return ConvergenceCheck::CONVERGED;
+      }
+      THROW_EXCEPTION(LOCALLY_INFEASIBLE, "All variables are fixed and constraint violation is above tolerance. The problem is infeasible.");
    }
 
    if( acceptable_iter_ > 0 && CurrentIsAcceptable() )
@@ -251,10 +262,14 @@ ConvergenceCheck::ConvergenceStatus OptimalityErrorConvergenceCheck::CheckConver
       return ConvergenceCheck::MAXITER_EXCEEDED;
    }
 
-   Number curr_cpu_time = CpuTime();
-   if( max_cpu_time_ < 999999. && curr_cpu_time - IpData().cpu_time_start() > max_cpu_time_ )
+   if( max_cpu_time_ < 1e20 && CpuTime() - IpData().TimingStats().OverallAlgorithm().StartCpuTime() >= max_cpu_time_ )
    {
       return ConvergenceCheck::CPUTIME_EXCEEDED;
+   }
+
+   if( max_wall_time_ < 1e20 && WallclockTime() - IpData().TimingStats().OverallAlgorithm().StartWallclockTime() >= max_wall_time_ )
+   {
+      return ConvergenceCheck::WALLTIME_EXCEEDED;
    }
 
    return ConvergenceCheck::CONTINUE;
@@ -272,9 +287,8 @@ bool OptimalityErrorConvergenceCheck::CurrentIsAcceptable()
 
    if( IpData().iter_count() != last_obj_val_iter_ )
    {
-      // DELETEME
-      Jnlst().Printf(J_MOREDETAILED, J_MAIN,
-                     "obj val update iter = %d\n", IpData().iter_count());
+      //Jnlst().Printf(J_MOREDETAILED, J_MAIN,
+      //               "obj val update iter = %" IPOPT_INDEX_FORMAT "\n", IpData().iter_count());
       last_obj_val_ = curr_obj_val_;
       curr_obj_val_ = IpCq().curr_f();
       last_obj_val_iter_ = IpData().iter_count();
@@ -289,14 +303,6 @@ bool OptimalityErrorConvergenceCheck::CurrentIsAcceptable()
    DBG_PRINT((1, "acceptable_dual_inf_tol_ = %e\n", acceptable_dual_inf_tol_));
    DBG_PRINT((1, "acceptable_constr_viol_tol_ = %e\n", acceptable_constr_viol_tol_));
    DBG_PRINT((1, "acceptable_compl_inf_tol_ = %e\n", acceptable_compl_inf_tol_));
-
-   if( IpData().curr()->x()->Dim() == IpData().curr()->y_c()->Dim() )
-   {
-      // the problem is square, there is no point in looking at dual
-      // infeasibility and complementarity as termination criterion
-      acceptable_dual_inf_tol_ = 1e300;
-      acceptable_compl_inf_tol_ = 1e300;
-   }
 
    if( Jnlst().ProduceOutput(J_MOREDETAILED, J_MAIN) )
    {
@@ -313,16 +319,15 @@ bool OptimalityErrorConvergenceCheck::CurrentIsAcceptable()
       Jnlst().Printf(J_MOREDETAILED, J_MAIN,
                      "  curr_obj_val_ = %23.16e   last_obj_val                = %23.16e\n", curr_obj_val_, last_obj_val_);
       Jnlst().Printf(J_MOREDETAILED, J_MAIN,
-                     "  fabs(curr_obj_val_-last_obj_val_)/Max(1., fabs(curr_obj_val_)) = %23.16e acceptable_obj_change_tol_ = %23.16e\n",
-                     fabs(curr_obj_val_ - last_obj_val_) / Max(1., fabs(curr_obj_val_)), acceptable_obj_change_tol_);
-      // DELETEME
-      Jnlst().Printf(J_MOREDETAILED, J_MAIN,
-                     "test iter = %d\n", IpData().iter_count());
+                     "  std::abs(curr_obj_val_-last_obj_val_)/Max(1., std::abs(curr_obj_val_)) = %23.16e acceptable_obj_change_tol_ = %23.16e\n",
+                     std::abs(curr_obj_val_ - last_obj_val_) / Max(Number(1.), std::abs(curr_obj_val_)), acceptable_obj_change_tol_);
+      //Jnlst().Printf(J_MOREDETAILED, J_MAIN,
+      //               "test iter = %" IPOPT_INDEX_FORMAT "\n", IpData().iter_count());
    }
 
    return (overall_error <= acceptable_tol_ && dual_inf <= acceptable_dual_inf_tol_
            && constr_viol <= acceptable_constr_viol_tol_ && compl_inf <= acceptable_compl_inf_tol_
-           && fabs(curr_obj_val_ - last_obj_val_) / Max(1., fabs(curr_obj_val_)) <= acceptable_obj_change_tol_);
+           && std::abs(curr_obj_val_ - last_obj_val_) / Max(Number(1.), std::abs(curr_obj_val_)) <= acceptable_obj_change_tol_);
 }
 
 } // namespace Ipopt

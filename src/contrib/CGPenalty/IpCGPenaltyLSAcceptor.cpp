@@ -20,7 +20,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -44,12 +44,10 @@ void CGPenaltyLSAcceptor::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions
 )
 {
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "never_use_piecewise_penalty_ls",
       "Toggle to switch off the piecewise penalty method",
-      "no",
-      "no", "always use the piecewise penalty method",
-      "yes", "never use the piecewise penalty method");
+      false);
    roptions->AddBoundedNumberOption(
       "eta_penalty",
       "Relaxation factor in the Armijo condition for the penalty function.",
@@ -64,9 +62,11 @@ void CGPenaltyLSAcceptor::RegisterOptions(
       "If the new constraint violation is smaller than this tolerance, the penalty parameter is not increased.");
    roptions->AddLowerBoundedNumberOption(
       "eta_min",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1e1);
+      1e1,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "pen_theta_max_fact",
       "Determines upper bound for constraint violation in the filter.",
@@ -78,71 +78,96 @@ void CGPenaltyLSAcceptor::RegisterOptions(
       "(see Eqn. (21) in implementation paper).");
    roptions->AddLowerBoundedNumberOption(
       "penalty_update_compl_tol",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1e1);
+      1e1,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "chi_hat",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      2.);
+      2.,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "chi_tilde",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      5.);
+      5.,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "chi_cup",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1.5);
+      1.5,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "gamma_hat",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      0.04);
+      0.04,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "gamma_tilde",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      4.);
+      4.,
+      "",
+      true);
 
    roptions->AddLowerBoundedNumberOption(
       "epsilon_c",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1e-2);
+      1e-2,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "piecewisepenalty_gamma_obj",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1e-13);
+      1e-13,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "piecewisepenalty_gamma_infeasi",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1e-13);
+      1e-13,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "min_alpha_primal",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1e-13);
+      1e-13,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "theta_min",
-      "LIFENG WRITES THIS.",
+      "", // TODO LIFENG WRITES THIS
       0., true,
-      1e-6);
+      1e-6,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "mult_diverg_feasibility_tol",
       "tolerance for deciding if the multipliers are diverging",
       0., true,
-      1e-7);
+      1e-7,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "mult_diverg_y_tol",
       "tolerance for deciding if the multipliers are diverging",
       0., true,
-      1e8);
-
+      1e8,
+      "",
+      true);
 }
 
 bool CGPenaltyLSAcceptor::InitializeImpl(
@@ -257,7 +282,6 @@ bool CGPenaltyLSAcceptor::CheckAcceptabilityOfTrialPoint(
    Number curr_infeasi = IpCq().curr_constraint_violation();
    //Number trial_barr = IpCq().trial_barrier_obj();
    Number trial_infeasi = IpCq().trial_constraint_violation();
-   bool accept = false;
    ls_counter_++;
    if( ls_counter_ == 1 )
    {
@@ -285,7 +309,7 @@ bool CGPenaltyLSAcceptor::CheckAcceptabilityOfTrialPoint(
    // Initialize the max infeasibility that's allowed for every iteration,
    if( pen_theta_max_ < 0. )
    {
-      pen_theta_max_ = pen_theta_max_fact_ * Max(1.0, reference_theta_);
+      pen_theta_max_ = pen_theta_max_fact_ * Max(Number(1.0), reference_theta_);
    }
    // Check if the constraint violation is becoming too large. If the violation
    // is bigger than pen_theta_max_, the trial point is rejected.
@@ -296,10 +320,7 @@ bool CGPenaltyLSAcceptor::CheckAcceptabilityOfTrialPoint(
       return false;
    }
    // Check Armijo conditions.
-   if( !accept )
-   {
-      accept = ArmijoHolds(alpha_primal_test);
-   }
+   bool accept = ArmijoHolds(alpha_primal_test);
    // Check PLPF criteria.
    if( !accept && !never_use_piecewise_penalty_ls_ )
    {
@@ -348,7 +369,7 @@ bool CGPenaltyLSAcceptor::IsAcceptableToPiecewisePenalty(
    SmartPtr<const Vector> ds = IpData().delta()->s();
    Number curr_barr = IpCq().curr_barrier_obj();
    Number trial_barr = IpCq().trial_barrier_obj();
-   Number nrm_dx_ds = pow(dx->Nrm2(), 2.) + pow(ds->Nrm2(), 2.);
+   Number nrm_dx_ds = std::pow(dx->Nrm2(), 2.) + std::pow(ds->Nrm2(), 2.);
    if( infeasibility < theta_min_ )
    {
       Number biggest_barr = PiecewisePenalty_.BiggestBarr();
@@ -403,7 +424,7 @@ bool CGPenaltyLSAcceptor::Compare_le(
                  dbg_verbosity);
    DBG_PRINT((1, "lhs = %27.16e rhs = %27.16e  BasVal = %27.16e\n", lhs, rhs, BasVal));
    Number mach_eps = std::numeric_limits<Number>::epsilon();
-   return (lhs - rhs <= 10. * mach_eps * fabs(BasVal));
+   return (lhs - rhs <= 10. * mach_eps * std::abs(BasVal));
 }
 
 void CGPenaltyLSAcceptor::StartWatchDog()
@@ -463,7 +484,7 @@ bool CGPenaltyLSAcceptor::TrySecondOrderCorrection(
       theta_soc_old = theta_trial;
       theta_soc_old2 = theta_trial2;
       Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                     "Trying second order correction number %d\n", count_soc + 1);
+                     "Trying second order correction number %" IPOPT_INDEX_FORMAT "\n", count_soc + 1);
       // Compute SOC constraint violation
       /*
        Number c_over_r = 0.;
@@ -513,7 +534,7 @@ bool CGPenaltyLSAcceptor::TrySecondOrderCorrection(
       if( accept )
       {
          Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                        "Second order correction step accepted with %d corrections.\n", count_soc + 1);
+                        "Second order correction step accepted with %" IPOPT_INDEX_FORMAT " corrections.\n", count_soc + 1);
          // Accept all SOC quantities
          alpha_primal = alpha_primal_soc;
          actual_delta = delta_soc;
@@ -694,7 +715,7 @@ char CGPenaltyLSAcceptor::UpdatePenaltyParameter()
    // We use the new infeasibility here...
    Number trial_inf = IpCq().trial_primal_infeasibility(NORM_2);
    Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                  "trial infeasibility = %8.2\n", trial_inf);
+                  "trial infeasibility = %8.2g\n", trial_inf);
    if( curr_eta_ < 0. )
    {
       // We need to initialize the eta tolerance
@@ -712,7 +733,7 @@ char CGPenaltyLSAcceptor::UpdatePenaltyParameter()
    {
       Number max_step = Max(CGPenData().delta_cgpen()->x()->Amax(), CGPenData().delta_cgpen()->s()->Amax());
       Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                     "Max norm of step = %8.2\n", max_step);
+                     "Max norm of step = %8.2g\n", max_step);
       increase = (max_step <= curr_eta_);
       if( !increase )
       {
@@ -751,9 +772,9 @@ char CGPenaltyLSAcceptor::UpdatePenaltyParameter()
          max_compl = Max(max_compl, compl_s_U->Max());
       }
       Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                     "Minimal compl = %8.2\n", min_compl);
+                     "Minimal compl = %8.2g\n", min_compl);
       Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                     "Maximal compl = %8.2\n", max_compl);
+                     "Maximal compl = %8.2g\n", max_compl);
       increase = (min_compl >= mu * penalty_update_compl_tol_ && max_compl <= mu / penalty_update_compl_tol_);
       if( !increase )
       {
@@ -765,20 +786,18 @@ char CGPenaltyLSAcceptor::UpdatePenaltyParameter()
    if( increase )
    {
       SmartPtr<Vector> vec = IpData().curr()->y_c()->MakeNewCopy();
-      vec->AddTwoVectors(1., *CGPenData().delta_cgpen()->y_c(), -1. / CGPenCq().curr_cg_pert_fact(), *IpCq().curr_c(),
-                         1.);
+      vec->AddTwoVectors(1., *CGPenData().delta_cgpen()->y_c(), -1. / CGPenCq().curr_cg_pert_fact(), *IpCq().curr_c(), 1.);
       Number omega_test = vec->Amax();
       Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                     "omega_test for c = %8.2\n", omega_test);
+                     "omega_test for c = %8.2g\n", omega_test);
       increase = (omega_test < curr_eta_);
       if( increase )
       {
-         SmartPtr<Vector> vec = IpData().curr()->y_d()->MakeNewCopy();
-         vec->AddTwoVectors(1., *IpData().delta()->y_d(), -1. / CGPenCq().curr_cg_pert_fact(), *IpCq().curr_d_minus_s(),
-                            1.);
+         vec = IpData().curr()->y_d()->MakeNewCopy();
+         vec->AddTwoVectors(1., *IpData().delta()->y_d(), -1. / CGPenCq().curr_cg_pert_fact(), *IpCq().curr_d_minus_s(), 1.);
          omega_test = vec->Amax();
          Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                        "omega_test for d = %8.2\n", omega_test);
+                        "omega_test for d = %8.2g\n", omega_test);
          increase = (omega_test < curr_eta_);
       }
       if( !increase )
@@ -791,9 +810,9 @@ char CGPenaltyLSAcceptor::UpdatePenaltyParameter()
       // Ok, now we should increase the penalty parameter
       counter_first_type_penalty_updates_++;
       // Update the eta tolerance
-      curr_eta_ = Max(eta_min_, curr_eta_ / 2.);
+      curr_eta_ = Max(eta_min_, curr_eta_ / Number(2.));
       Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                     "Updating eta to = %8.2\n", curr_eta_);
+                     "Updating eta to = %8.2g\n", curr_eta_);
       Number penalty = CGPenData().curr_kkt_penalty();
       Number y_full_step_max;
       SmartPtr<Vector> vec = IpData().curr()->y_c()->MakeNew();
@@ -804,7 +823,7 @@ char CGPenaltyLSAcceptor::UpdatePenaltyParameter()
       y_full_step_max = Max(y_full_step_max, vec->Amax());
       if( IpCq().curr_primal_infeasibility(NORM_2) >= epsilon_c_ )
       {
-         penalty = Max(chi_hat_ * penalty, y_full_step_max + 1.);
+         penalty = Max(chi_hat_ * penalty, y_full_step_max + Number(1.));
          info_alpha_primal_char = 'l';
       }
       else

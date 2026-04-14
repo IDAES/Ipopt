@@ -49,10 +49,9 @@
 #include "IpGradientScaling.hpp"
 #include "IpEquilibrationScaling.hpp"
 #include "IpExactHessianUpdater.hpp"
+#include "IpSlackBasedTSymScalingMethod.hpp"
 
-#ifdef COIN_HAS_HSL
-#include "CoinHslConfig.h"
-#endif
+#include "IpLinearSolvers.h"
 #include "IpMa27TSolverInterface.hpp"
 #include "IpMa57TSolverInterface.hpp"
 #include "IpMa77SolverInterface.hpp"
@@ -60,115 +59,298 @@
 #include "IpMa97SolverInterface.hpp"
 #include "IpMc19TSymScalingMethod.hpp"
 #include "IpPardisoSolverInterface.hpp"
-#include "IpSlackBasedTSymScalingMethod.hpp"
-
-#ifdef HAVE_WSMP
+#ifdef IPOPT_HAS_PARDISO_MKL
+# include "IpPardisoMKLSolverInterface.hpp"
+#endif
+#ifdef IPOPT_HAS_SPRAL
+# include "IpSpralSolverInterface.hpp"
+#endif
+#ifdef IPOPT_HAS_WSMP
 # include "IpWsmpSolverInterface.hpp"
 # include "IpIterativeWsmpSolverInterface.hpp"
 #endif
-#ifdef COIN_HAS_MUMPS
+#ifdef IPOPT_HAS_MUMPS
 # include "IpMumpsSolverInterface.hpp"
-#endif
-
-#ifdef HAVE_LINEARSOLVERLOADER
-# include "HSLLoader.h"
-# include "PardisoLoader.h"
 #endif
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
 AlgorithmBuilder::AlgorithmBuilder(
-   SmartPtr<AugSystemSolver> custom_solver /*=NULL*/
+   SmartPtr<AugSystemSolver> custom_solver, /*=NULL*/
+   const std::string& custom_solver_name    /*=std::string()*/
 )
-   : custom_solver_(custom_solver)
+   : custom_solver_(custom_solver),
+     custom_solver_name_(custom_solver_name)
 { }
 
 void AlgorithmBuilder::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions
 )
 {
+   IpoptLinearSolver availablesolvers = IpoptGetAvailableLinearSolvers(false);
+   IpoptLinearSolver availablesolverslinked = IpoptGetAvailableLinearSolvers(true);
+
+   std::vector<std::string> options;
+   std::vector<std::string> descrs;
+   options.reserve(10);
+   descrs.reserve(10);
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MA27 )
+   {
+      options.push_back("ma27");
+      if( availablesolverslinked & IPOPTLINEARSOLVER_MA27 )
+      {
+         descrs.push_back("use the Harwell routine MA27");
+      }
+      else
+      {
+         descrs.push_back("load the Harwell routine MA27 from library at runtime");
+      }
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MA57 )
+   {
+      options.push_back("ma57");
+      if( availablesolverslinked & IPOPTLINEARSOLVER_MA57 )
+      {
+         descrs.push_back("use the Harwell routine MA57");
+      }
+      else
+      {
+         descrs.push_back("load the Harwell routine MA57 from library at runtime");
+      }
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MA77 )
+   {
+      options.push_back("ma77");
+      if( availablesolverslinked & IPOPTLINEARSOLVER_MA77 )
+      {
+         descrs.push_back("use the Harwell routine HSL_MA77");
+      }
+      else
+      {
+         descrs.push_back("load the Harwell routine HSL_MA77 from library at runtime");
+      }
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MA86 )
+   {
+      options.push_back("ma86");
+      if( availablesolverslinked & IPOPTLINEARSOLVER_MA86 )
+      {
+         descrs.push_back("use the Harwell routine HSL_MA86");
+      }
+      else
+      {
+         descrs.push_back("load the Harwell routine MA86 from library at runtime");
+      }
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MA97 )
+   {
+      options.push_back("ma97");
+      if( availablesolverslinked & IPOPTLINEARSOLVER_MA97 )
+      {
+         descrs.push_back("use the Harwell routine HSL_MA97");
+      }
+      else
+      {
+         descrs.push_back("load the Harwell routine MA97 from library at runtime");
+      }
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_PARDISO )
+   {
+      options.push_back("pardiso");
+      if( availablesolverslinked & IPOPTLINEARSOLVER_PARDISO )
+      {
+         descrs.push_back("use the Pardiso package from pardiso-project.org");
+      }
+      else
+      {
+         descrs.push_back("load the Pardiso package from pardiso-project.org from user-provided library at runtime");
+      }
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_PARDISOMKL )
+   {
+      options.push_back("pardisomkl");
+      descrs.push_back("use the Pardiso package from Intel MKL");
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_SPRAL )
+   {
+      options.push_back("spral");
+      descrs.push_back("use the Spral package");
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_WSMP )
+   {
+      options.push_back("wsmp");
+      descrs.push_back("use the Wsmp package");
+   }
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MUMPS )
+   {
+      options.push_back("mumps");
+      descrs.push_back("use the Mumps package");
+   }
+
+   options.push_back("custom");
+   descrs.push_back("use custom linear solver (expert use)");
+
+   std::string defaultsolver;
+   if( availablesolverslinked & IPOPTLINEARSOLVER_MA27 )
+   {
+      defaultsolver = "ma27";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_MA57 )
+   {
+      defaultsolver = "ma57";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_MA97 )
+   {
+      defaultsolver = "ma97";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_MA86 )
+   {
+      defaultsolver = "ma86";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_PARDISO )
+   {
+      defaultsolver = "pardiso";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_WSMP )
+   {
+      defaultsolver = "wsmp";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_MUMPS )
+   {
+      defaultsolver = "mumps";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_PARDISOMKL )
+   {
+      defaultsolver = "pardisomkl";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_SPRAL )
+   {
+      defaultsolver = "spral";
+   }
+   else if( availablesolverslinked & IPOPTLINEARSOLVER_MA77 )
+   {
+      defaultsolver = "ma77";
+   }
+   else if( availablesolvers & IPOPTLINEARSOLVER_MA27 )
+   {
+      defaultsolver = "ma27";
+   }
+   else
+   {
+      defaultsolver = "custom";
+   }
+
    roptions->SetRegisteringCategory("Linear Solver");
-   roptions->AddStringOption9(
+   roptions->AddStringOption(
       "linear_solver",
       "Linear solver used for step computations.",
-#ifdef COINHSL_HAS_MA27
-      "ma27",
-#else
-# ifdef COINHSL_HAS_MA57
-      "ma57",
-# else
-# ifdef COINHSL_HAS_MA97
-      "ma97",
-#else
-#   ifdef COINHSL_HAS_MA86
-      "ma86",
-#   else
-#    ifdef HAVE_PARDISO
-      "pardiso",
-#    else
-#     ifdef HAVE_WSMP
-      "wsmp",
-#     else
-#      ifdef COIN_HAS_MUMPS
-      "mumps",
-#      else
-#       ifdef COINHSL_HAS_MA77
-      "ma77",
-#       else
-      "ma27",
-#       endif
-#      endif
-#     endif
-#    endif
-#   endif
-#  endif
-# endif
-#endif
-      "ma27", "use the Harwell routine MA27",
-      "ma57", "use the Harwell routine MA57",
-      "ma77", "use the Harwell routine HSL_MA77",
-      "ma86", "use the Harwell routine HSL_MA86",
-      "ma97", "use the Harwell routine HSL_MA97",
-      "pardiso", "use the Pardiso package",
-      "wsmp", "use WSMP package",
-      "mumps", "use MUMPS package",
-      "custom", "use custom linear solver",
-      "Determines which linear algebra package is to be used for the solution of the augmented linear system (for obtaining the search directions). "
-      "Note, the code must have been compiled with the linear solver you want to choose. "
-      "Depending on your Ipopt installation, not all options are available.");
-   roptions->SetRegisteringCategory("Linear Solver");
-   roptions->AddStringOption3(
-      "linear_system_scaling", "Method for scaling the linear system.",
-#ifdef COINHSL_HAS_MC19
-      "mc19",
-#else
-      "none",
-#endif
-      "none", "no scaling will be performed",
-      "mc19", "use the Harwell routine MC19",
-      "slack-based", "use the slack values",
+      defaultsolver,
+      options,
+      descrs,
+      "Determines which linear algebra package is to be used for the solution of the augmented linear system (for obtaining the search directions).");
+
+   options.clear();
+   descrs.clear();
+
+   std::string longdescr =
       "Determines the method used to compute symmetric scaling factors for the augmented system "
       "(see also the \"linear_scaling_on_demand\" option). "
-      "This scaling is independent of the NLP problem scaling. "
-      "By default, MC19 is only used if MA27 or MA57 are selected as linear solvers. "
-      "This value is only available if Ipopt has been compiled with MC19.");
+      "This scaling is independent of the NLP problem scaling.";
+
+   options.push_back("none");
+   descrs.push_back("no scaling will be performed");
+   defaultsolver = "none";
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MC19 )
+   {
+      options.push_back("mc19");
+
+      if( availablesolverslinked & IPOPTLINEARSOLVER_MC19 )
+      {
+         descrs.push_back("use the Harwell routine MC19");
+         defaultsolver = "mc19";
+         longdescr += " The default is MC19 only if MA27, MA57, MA77, or MA86 are selected as linear solvers. Otherwise it is 'none'.";
+      }
+      else
+      {
+         descrs.push_back("load the Harwell routine MC19 from library at runtime");
+      }
+   }
+
+   options.push_back("slack-based");
+   descrs.push_back("use the slack values");
+
+   roptions->AddStringOption(
+      "linear_system_scaling", "Method for scaling the linear system.",
+      defaultsolver,
+      options, descrs,
+      longdescr);
+
+   // have hsllib option if some HSL solvers are not linked but can be loaded
+   if( (availablesolverslinked ^ availablesolvers) & IPOPTLINEARSOLVER_ALLHSL )
+      roptions->AddStringOption1(
+         "hsllib", "Name of library containing HSL routines for load at runtime",
+         "libhsl." IPOPT_SHAREDLIBEXT,
+         "*", "Any acceptable filename (may contain path, too)");
+
+   roptions->AddStringOption1(
+      "pardisolib", "Name of library containing Pardiso routines (from pardiso-project.org) for load at runtime",
+#ifdef PARDISO_LIB
+      PARDISO_LIB,
+#else
+      "libpardiso." IPOPT_SHAREDLIBEXT,
+#endif
+      "*", "Any acceptable filename (may contain path, too)");
 
    roptions->SetRegisteringCategory("NLP Scaling");
-   roptions->AddStringOption4(
-      "nlp_scaling_method",
-      "Select the technique used for scaling the NLP.",
+
+   options.clear();
+   descrs.clear();
+   options.push_back("none");
+   descrs.push_back("no problem scaling will be performed");
+   options.push_back("user-scaling");
+   descrs.push_back("scaling parameters will come from the user");
+   options.push_back("gradient-based");
+   descrs.push_back("scale the problem so the maximum gradient at the starting point is nlp_scaling_max_gradient");
+
+   if( availablesolvers & IPOPTLINEARSOLVER_MC19 )
+   {
+      options.push_back("equilibration-based");
+      descrs.push_back("scale the problem so that first derivatives are of order 1 at random points");
+      if( availablesolverslinked & IPOPTLINEARSOLVER_MC19 )
+      {
+         descrs.back() += " (uses Harwell routine MC19)";
+      }
+      else
+      {
+         descrs.back() += " (load the Harwell routine MC19 from library at runtime)";
+      }
+   }
+   roptions->AddStringOption(
+      "nlp_scaling_method", "Select the technique used for scaling the NLP.",
       "gradient-based",
-      "none", "no problem scaling will be performed",
-      "user-scaling", "scaling parameters will come from the user",
-      "gradient-based", "scale the problem so the maximum gradient at the starting point is scaling_max_gradient",
-      "equilibration-based", "scale the problem so that first derivatives are of order 1 at random points (only available with MC19)",
+      options,
+      descrs,
       "Selects the technique used for scaling the problem internally before it is solved. "
-      "For user-scaling, the parameters come from the NLP. "
-      "If you are using AMPL, they can be specified through suffixes (\"scaling_factor\")");
+      "For user-scaling, the parameters come from the NLP."
+#ifdef IPOPT_HAS_ASL
+      " If you are using AMPL, they can be specified through suffixes (\"scaling_factor\")"
+#endif
+   );
 
    roptions->SetRegisteringCategory("Barrier Parameter Update");
    roptions->AddStringOption2(
@@ -204,7 +386,9 @@ void AlgorithmBuilder::RegisterOptions(
       "Strategy for solving the augmented system for low-rank Hessian.",
       "sherman-morrison",
       "sherman-morrison", "use Sherman-Morrison formula",
-      "extended", "use an extended augmented system");
+      "extended", "use an extended augmented system",
+      "",
+      true);
 
    roptions->SetRegisteringCategory("Line Search");
    roptions->AddStringOption3(
@@ -215,15 +399,15 @@ void AlgorithmBuilder::RegisterOptions(
       "cg-penalty", "Chen-Goldfarb penalty function",
       "penalty", "Standard penalty function",
       "Only the \"filter\" choice is officially supported. "
-      "But sometimes, good results might be obtained with the other choices.");
+      "But sometimes, good results might be obtained with the other choices.",
+      true);
    roptions->SetRegisteringCategory("Undocumented");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "wsmp_iterative",
-      "Switches to iterative solver in WSMP.",
-      "no",
-      "no", "use direct solver",
-      "yes", "use iterative solver",
-      "EXPERIMENTAL!");
+      "Switches to use iterative instead of direct solver in WSMP.",
+      false,
+      "EXPERIMENTAL!",
+      true);
 }
 
 SmartPtr<SymLinearSolver> AlgorithmBuilder::GetSymLinearSolver(
@@ -247,199 +431,98 @@ SmartPtr<SymLinearSolver> AlgorithmBuilder::SymLinearSolverFactory(
 )
 {
    SmartPtr<SparseSymLinearSolverInterface> SolverInterface;
-   std::string linear_solver;
    options.GetStringValue("linear_solver", linear_solver, prefix);
-   if( linear_solver == "ma27" )
-   {
-#ifndef COINHSL_HAS_MA27
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new Ma27TSolverInterface();
-      if (!LSL_isMA27available())
-      {
-         char buf[256];
-         int rc = LSL_loadHSL(NULL, buf, 255);
-         if (rc)
-         {
-            std::string errmsg;
-            errmsg = "Selected linear solver MA27 not available.\nTried to obtain MA27 from shared library \"";
-            errmsg += LSL_HSLLibraryName();
-            errmsg += "\", but the following error occured:\n";
-            errmsg += buf;
-            THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-         }
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for MA27 has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new Ma27TSolverInterface();
-#endif
 
+   if( false ) ;
+
+#ifndef IPOPT_INT64
+   else if( linear_solver == "ma27" )
+   {
+      SolverInterface = new Ma27TSolverInterface(GetHSLLoader(options, prefix));
    }
+
    else if( linear_solver == "ma57" )
    {
-#ifndef COINHSL_HAS_MA57
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new Ma57TSolverInterface();
-      if (!LSL_isMA57available())
-      {
-         char buf[256];
-         int rc = LSL_loadHSL(NULL, buf, 255);
-         if (rc)
-         {
-            std::string errmsg;
-            errmsg = "Selected linear solver MA57 not available.\nTried to obtain MA57 from shared library \"";
-            errmsg += LSL_HSLLibraryName();
-            errmsg += "\", but the following error occured:\n";
-            errmsg += buf;
-            THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-         }
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for MA57 has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new Ma57TSolverInterface();
-#endif
-
+      SolverInterface = new Ma57TSolverInterface(GetHSLLoader(options, prefix));
    }
+
    else if( linear_solver == "ma77" )
    {
-#ifndef COINHSL_HAS_MA77
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new Ma77SolverInterface();
-      if (!LSL_isMA77available())
-      {
-         char buf[256];
-         int rc = LSL_loadHSL(NULL, buf, 255);
-         if (rc)
-         {
-            std::string errmsg;
-            errmsg = "Selected linear solver HSL_MA77 not available.\nTried to obtain HSL_MA77 from shared library \"";
-            errmsg += LSL_HSLLibraryName();
-            errmsg += "\", but the following error occured:\n";
-            errmsg += buf;
-            THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-         }
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for HSL_MA77 has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new Ma77SolverInterface();
-#endif
-
+      SolverInterface = new Ma77SolverInterface(GetHSLLoader(options, prefix));
    }
+
    else if( linear_solver == "ma86" )
    {
-#ifndef COINHSL_HAS_MA86
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new Ma86SolverInterface();
-      if (!LSL_isMA86available())
-      {
-         char buf[256];
-         int rc = LSL_loadHSL(NULL, buf, 255);
-         if (rc)
-         {
-            std::string errmsg;
-            errmsg = "Selected linear solver HSL_MA86 not available.\nTried to obtain HSL_MA86 from shared library \"";
-            errmsg += LSL_HSLLibraryName();
-            errmsg += "\", but the following error occured:\n";
-            errmsg += buf;
-            THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-         }
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for HSL_MA86 has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new Ma86SolverInterface();
-#endif
-
+      SolverInterface = new Ma86SolverInterface(GetHSLLoader(options, prefix));
    }
-   else if( linear_solver == "pardiso" )
-   {
-#ifndef HAVE_PARDISO
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new PardisoSolverInterface();
-      char buf[256];
-      int rc = LSL_loadPardisoLib(NULL, buf, 255);
-      if (rc)
-      {
-         std::string errmsg;
-         errmsg = "Selected linear solver Pardiso not available.\nTried to obtain Pardiso from shared library \"";
-         errmsg += LSL_PardisoLibraryName();
-         errmsg += "\", but the following error occured:\n";
-         errmsg += buf;
-         THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for Pardiso has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new PardisoSolverInterface();
-#endif
 
-   }
    else if( linear_solver == "ma97" )
    {
-#ifndef COINHSL_HAS_MA97
-# ifdef HAVE_LINEARSOLVERLOADER
-      SolverInterface = new Ma97SolverInterface();
-      if (!LSL_isMA97available())
-      {
-         char buf[256];
-         int rc = LSL_loadHSL(NULL, buf, 255);
-         if (rc)
-         {
-            std::string errmsg;
-            errmsg = "Selected linear solver HSL_MA97 not available.\nTried to obtain HSL_MA97 from shared library \"";
-            errmsg += LSL_HSLLibraryName();
-            errmsg += "\", but the following error occured:\n";
-            errmsg += buf;
-            THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-         }
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for HSL_MA97 has not been compiled into Ipopt.");
-# endif
-#else
-      SolverInterface = new Ma97SolverInterface();
+      SolverInterface = new Ma97SolverInterface(GetHSLLoader(options, prefix));
+   }
+
+   else if( linear_solver == "pardiso" )
+   {
+      SolverInterface = new PardisoSolverInterface(GetPardisoLoader(options, prefix));
+   }
 #endif
 
+#ifdef IPOPT_HAS_PARDISO_MKL
+   else if( linear_solver == "pardisomkl" )
+   {
+      SolverInterface = new PardisoMKLSolverInterface();
    }
+#endif
+
+#ifdef IPOPT_HAS_SPRAL
+   else if( linear_solver == "spral" )
+   {
+      SolverInterface = new SpralSolverInterface();
+   }
+#endif
+
+#ifdef IPOPT_HAS_WSMP
    else if( linear_solver == "wsmp" )
    {
-#ifdef HAVE_WSMP
       bool wsmp_iterative;
       options.GetBoolValue("wsmp_iterative", wsmp_iterative, prefix);
-      if (wsmp_iterative)
+      if( wsmp_iterative )
       {
          SolverInterface = new IterativeWsmpSolverInterface();
       }
       else
       {
-         SolverInterface = new WsmpSolverInterface();
-      }
+#ifdef PARDISO_MATCHING_PREPROCESS
+         SolverInterface = new WsmpSolverInterface(GetPardisoLoader(options, prefix));
 #else
-
-      THROW_EXCEPTION(OPTION_INVALID, "Selected linear solver WSMP not available.");
+         SolverInterface = new WsmpSolverInterface();
+#endif
+      }
+      int V, R, M;
+      WsmpSolverInterface::GetVersion(V, R, M);
+      char buffer[100];
+      Snprintf(buffer, 100, "WSMP %d.%d.%d\n", V, R, M);
+      linear_solver = buffer;
+   }
 #endif
 
-   }
+#ifdef IPOPT_HAS_MUMPS
    else if( linear_solver == "mumps" )
    {
-#ifdef COIN_HAS_MUMPS
       SolverInterface = new MumpsSolverInterface();
-#else
-
-      THROW_EXCEPTION(OPTION_INVALID, "Selected linear solver MUMPS not available.");
+      linear_solver = MumpsSolverInterface::GetName();
+   }
 #endif
 
-   }
    else if( linear_solver == "custom" )
    {
       SolverInterface = NULL;
+   }
+
+   else
+   {
+      // this should have been checked earlier
+      THROW_EXCEPTION(OPTION_INVALID, "Invalid value selected for option linear_solver");
    }
 
    SmartPtr<TSymScalingMethod> ScalingMethod;
@@ -452,35 +535,17 @@ SmartPtr<SymLinearSolver> AlgorithmBuilder::SymLinearSolverFactory(
          linear_system_scaling = "none";
       }
    }
-   if( linear_system_scaling == "mc19" )
-   {
-#ifndef COINHSL_HAS_MC19
-# ifdef HAVE_LINEARSOLVERLOADER
-      ScalingMethod = new Mc19TSymScalingMethod();
-      if (!LSL_isMC19available())
-      {
-         char buf[256];
-         int rc = LSL_loadHSL(NULL, buf, 255);
-         if (rc)
-         {
-            std::string errmsg;
-            errmsg = "Selected linear system scaling method MC19 not available.\n";
-            errmsg += buf;
-            THROW_EXCEPTION(OPTION_INVALID, errmsg.c_str());
-         }
-      }
-# else
-      THROW_EXCEPTION(OPTION_INVALID, "Support for MC19 has not been compiled into Ipopt.");
-# endif
-#else
-      ScalingMethod = new Mc19TSymScalingMethod();
-#endif
 
-   }
-   else if( linear_system_scaling == "slack-based" )
+   if( linear_system_scaling == "slack-based" )
    {
       ScalingMethod = new SlackBasedTSymScalingMethod();
    }
+#ifndef IPOPT_INT64
+   else if( linear_system_scaling == "mc19" )
+   {
+      ScalingMethod = new Mc19TSymScalingMethod(GetHSLLoader(options, prefix));
+   }
+#endif
 
    SmartPtr<SymLinearSolver> ScaledSolver = new TSymLinearSolver(SolverInterface, ScalingMethod);
    return ScaledSolver;
@@ -507,12 +572,15 @@ SmartPtr<AugSystemSolver> AlgorithmBuilder::AugSystemSolverFactory(
 )
 {
    SmartPtr<AugSystemSolver> AugSolver;
-   std::string linear_solver;
    options.GetStringValue("linear_solver", linear_solver, prefix);
    if( linear_solver == "custom" )
    {
       ASSERT_EXCEPTION(IsValid(custom_solver_), OPTION_INVALID, "Selected linear solver CUSTOM not available.");
       AugSolver = custom_solver_;
+      if( !custom_solver_name_.empty() )
+      {
+         linear_solver = custom_solver_name_;
+      }
    }
    else
    {
@@ -620,14 +688,12 @@ void AlgorithmBuilder::BuildIpoptObjects(
    }
    else if( nlp_scaling_method == "equilibration-based" )
    {
-      nlp_scaling = new EquilibrationScaling(nlp);
+      nlp_scaling = new EquilibrationScaling(nlp, GetHSLLoader(options, prefix));
    }
    else
    {
       nlp_scaling = new NoNLPScalingObject();
    }
-
-   ip_nlp = new OrigIpoptNLP(&jnlst, GetRawPtr(nlp), nlp_scaling);
 
    // Create the IpoptData.  Check if there is additional data that
    // is needed
@@ -639,6 +705,8 @@ void AlgorithmBuilder::BuildIpoptObjects(
       add_data = new CGPenaltyData();
    }
    ip_data = new IpoptData(add_data);
+
+   ip_nlp = new OrigIpoptNLP(&jnlst, GetRawPtr(nlp), nlp_scaling, ip_data->TimingStats());
 
    // Create the IpoptCalculators.  Check if there are additional
    // calculated quantities that are needed
@@ -687,7 +755,7 @@ SmartPtr<IpoptAlgorithm> AlgorithmBuilder::BuildBasicAlgorithm(
    MuUpdate_ = BuildMuUpdate(jnlst, options, prefix);
 
    SmartPtr<IpoptAlgorithm> alg = new IpoptAlgorithm(SearchDirCalc_, LineSearch_, MuUpdate_, ConvCheck_,
-         IterInitializer_, IterOutput_, HessUpdater_, EqMultCalculator_);
+      IterInitializer_, IterOutput_, HessUpdater_, EqMultCalculator_, linear_solver);
 
    return alg;
 }
@@ -783,7 +851,7 @@ SmartPtr<IterateInitializer> AlgorithmBuilder::BuildIterateInitializer(
    SmartPtr<IterateInitializer> WarmStartInitializer = new WarmStartIterateInitializer();
 
    SmartPtr<IterateInitializer> IterInitializer = new DefaultIterateInitializer(EqMultCalculator_, WarmStartInitializer,
-         GetAugSystemSolver(jnlst, options, prefix));
+      GetAugSystemSolver(jnlst, options, prefix));
    return IterInitializer;
 }
 
@@ -843,7 +911,7 @@ SmartPtr<LineSearch> AlgorithmBuilder::BuildLineSearch(
          resto_LSacceptor = new PenaltyLSAcceptor(GetRawPtr(resto_PDSolver));
       }
       SmartPtr<LineSearch> resto_LineSearch = new BacktrackingLineSearch(resto_LSacceptor, GetRawPtr(resto_resto),
-            GetRawPtr(resto_convCheck));
+         GetRawPtr(resto_convCheck));
 
       // Create the mu update that will be used by the restoration phase
       // algorithm
@@ -939,8 +1007,8 @@ SmartPtr<LineSearch> AlgorithmBuilder::BuildLineSearch(
       }
 
       SmartPtr<IpoptAlgorithm> resto_alg = new IpoptAlgorithm(resto_SearchDirCalc, GetRawPtr(resto_LineSearch),
-            GetRawPtr(resto_MuUpdate), GetRawPtr(resto_convCheck), resto_IterInitializer, resto_IterOutput,
-            resto_HessUpdater, resto_EqMultCalculator);
+         GetRawPtr(resto_MuUpdate), GetRawPtr(resto_convCheck), resto_IterInitializer, resto_IterOutput,
+         resto_HessUpdater, resto_EqMultCalculator, linear_solver);
 
       // Set the restoration phase
       resto_phase = new MinC_1NrmRestorationPhase(*resto_alg, EqMultCalculator_);
@@ -1062,6 +1130,44 @@ SmartPtr<MuUpdate> AlgorithmBuilder::BuildMuUpdate(
       MuUpdate = new AdaptiveMuUpdate(GetRawPtr(LineSearch_), muOracle, FixMuOracle);
    }
    return MuUpdate;
+}
+
+SmartPtr<LibraryLoader> AlgorithmBuilder::GetHSLLoader(
+   const OptionsList& options,
+   const std::string& prefix
+)
+{
+   if( !IsValid(hslloader) )
+   {
+      IpoptLinearSolver availablesolvers = IpoptGetAvailableLinearSolvers(false);
+      IpoptLinearSolver availablesolverslinked = IpoptGetAvailableLinearSolvers(true);
+
+      // we don't have the hsllib option if linked against all hsl routines
+      // but then we also don't use the hslloader, so can return NULL
+      if( (availablesolverslinked ^ availablesolvers) & IPOPTLINEARSOLVER_ALLHSL )
+      {
+         std::string libname;
+         options.GetStringValue("hsllib", libname, prefix);
+         hslloader = new LibraryLoader(libname);
+      }
+   }
+
+   return hslloader;
+}
+
+SmartPtr<LibraryLoader> AlgorithmBuilder::GetPardisoLoader(
+   const OptionsList& options,
+   const std::string& prefix
+)
+{
+   if( !IsValid(pardisoloader) )
+   {
+      std::string libname;
+      options.GetStringValue("pardisolib", libname, prefix);
+      pardisoloader = new LibraryLoader(libname);
+   }
+
+   return pardisoloader;
 }
 
 } // namespace

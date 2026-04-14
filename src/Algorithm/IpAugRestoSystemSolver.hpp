@@ -24,7 +24,7 @@ class AugRestoSystemSolver: public AugSystemSolver
 {
 public:
    /**@name Constructors/Destructors */
-   //@{
+   ///@{
    /** Constructor.
     *
     *  Here, orig_aug_solver is the object for solving
@@ -41,7 +41,7 @@ public:
 
    /** Destructor */
    virtual ~AugRestoSystemSolver();
-   //@}
+   ///@}
 
    /** overloaded from AlgorithmStrategyObject */
    bool InitializeImpl(
@@ -55,17 +55,17 @@ public:
     */
    virtual ESymSolverStatus Solve(
       const SymMatrix* W,
-      double           W_factor,
+      Number           W_factor,
       const Vector*    D_x,
-      double           delta_x,
+      Number           delta_x,
       const Vector*    D_s,
-      double           delta_s,
+      Number           delta_s,
       const Matrix*    J_c,
       const Vector*    D_c,
-      double           delta_c,
+      Number           delta_c,
       const Matrix*    J_d,
       const Vector*    D_d,
-      double           delta_d,
+      Number           delta_d,
       const Vector&    rhs_x,
       const Vector&    rhs_s,
       const Vector&    rhs_c,
@@ -117,7 +117,7 @@ private:
     * and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** Default Constructor */
    AugRestoSystemSolver();
 
@@ -130,10 +130,10 @@ private:
    void operator=(
       const AugRestoSystemSolver&
    );
-   //@}
+   ///@}
 
    /**@name Caches for some of the necessary calculated quantities */
-   //@{
+   ///@{
    CachedResults<SmartPtr<Vector> > neg_omega_c_plus_D_c_cache_;
    CachedResults<SmartPtr<Vector> > neg_omega_d_plus_D_d_cache_;
    CachedResults<SmartPtr<Vector> > sigma_tilde_n_c_inv_cache_;
@@ -143,10 +143,10 @@ private:
    CachedResults<SmartPtr<Vector> > d_x_plus_wr_d_cache_;
    CachedResults<SmartPtr<Vector> > rhs_cR_cache_;
    CachedResults<SmartPtr<Vector> > rhs_dR_cache_;
-   //@}
+   ///@}
 
    /**@name Methods to calculate the cached quantities */
-   //@{
+   ///@{
    SmartPtr<const Vector> Neg_Omega_c_plus_D_c(
       const SmartPtr<const Vector>& sigma_tilde_n_c_inv,
       const SmartPtr<const Vector>& sigma_tilde_p_c_inv,
@@ -211,7 +211,7 @@ private:
       const Vector&                 rhs_p_d,
       const Matrix&                 pd_U
    );
-   //@}
+   ///@}
 
    SmartPtr<AugSystemSolver> orig_aug_solver_;
    bool skip_orig_aug_solver_init_;

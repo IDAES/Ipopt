@@ -148,15 +148,14 @@ void SumMatrix::PrintImpl(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sSumMatrix \"%s\" of dimension %d x %d with %d terms:\n", prefix.c_str(), name.c_str(), NRows(), NCols(), NTerms());
+                        "%sSumMatrix \"%s\" of dimension %" IPOPT_INDEX_FORMAT " x %" IPOPT_INDEX_FORMAT " with %" IPOPT_INDEX_FORMAT " terms:\n", prefix.c_str(), name.c_str(), NRows(), NCols(), NTerms());
    for( Index iterm = 0; iterm < NTerms(); iterm++ )
    {
       jnlst.PrintfIndented(level, category, indent,
-                           "%sTerm %d with factor %23.16e and the following matrix:\n", prefix.c_str(), iterm, factors_[iterm]);
+                           "%sTerm %" IPOPT_INDEX_FORMAT " with factor %23.16e and the following matrix:\n", prefix.c_str(), iterm, factors_[iterm]);
       char buffer[256];
-      Snprintf(buffer, 255, "Term: %d", iterm);
-      std::string name = buffer;
-      matrices_[iterm]->Print(&jnlst, level, category, name, indent + 1, prefix);
+      Snprintf(buffer, 255, "Term: %" IPOPT_INDEX_FORMAT, iterm);
+      matrices_[iterm]->Print(&jnlst, level, category, buffer, indent + 1, prefix);
    }
 }
 

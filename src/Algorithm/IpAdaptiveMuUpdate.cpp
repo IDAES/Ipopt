@@ -11,7 +11,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -63,13 +63,15 @@ void AdaptiveMuUpdate::RegisterOptions(
       "By default, it is set to the minimum of 1e-11 and min(\"tol\",\"compl_inf_tol\")/(\"barrier_tol_factor\"+1), "
       "which should be a reasonable value. "
       "(Only used if option \"mu_strategy\" is chosen as \"adaptive\".)");
-   std::string prev_cat = roptions->RegisteringCategory();
+   SmartPtr<RegisteredCategory> prev_cat = roptions->RegisteringCategory();
    roptions->SetRegisteringCategory("Undocumented");
    roptions->AddLowerBoundedNumberOption(
       "adaptive_mu_safeguard_factor",
       "",
       0.0, false,
-      0.0);
+      0.0,
+      "",
+      true);
    roptions->SetRegisteringCategory(prev_cat);
 
    roptions->AddStringOption3(
@@ -90,7 +92,8 @@ void AdaptiveMuUpdate::RegisterOptions(
       0,
       4,
       "For the \"kkt-error\" based globalization strategy, sufficient progress must be made for \"adaptive_mu_kkterror_red_iters\" iterations. "
-      "If this number of iterations is exceeded, the globalization strategy switches to the monotone mode.");
+      "If this number of iterations is exceeded, the globalization strategy switches to the monotone mode.",
+      true);
 
    roptions->AddBoundedNumberOption(
       "adaptive_mu_kkterror_red_fact",
@@ -98,7 +101,8 @@ void AdaptiveMuUpdate::RegisterOptions(
       0.0, true,
       1.0, true,
       0.9999,
-      "For the \"kkt-error\" based globalization strategy, the error must decrease by this factor to be deemed sufficient decrease.");
+      "For the \"kkt-error\" based globalization strategy, the error must decrease by this factor to be deemed sufficient decrease.",
+      true);
 
    roptions->AddBoundedNumberOption(
       "filter_margin_fact",
@@ -107,30 +111,33 @@ void AdaptiveMuUpdate::RegisterOptions(
       1.0, true,
       1e-5,
       "When using the adaptive globalization strategy, \"obj-constr-filter\", "
-      "sufficient progress for a filter entry is defined as follows:"
+      "sufficient progress for a filter entry is defined as follows: "
       "(new obj) < (filter obj) - filter_margin_fact*(new constr-viol) OR "
       "(new constr-viol) < (filter constr-viol) - filter_margin_fact*(new constr-viol). "
-      "For the description of the \"kkt-error-filter\" option see \"filter_max_margin\".");
+      "For the description of the \"kkt-error-filter\" option see \"filter_max_margin\".",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "filter_max_margin",
       "Maximum width of margin in obj-constr-filter adaptive globalization strategy.",
       0.0, true,
-      1.0); // ToDo Detailed description later
-   roptions->AddStringOption2(
+      1.0,
+      "", // ToDo Detailed description
+      true);
+   roptions->AddBoolOption(
       "adaptive_mu_restore_previous_iterate",
-      "Indicates if the previous iterate should be restored if the monotone mode is entered.",
-      "no",
-      "no", "don't restore accepted iterate",
-      "yes", "restore accepted iterate",
+      "Indicates if the previous accepted iterate should be restored if the monotone mode is entered.",
+      false,
       "When the globalization strategy for the adaptive barrier algorithm switches to the monotone mode, "
-      "it can either start from the most recent iterate (no), or from the last iterate that was accepted (yes).");
+      "it can either start from the most recent iterate (no), or from the last iterate that was accepted (yes).",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "adaptive_mu_monotone_init_factor",
       "Determines the initial value of the barrier parameter when switching to the monotone mode.",
       0.0, true,
       0.8,
       "When the globalization strategy for the adaptive barrier algorithm switches to the monotone mode and fixed_mu_oracle is chosen as \"average_compl\", "
-      "the barrier parameter is set to the current average complementarity times the value of \"adaptive_mu_monotone_init_factor\".");
+      "the barrier parameter is set to the current average complementarity times the value of \"adaptive_mu_monotone_init_factor\".",
+      true);
    roptions->AddStringOption4(
       "adaptive_mu_kkt_norm_type",
       "Norm used for the KKT error in the adaptive mu globalization strategies.",
@@ -140,7 +147,8 @@ void AdaptiveMuUpdate::RegisterOptions(
       "max-norm", "use the infinity norm (max)",
       "2-norm", "use 2-norm",
       "When computing the KKT error for the globalization strategies, the norm to be used is specified with this option. "
-      "Note, this option is also used in the QualityFunctionMuOracle.");
+      "Note, this option is also used in the QualityFunctionMuOracle.",
+      true);
 }
 
 bool AdaptiveMuUpdate::InitializeImpl(
@@ -253,7 +261,7 @@ bool AdaptiveMuUpdate::UpdateBarrierParameter()
    // (e.g. in the restoration phase)
    if( mu_min_default_ )
    {
-      mu_min_ = Min(mu_min_, 0.5 * Min(IpData().tol(), IpNLP().NLP_scaling()->apply_obj_scaling(compl_inf_tol_)));
+      mu_min_ = Min(mu_min_, Number(0.5) * Min(IpData().tol(), std::abs(IpNLP().NLP_scaling()->apply_obj_scaling(compl_inf_tol_))));
    }
 
    // if mu_max has not yet been computed, do so now, based on the
@@ -265,7 +273,7 @@ bool AdaptiveMuUpdate::UpdateBarrierParameter()
                      "Setting mu_max to %e.\n", mu_max_);
    }
 
-   // if there are not bounds, we always return the minimum MU value
+   // if there are no bounds, we always return the minimum MU value
    if( !check_if_no_bounds_ )
    {
       Index n_bounds = IpData().curr()->z_L()->Dim() + IpData().curr()->z_U()->Dim() + IpData().curr()->v_L()->Dim()
@@ -315,11 +323,10 @@ bool AdaptiveMuUpdate::UpdateBarrierParameter()
             // well, decrease mu
             // ToDo combine this code with MonotoneMuUpdate
             Number tol = IpData().tol();
-            Number compl_inf_tol = IpNLP().NLP_scaling()->apply_obj_scaling(compl_inf_tol_);
-
-            Number new_mu = Min(mu_linear_decrease_factor_ * mu, pow(mu, mu_superlinear_decrease_power_));
+            Number compl_inf_tol = std::abs(IpNLP().NLP_scaling()->apply_obj_scaling(compl_inf_tol_));
+            Number new_mu = Min(mu_linear_decrease_factor_ * mu, std::pow(mu, mu_superlinear_decrease_power_));
             DBG_PRINT((1, "new_mu = %e, compl_inf_tol = %e tol = %e\n", new_mu, compl_inf_tol, tol));
-            new_mu = Max(new_mu, Min(compl_inf_tol, tol) / (barrier_tol_factor_ + 1.));
+            new_mu = Max(new_mu, Min(compl_inf_tol, tol) / (barrier_tol_factor_ + Number(1.)));
             if( tiny_step_flag && new_mu == mu )
             {
                THROW_EXCEPTION(TINY_STEP_DETECTED, "Problem solved to best possible numerical accuracy");
@@ -387,7 +394,7 @@ bool AdaptiveMuUpdate::UpdateBarrierParameter()
       // Choose the fraction-to-the-boundary parameter for the current
       // iteration
       // ToDo: Is curr_nlp_error really what we should use here?
-      Number tau = Max(tau_min_, 1. - IpCq().curr_nlp_error());
+      Number tau = Max(tau_min_, Number(1.) - IpCq().curr_nlp_error());
       IpData().Set_tau(tau);
 
       // Compute the new barrier parameter via the oracle
@@ -450,7 +457,7 @@ bool AdaptiveMuUpdate::CheckSufficientProgress()
             retval = false;
             Number curr_error = quality_function_pd_system();
             std::list<Number>::iterator iter;
-            for( iter = refs_vals_.begin(); iter != refs_vals_.end(); iter++ )
+            for( iter = refs_vals_.begin(); iter != refs_vals_.end(); ++iter )
             {
                if( curr_error <= refs_red_fact_ * (*iter) )
                {
@@ -498,13 +505,13 @@ void AdaptiveMuUpdate::RememberCurrentPointAsAccepted()
 
          if( Jnlst().ProduceOutput(J_MOREDETAILED, J_BARRIER_UPDATE) )
          {
-            Index num_refs = 0;
+            Index refidx = 0;
             std::list<Number>::iterator iter;
-            for( iter = refs_vals_.begin(); iter != refs_vals_.end(); iter++ )
+            for( iter = refs_vals_.begin(); iter != refs_vals_.end(); ++iter )
             {
-               num_refs++;
+               refidx++;
                Jnlst().Printf(J_MOREDETAILED, J_BARRIER_UPDATE,
-                              "pd system reference[%2d] = %.6e\n", num_refs, *iter);
+                              "pd system reference[%2" IPOPT_INDEX_FORMAT "] = %.6e\n", refidx, *iter);
             }
          }
       }
@@ -542,21 +549,19 @@ Number AdaptiveMuUpdate::Compute_tau_monotone(
    Number mu
 )
 {
-   return Max(tau_min_, 1. - mu);
+   return Max(tau_min_, Number(1.) - mu);
 }
 
 Number AdaptiveMuUpdate::min_ref_val()
 {
    DBG_ASSERT(adaptive_mu_globalization_ == KKT_ERROR);
    Number min_ref;
-   DBG_ASSERT(refs_vals_.size() > 0);
+   DBG_ASSERT(!refs_vals_.empty());
    std::list<Number>::iterator iter = refs_vals_.begin();
    min_ref = *iter;
-   iter++;
-   while( iter != refs_vals_.end() )
+   for( ++iter; iter != refs_vals_.end(); ++iter )
    {
       min_ref = Min(min_ref, *iter);
-      iter++;
    }
    return min_ref;
 }
@@ -565,14 +570,12 @@ Number AdaptiveMuUpdate::max_ref_val()
 {
    DBG_ASSERT(adaptive_mu_globalization_ == KKT_ERROR);
    Number max_ref;
-   DBG_ASSERT(refs_vals_.size() > 0);
+   DBG_ASSERT(!refs_vals_.empty());
    std::list<Number>::iterator iter = refs_vals_.begin();
    max_ref = *iter;
-   iter++;
-   while( iter != refs_vals_.end() )
+   for( ++iter; iter != refs_vals_.end(); ++iter )
    {
       max_ref = Max(max_ref, *iter);
-      iter++;
    }
    return max_ref;
 }
@@ -615,7 +618,7 @@ Number AdaptiveMuUpdate::NewFixedMu()
       new_mu = adaptive_mu_monotone_init_factor_ * IpCq().curr_avrg_compl();
    }
    new_mu = Max(new_mu, lower_mu_safeguard());
-   new_mu = Min(new_mu, 0.1 * max_ref);
+   new_mu = Min(new_mu, Number(0.1) * max_ref);
 
    new_mu = Max(new_mu, mu_min_);
    new_mu = Min(new_mu, mu_max_);
@@ -679,16 +682,16 @@ Number AdaptiveMuUpdate::quality_function_pd_system()
          dual_inf = IpCq().curr_dual_infeasibility(NORM_2);
          primal_inf = IpCq().curr_primal_infeasibility(NORM_2);
          complty = IpCq().curr_complementarity(0., NORM_2);
-         dual_inf /= sqrt((Number) n_dual);
+         dual_inf /= std::sqrt((Number) n_dual);
          DBG_ASSERT(n_pri > 0 || primal_inf == 0.);
          if( n_pri > 0 )
          {
-            primal_inf /= sqrt((Number) n_pri);
+            primal_inf /= std::sqrt((Number) n_pri);
          }
          DBG_ASSERT(n_comp > 0 || complty == 0.);
          if( n_comp > 0 )
          {
-            complty /= sqrt((Number) n_comp);
+            complty /= std::sqrt((Number) n_comp);
          }
          break;
    }
@@ -700,13 +703,13 @@ Number AdaptiveMuUpdate::quality_function_pd_system()
       switch( adaptive_mu_kkt_centrality_ )
       {
          case 1:
-            centrality = -complty * log(xi);
+            centrality = -complty * std::log(xi);
             break;
          case 2:
             centrality = complty / xi;
             break;
          case 3:
-            centrality = complty / pow(xi, 3);
+            centrality = complty / std::pow(xi, 3);
             break;
          default:
             DBG_ASSERT(false && "Unknown value for adaptive_mu_kkt_centrality_");
@@ -720,7 +723,7 @@ Number AdaptiveMuUpdate::quality_function_pd_system()
          //Nothing
          break;
       case 1:
-         balancing_term = pow(Max(0., Max(dual_inf, primal_inf) - complty), 3);
+         balancing_term = std::pow(Max(Number(0.), Max(dual_inf, primal_inf) - complty), 3);
          break;
       default:
          DBG_ASSERT(false && "Unknown value for adaptive_mu_kkt_balancing_term");
@@ -763,11 +766,11 @@ Number AdaptiveMuUpdate::lower_mu_safeguard()
 
    if( init_dual_inf_ < 0. )
    {
-      init_dual_inf_ = Max(1., dual_inf);
+      init_dual_inf_ = Max(Number(1.), dual_inf);
    }
    if( init_primal_inf_ < 0. )
    {
-      init_primal_inf_ = Max(1., primal_inf);
+      init_primal_inf_ = Max(Number(1.), primal_inf);
    }
 
    Number lower_mu_safeguard = Max(adaptive_mu_safeguard_factor_ * (dual_inf / init_dual_inf_),

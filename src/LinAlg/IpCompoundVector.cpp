@@ -14,7 +14,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -28,12 +28,12 @@ CompoundVector::CompoundVector(
      owner_space_(owner_space),
      vectors_valid_(false)
 {
-   Index dim_check = 0;
+   DBG_DO(Index dim_check = 0);
    for( Index i = 0; i < NComps(); i++ )
    {
       SmartPtr<const VectorSpace> space = owner_space_->GetCompSpace(i);
       DBG_ASSERT(IsValid(space));
-      dim_check += space->Dim();
+      DBG_DO(dim_check += space->Dim());
 
       if( create_new )
       {
@@ -47,11 +47,6 @@ CompoundVector::CompoundVector(
    {
       vectors_valid_ = VectorsValid();
    }
-}
-
-CompoundVector::~CompoundVector()
-{
-   // ToDo: Do we need an empty here?
 }
 
 void CompoundVector::SetComp(
@@ -104,6 +99,7 @@ void CompoundVector::ScalImpl(
    DBG_ASSERT(vectors_valid_);
    for( Index i = 0; i < NComps(); i++ )
    {
+      // cppcheck-suppress assertWithSideEffect
       DBG_ASSERT(Comp(i));
       Comp(i)->Scal(alpha);
    }
@@ -122,6 +118,7 @@ void CompoundVector::AxpyImpl(
    DBG_ASSERT(NComps() == comp_x->NComps());
    for( Index i = 0; i < NComps(); i++ )
    {
+      // cppcheck-suppress assertWithSideEffect
       DBG_ASSERT(Comp(i));
       Comp(i)->Axpy(alpha, *comp_x->GetComp(i));
    }
@@ -155,7 +152,7 @@ Number CompoundVector::Nrm2Impl() const
       Number nrm2 = ConstComp(i)->Nrm2();
       sum += nrm2 * nrm2;
    }
-   return sqrt(sum);
+   return std::sqrt(sum);
 }
 
 Number CompoundVector::AsumImpl() const
@@ -221,6 +218,21 @@ void CompoundVector::ElementWiseMultiplyImpl(
    for( Index i = 0; i < NComps(); i++ )
    {
       Comp(i)->ElementWiseMultiply(*comp_x->GetComp(i));
+   }
+}
+
+void CompoundVector::ElementWiseSelectImpl(
+   const Vector& x
+)
+{
+   DBG_START_METH("CompoundVector::ElementWiseSelectImpl", dbg_verbosity);
+   DBG_ASSERT(vectors_valid_);
+   const CompoundVector* comp_x = static_cast<const CompoundVector*>(&x);
+   DBG_ASSERT(dynamic_cast<const CompoundVector*>(&x));
+   DBG_ASSERT(NComps() == comp_x->NComps());
+   for( Index i = 0; i < NComps(); i++ )
+   {
+      Comp(i)->ElementWiseSelect(*comp_x->GetComp(i));
    }
 }
 
@@ -450,25 +462,25 @@ void CompoundVector::PrintImpl(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sCompoundVector \"%s\" with %d components:\n", prefix.c_str(), name.c_str(), NComps());
+                        "%sCompoundVector \"%s\" with %" IPOPT_INDEX_FORMAT " components:\n", prefix.c_str(), name.c_str(), NComps());
    for( Index i = 0; i < NComps(); i++ )
    {
       jnlst.Printf(level, category,
                    "\n");
       jnlst.PrintfIndented(level, category, indent,
-                           "%sComponent %d:\n", prefix.c_str(), i + 1);
+                           "%sComponent %" IPOPT_INDEX_FORMAT ":\n", prefix.c_str(), i + 1);
       if( ConstComp(i) )
       {
          DBG_ASSERT(name.size() < 200);
          char buffer[256];
-         Snprintf(buffer, 255, "%s[%2d]", name.c_str(), i);
+         Snprintf(buffer, 255, "%s[%" IPOPT_INDEX_FORMAT "]", name.c_str(), i);
          std::string term_name = buffer;
          ConstComp(i)->Print(&jnlst, level, category, term_name, indent + 1, prefix);
       }
       else
       {
          jnlst.PrintfIndented(level, category, indent,
-                              "%sComponent %d is not yet set!\n", prefix.c_str(), i + 1);
+                              "%sComponent %" IPOPT_INDEX_FORMAT " is not yet set!\n", prefix.c_str(), i + 1);
       }
    }
 }

@@ -10,7 +10,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -37,7 +37,7 @@ void PDPerturbationHandler::RegisterOptions(
       "If the inertia is not correct, a multiple of the identity matrix is added to the Hessian of the Lagrangian in the augmented system. "
       "This parameter gives the maximum value of the regularization parameter. "
       "If a regularization of that size is not enough, the algorithm skips this iteration and goes to the restoration phase. "
-      "(This is delta_w^max in the implementation paper.)");
+      "This is delta_w^max in the implementation paper.");
    roptions->AddLowerBoundedNumberOption(
       "min_hessian_perturbation",
       "Smallest perturbation of the Hessian block.",
@@ -45,7 +45,7 @@ void PDPerturbationHandler::RegisterOptions(
       1e-20,
       "The size of the perturbation of the Hessian block is never selected smaller than this value, "
       "unless no perturbation is necessary. "
-      "(This is delta_w^min in implementation paper.)");
+      "This is delta_w^min in implementation paper.");
    roptions->AddLowerBoundedNumberOption(
       "perturb_inc_fact_first",
       "Increase factor for x-s perturbation for very first perturbation.",
@@ -54,7 +54,7 @@ void PDPerturbationHandler::RegisterOptions(
       "The factor by which the perturbation is increased when a trial value was not sufficient - "
       "this value is used for the computation of the very first perturbation and allows a different value for "
       "the first perturbation than that used for the remaining perturbations. "
-      "(This is bar_kappa_w^+ in the implementation paper.)");
+      "This is bar_kappa_w^+ in the implementation paper.");
    roptions->AddLowerBoundedNumberOption(
       "perturb_inc_fact",
       "Increase factor for x-s perturbation.",
@@ -62,7 +62,7 @@ void PDPerturbationHandler::RegisterOptions(
       8.,
       "The factor by which the perturbation is increased when a trial value was not sufficient - "
       "this value is used for the computation of all perturbations except for the first. "
-      "(This is kappa_w^+ in the implementation paper.)");
+      "This is kappa_w^+ in the implementation paper.");
    roptions->AddBoundedNumberOption(
       "perturb_dec_fact",
       "Decrease factor for x-s perturbation.",
@@ -71,34 +71,34 @@ void PDPerturbationHandler::RegisterOptions(
       1. / 3.,
       "The factor by which the perturbation is decreased when a trial value is deduced from "
       "the size of the most recent successful perturbation. "
-      "(This is kappa_w^- in the implementation paper.)");
+      "This is kappa_w^- in the implementation paper.");
    roptions->AddLowerBoundedNumberOption(
       "first_hessian_perturbation",
       "Size of first x-s perturbation tried.",
       0., true,
       1e-4,
-      "The first value tried for the x-s perturbation in the inertia correction scheme."
-      "(This is delta_0 in the implementation paper.)");
+      "The first value tried for the x-s perturbation in the inertia correction scheme. "
+      "This is delta_0 in the implementation paper.");
    roptions->AddLowerBoundedNumberOption(
       "jacobian_regularization_value",
       "Size of the regularization for rank-deficient constraint Jacobians.",
       0., false,
       1e-8,
-      "(This is bar delta_c in the implementation paper.)");
+      "This is bar delta_c in the implementation paper.");
    roptions->AddLowerBoundedNumberOption(
       "jacobian_regularization_exponent",
       "Exponent for mu in the regularization for rank-deficient constraint Jacobians.",
       0., false,
       0.25,
-      "(This is kappa_c in the implementation paper.)");
-   roptions->AddStringOption2(
+      "This is kappa_c in the implementation paper.",
+      true);
+   roptions->AddBoolOption(
       "perturb_always_cd",
       "Active permanent perturbation of constraint linearization.",
-      "no",
-      "no", "perturbation only used when required",
-      "yes", "always use perturbation",
-      "This options makes the delta_c and delta_d perturbation be used for the computation of every search direction. "
-      "Usually, it is only used when the iteration matrix is singular.");
+      false,
+      "Enabling this option leads to using the delta_c and delta_d perturbation for the computation of every search direction. "
+      "Usually, it is only used when the iteration matrix is singular.",
+      true);
 }
 
 bool PDPerturbationHandler::InitializeImpl(
@@ -216,6 +216,9 @@ bool PDPerturbationHandler::ConsiderNewSystem(
    }
    delta_d = delta_d_curr_ = delta_c;
 
+   delta_x = 0.;
+   delta_s = 0.;
+
    if( hess_degenerate_ == DEGENERATE )
    {
       delta_x_curr_ = 0.;
@@ -225,11 +228,6 @@ bool PDPerturbationHandler::ConsiderNewSystem(
       {
          return false;
       }
-   }
-   else
-   {
-      delta_x = 0.;
-      delta_s = delta_x;
    }
 
    delta_x_curr_ = delta_x;
@@ -466,7 +464,7 @@ void PDPerturbationHandler::CurrentPerturbation(
 
 Number PDPerturbationHandler::delta_cd()
 {
-   return delta_cd_val_ * pow(IpData().curr_mu(), delta_cd_exp_);
+   return delta_cd_val_ * std::pow(IpData().curr_mu(), delta_cd_exp_);
 }
 
 void PDPerturbationHandler::finalize_test()

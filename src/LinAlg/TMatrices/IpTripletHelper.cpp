@@ -621,7 +621,7 @@ void TripletHelper::FillRowCol_(
    Index*           jCol
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
    for( Index i = 0; i < matrix.NTerms(); i++ )
    {
       // Fill the indices for the individual term
@@ -629,7 +629,7 @@ void TripletHelper::FillRowCol_(
       SmartPtr<const Matrix> retTerm;
       matrix.GetTerm(i, retFactor, retTerm);
       Index term_n_entries = GetNumberEntries(*retTerm);
-      total_n_entries += term_n_entries;
+      DBG_DO(total_n_entries += term_n_entries);
       FillRowCol(term_n_entries, *retTerm, iRow, jCol, row_offset, col_offset);
 
       // now shift the iRow, jCol pointers for the next term
@@ -646,7 +646,7 @@ void TripletHelper::FillValues_(
    Number*          values
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
    for( Index i = 0; i < matrix.NTerms(); i++ )
    {
       // Fill the values for the individual term
@@ -654,11 +654,11 @@ void TripletHelper::FillValues_(
       SmartPtr<const Matrix> retTerm;
       matrix.GetTerm(i, retFactor, retTerm);
       Index term_n_entries = GetNumberEntries(*retTerm);
-      total_n_entries += term_n_entries;
+      DBG_DO(total_n_entries += term_n_entries);
       FillValues(term_n_entries, *retTerm, values);
 
       // Now adjust the values based on the factor
-      IpBlasDscal(term_n_entries, retFactor, values, 1);
+      IpBlasScal(term_n_entries, retFactor, values, 1);
 
       // now shift the values pointer for the next term
       values += term_n_entries;
@@ -676,7 +676,7 @@ void TripletHelper::FillRowCol_(
    Index*              jCol
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
    for( Index i = 0; i < matrix.NTerms(); i++ )
    {
       // Fill the indices for the individual term
@@ -684,7 +684,7 @@ void TripletHelper::FillRowCol_(
       SmartPtr<const SymMatrix> retTerm;
       matrix.GetTerm(i, retFactor, retTerm);
       Index term_n_entries = GetNumberEntries(*retTerm);
-      total_n_entries += term_n_entries;
+      DBG_DO(total_n_entries += term_n_entries);
       FillRowCol(term_n_entries, *retTerm, iRow, jCol, row_offset, col_offset);
 
       // now shift the iRow, jCol pointers for the next term
@@ -701,7 +701,7 @@ void TripletHelper::FillValues_(
    Number*             values
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
    for( Index i = 0; i < matrix.NTerms(); i++ )
    {
       // Fill the values for the individual term
@@ -709,7 +709,7 @@ void TripletHelper::FillValues_(
       SmartPtr<const SymMatrix> retTerm;
       matrix.GetTerm(i, retFactor, retTerm);
       Index term_n_entries = GetNumberEntries(*retTerm);
-      total_n_entries += term_n_entries;
+      DBG_DO(total_n_entries += term_n_entries);
       if( retFactor != 0.0 )
       {
          FillValues(term_n_entries, *retTerm, values);
@@ -717,13 +717,13 @@ void TripletHelper::FillValues_(
          if( retFactor != 1. )
          {
             // Now adjust the values based on the factor
-            IpBlasDscal(term_n_entries, retFactor, values, 1);
+            IpBlasScal(term_n_entries, retFactor, values, 1);
          }
       }
       else
       {
          const Number zero = 0.;
-         IpBlasDcopy(term_n_entries, &zero, 0, values, 1);
+         IpBlasCopy(term_n_entries, &zero, 0, values, 1);
       }
 
       // now shift the values pointer for the next term
@@ -742,7 +742,7 @@ void TripletHelper::FillRowCol_(
    Index*                jCol
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
 
    const CompoundMatrixSpace* owner_space = static_cast<const CompoundMatrixSpace*>(GetRawPtr(matrix.OwnerSpace()));
    DBG_ASSERT(dynamic_cast<const CompoundMatrixSpace*>(GetRawPtr(matrix.OwnerSpace())));
@@ -758,7 +758,7 @@ void TripletHelper::FillRowCol_(
          if( IsValid(blk_mat) )
          {
             Index blk_n_entries = GetNumberEntries(*blk_mat);
-            total_n_entries += blk_n_entries;
+            DBG_DO(total_n_entries += blk_n_entries);
             FillRowCol(blk_n_entries, *blk_mat, iRow, jCol, c_row_offset, c_col_offset);
 
             // now shift the iRow, jCol pointers for the next term
@@ -779,7 +779,7 @@ void TripletHelper::FillValues_(
    Number*               values
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
 
    for( Index i = 0; i < matrix.NComps_Rows(); i++ )
    {
@@ -790,7 +790,7 @@ void TripletHelper::FillValues_(
          if( IsValid(blk_mat) )
          {
             Index blk_n_entries = GetNumberEntries(*blk_mat);
-            total_n_entries += blk_n_entries;
+            DBG_DO(total_n_entries += blk_n_entries);
             FillValues(blk_n_entries, *blk_mat, values);
 
             // now shift the values pointer for the next term
@@ -811,7 +811,7 @@ void TripletHelper::FillRowCol_(
    Index*                   jCol
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
 
    const CompoundSymMatrixSpace* owner_space =
       static_cast<const CompoundSymMatrixSpace*>(GetRawPtr(matrix.OwnerSpace()));
@@ -828,7 +828,7 @@ void TripletHelper::FillRowCol_(
          if( IsValid(blk_mat) )
          {
             Index blk_n_entries = GetNumberEntries(*blk_mat);
-            total_n_entries += blk_n_entries;
+            DBG_DO(total_n_entries += blk_n_entries);
             FillRowCol(blk_n_entries, *blk_mat, iRow, jCol, c_row_offset, c_col_offset);
 
             // now shift the iRow, jCol pointers for the next term
@@ -849,7 +849,7 @@ void TripletHelper::FillValues_(
    Number*                  values
 )
 {
-   Index total_n_entries = 0;
+   DBG_DO(Index total_n_entries = 0);
 
    for( Index i = 0; i < matrix.NComps_Dim(); i++ )
    {
@@ -860,7 +860,7 @@ void TripletHelper::FillValues_(
          if( IsValid(blk_mat) )
          {
             Index blk_n_entries = GetNumberEntries(*blk_mat);
-            total_n_entries += blk_n_entries;
+            DBG_DO(total_n_entries += blk_n_entries);
             FillValues(blk_n_entries, *blk_mat, values);
 
             // now shift the iRow, jCol pointers for the next term
@@ -885,12 +885,12 @@ void TripletHelper::FillValuesFromVector(
       if( dv->IsHomogeneous() )
       {
          Number scalar = dv->Scalar();
-         IpBlasDcopy(dim, &scalar, 0, values, 1);
+         IpBlasCopy(dim, &scalar, 0, values, 1);
       }
       else
       {
          const Number* dv_vals = dv->Values();
-         IpBlasDcopy(dim, dv_vals, 1, values, 1);
+         IpBlasCopy(dim, dv_vals, 1, values, 1);
       }
       return;
    }
@@ -899,14 +899,14 @@ void TripletHelper::FillValuesFromVector(
    if( cv )
    {
       Index ncomps = cv->NComps();
-      Index total_dim = 0;
+      DBG_DO(Index total_dim = 0);
       for( Index i = 0; i < ncomps; i++ )
       {
          SmartPtr<const Vector> comp = cv->GetComp(i);
          Index comp_dim = comp->Dim();
          FillValuesFromVector(comp_dim, *comp, values);
          values += comp_dim;
-         total_dim += comp_dim;
+         DBG_DO(total_dim += comp_dim);
       }
       DBG_ASSERT(total_dim == dim);
       return;
@@ -1060,7 +1060,7 @@ void TripletHelper::FillRowCol_(
    {
       const Index* exppos = P->ExpandedPosIndices();
       const Index nExp = P->NCols();
-      DBG_ASSERT(n_entries = nRows * nExp);
+      DBG_ASSERT(n_entries == nRows * nExp);
       for( Index irow = row_offset; irow < row_offset + nRows; irow++ )
       {
          for( Index j = 0; j < nExp; j++ )
@@ -1073,7 +1073,7 @@ void TripletHelper::FillRowCol_(
    else
    {
       const Index nCols = matrix.NCols();
-      DBG_ASSERT(n_entries = nRows * nCols);
+      DBG_ASSERT(n_entries == nRows * nCols);
       (void) n_entries;
       for( Index irow = row_offset; irow < row_offset + nRows; irow++ )
       {
@@ -1097,7 +1097,7 @@ void TripletHelper::FillValues_(
    if( IsValid(P) )
    {
       const Index nExp = P->NCols();
-      double* vecvals = new double[nExp];
+      Number* vecvals = new Number[nExp];
       for( Index i = 0; i < nRows; i++ )
       {
          SmartPtr<const Vector> vec = matrix.GetVector(i);
@@ -1145,7 +1145,7 @@ void TripletHelper::FillValues_(
 
 void TripletHelper::PutValuesInVector(
    Index         dim,
-   const double* values,
+   const Number* values,
    Vector&       vector
 )
 {
@@ -1154,7 +1154,7 @@ void TripletHelper::PutValuesInVector(
    if( dv )
    {
       Number* dv_vals = dv->Values();
-      IpBlasDcopy(dim, values, 1, dv_vals, 1);
+      IpBlasCopy(dim, values, 1, dv_vals, 1);
       return;
    }
 
@@ -1162,14 +1162,14 @@ void TripletHelper::PutValuesInVector(
    if( cv )
    {
       Index ncomps = cv->NComps();
-      Index total_dim = 0;
+      DBG_DO(Index total_dim = 0);
       for( Index i = 0; i < ncomps; i++ )
       {
          SmartPtr<Vector> comp = cv->GetCompNonConst(i);
          Index comp_dim = comp->Dim();
          PutValuesInVector(comp_dim, values, *comp);
          values += comp_dim;
-         total_dim += comp_dim;
+         DBG_DO(total_dim += comp_dim);
       }
       DBG_ASSERT(total_dim == dim);
       return;

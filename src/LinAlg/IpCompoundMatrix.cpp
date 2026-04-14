@@ -727,18 +727,18 @@ void CompoundMatrix::PrintImpl(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sCompoundMatrix \"%s\" with %d row and %d columns components:\n", prefix.c_str(), name.c_str(), NComps_Rows(), NComps_Cols());
+                        "%sCompoundMatrix \"%s\" with %" IPOPT_INDEX_FORMAT " row and %" IPOPT_INDEX_FORMAT " columns components:\n", prefix.c_str(), name.c_str(), NComps_Rows(), NComps_Cols());
    for( Index irow = 0; irow < NComps_Rows(); irow++ )
    {
       for( Index jcol = 0; jcol < NComps_Cols(); jcol++ )
       {
          jnlst.PrintfIndented(level, category, indent,
-                              "%sComponent for row %d and column %d:\n", prefix.c_str(), irow, jcol);
+                              "%sComponent for row %" IPOPT_INDEX_FORMAT " and column %" IPOPT_INDEX_FORMAT ":\n", prefix.c_str(), irow, jcol);
          if( ConstComp(irow, jcol) )
          {
             DBG_ASSERT(name.size() < 200);
             char buffer[256];
-            Snprintf(buffer, 255, "%s[%2d][%2d]", name.c_str(), irow, jcol);
+            Snprintf(buffer, 255, "%s[%2" IPOPT_INDEX_FORMAT "][%2" IPOPT_INDEX_FORMAT "]", name.c_str(), irow, jcol);
             std::string term_name = buffer;
             ConstComp(irow, jcol)->Print(&jnlst, level, category, term_name, indent + 1, prefix);
          }
@@ -792,7 +792,7 @@ CompoundMatrixSpace::CompoundMatrixSpace(
    std::vector<bool> allocate_row(ncomps_cols_, false);
    for( Index i = 0; i < ncomps_rows_; i++ )
    {
-      DBG_PRINT((1, "block_rows_[%d] = %d\n", i, block_rows_[i]));
+      DBG_PRINT((1, "block_rows_[%" IPOPT_INDEX_FORMAT "] = %" IPOPT_INDEX_FORMAT "\n", i, block_rows_[i]));
       comp_spaces_.push_back(row);
       allocate_block_.push_back(allocate_row);
    }
@@ -899,8 +899,8 @@ CompoundMatrix* CompoundMatrixSpace::MakeNewCompoundMatrix() const
 bool CompoundMatrixSpace::DimensionsSet() const
 {
    DBG_START_METH("CompoundMatrixSpace::DimensionsSet", 0);
-   Index total_nrows = 0;
-   Index total_ncols = 0;
+   DBG_DO(Index total_nrows = 0);
+   DBG_DO(Index total_ncols = 0);
    bool valid = true;
    for( Index i = 0; i < ncomps_rows_; i++ )
    {
@@ -909,7 +909,7 @@ bool CompoundMatrixSpace::DimensionsSet() const
          valid = false;
          break;
       }
-      total_nrows += block_rows_[i];
+      DBG_DO(total_nrows += block_rows_[i]);
    }
    if( valid )
    {
@@ -920,7 +920,7 @@ bool CompoundMatrixSpace::DimensionsSet() const
             valid = false;
             break;
          }
-         total_ncols += block_cols_[j];
+         DBG_DO(total_ncols += block_cols_[j]);
       }
    }
 

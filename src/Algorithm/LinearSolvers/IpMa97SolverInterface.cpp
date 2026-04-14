@@ -4,51 +4,58 @@
 // All Rights Reserved.
 // This code is published under the Eclipse Public License.
 //
-// $Id: IpMa97SolverInterface.cpp 2003 2011-06-03 03:53:44Z andreasw $
-//
 // Authors: Jonathan Hogg                    STFC   2012-12-21
 //          Jonathan Hogg                           2009-07-29
 //          Carl Laird, Andreas Waechter     IBM    2004-03-17
 
 #include "IpoptConfig.h"
-
-#ifdef COIN_HAS_HSL
-#include "CoinHslConfig.h"
-#else
-/* if we build for the Linear Solver loader, then use normal C-naming style */
-#define HSL_FUNC(name,NAME) name
-#endif
-
-// if we have MA97 in HSL or the linear solver loader, then we want to build the MA97 interface
-#if defined(COINHSL_HAS_MA97) || defined(HAVE_LINEARSOLVERLOADER)
-
 #include "IpMa97SolverInterface.hpp"
+
 #include <iostream>
 #include <cstdio>
 #include <cmath>
 #include <cassert>
 
-using namespace std;
+#ifdef IPOPT_HAS_HSL
+#include "CoinHslConfig.h"
+#endif
 
 /* Uncomment the following line to enable the ma97_dump_matrix option.
  * This option requires a version of the coinhsl that supports this function.
+ * This is only available when linking against coinhsl, not when loading at runtime.
  */
 //#define MA97_DUMP_MATRIX
 #ifdef MA97_DUMP_MATRIX
+#ifdef IPOPT_SINGLE
+#define IPOPT_HSL_FUNCP(name,NAME) IPOPT_HSL_FUNC(name,NAME)
+#else
+#define IPOPT_HSL_FUNCP(name,NAME) IPOPT_HSL_FUNC(name ## d,NAME ## D)
+#endif
+
 extern "C"
 {
-   extern void HSL_FUNC(dump_mat_csc, DUMP_MAT_CSC) (
-      const ipfint* factidx,
-      const ipfint* n,
-      const ipfint* ptr,
-      const ipfint* row,
-      const double* a
+   extern void IPOPT_HSL_FUNCP(dump_mat_csc, DUMP_MAT_CSC) (
+      const ipindex*  factidx,
+      const ipindex*  n,
+      const ipindex*  ptr,
+      const ipindex*  row,
+      const ipnumber* a
    );
 }
 #endif
 
+using namespace std;
+
 namespace Ipopt
 {
+
+static IPOPT_DECL_MA97_DEFAULT_CONTROL(*user_ma97_default_control) = NULL;
+static IPOPT_DECL_MA97_ANALYSE(*user_ma97_analyse) = NULL;
+static IPOPT_DECL_MA97_FACTOR(*user_ma97_factor) = NULL;
+static IPOPT_DECL_MA97_FACTOR_SOLVE(*user_ma97_factor_solve) = NULL;
+static IPOPT_DECL_MA97_SOLVE(*user_ma97_solve) = NULL;
+static IPOPT_DECL_MA97_FINALISE(*user_ma97_finalise) = NULL;
+static IPOPT_DECL_MA97_FREE_AKEEP(*user_ma97_free_akeep) = NULL;
 
 Ma97SolverInterface::~Ma97SolverInterface()
 {
@@ -68,12 +75,8 @@ void Ma97SolverInterface::RegisterOptions(
    roptions->AddIntegerOption(
       "ma97_print_level",
       "Debug printing level",
-      -1  /* changed from 0 to -1, as MA97 would write error messages about singular systems to stdout, which are "errors" that Ipopt handles fine */
-      /*
-      "<0 no printing.\n"
-      "0  Error and warning messages only.\n"
-      "=1 Limited diagnostic printing.\n"
-      ">1 Additional diagnostic printing."*/);
+      -1,
+      "<0: no printing; 0: Error and warning messages only; 1: Limited diagnostic printing; >1 Additional diagnostic printing.");
    roptions->AddLowerBoundedIntegerOption(
       "ma97_nemin",
       "Node Amalgamation parameter",
@@ -118,7 +121,8 @@ void Ma97SolverInterface::RegisterOptions(
       "mc64", "Scale linear system matrix using MC64",
       "mc77", "Scale linear system matrix using MC77 [1,3,0]",
       "If ma97_scaling=dynamic, this scaling is used according to the trigger ma97_switch1. "
-      "If ma97_switch2 is triggered it is disabled.");
+      "If ma97_switch2 is triggered it is disabled.",
+      true);
    roptions->AddStringOption9(
       "ma97_switch1",
       "First switch, determine when ma97_scaling1 is enabled.",
@@ -133,7 +137,8 @@ void Ma97SolverInterface::RegisterOptions(
       "od_hd", "Combination of on_demand and high_delay",
       "od_hd_reuse", "Combination of on_demand_reuse and high_delay_reuse",
       "If ma97_scaling=dynamic, ma97_scaling1 is enabled according to this condition. "
-      "If ma97_switch2 occurs this option is henceforth ignored.");
+      "If ma97_switch2 occurs this option is henceforth ignored.",
+      true);
    roptions->AddStringOption4(
       "ma97_scaling2",
       "Second scaling.",
@@ -143,7 +148,8 @@ void Ma97SolverInterface::RegisterOptions(
       "mc64", "Scale linear system matrix using MC64",
       "mc77", "Scale linear system matrix using MC77 [1,3,0]",
       "If ma97_scaling=dynamic, this scaling is used according to the trigger ma97_switch2. "
-      "If ma97_switch3 is triggered it is disabled.");
+      "If ma97_switch3 is triggered it is disabled.",
+      true);
    roptions->AddStringOption9(
       "ma97_switch2",
       "Second switch, determine when ma97_scaling2 is enabled.",
@@ -158,7 +164,8 @@ void Ma97SolverInterface::RegisterOptions(
       "od_hd", "Combination of on_demand and high_delay",
       "od_hd_reuse", "Combination of on_demand_reuse and high_delay_reuse",
       "If ma97_scaling=dynamic, ma97_scaling2 is enabled according to this condition. "
-      "If ma97_switch3 occurs this option is henceforth ignored.");
+      "If ma97_switch3 occurs this option is henceforth ignored.",
+      true);
    roptions->AddStringOption4(
       "ma97_scaling3",
       "Third scaling.",
@@ -167,7 +174,8 @@ void Ma97SolverInterface::RegisterOptions(
       "mc30", "Scale linear system matrix using MC30",
       "mc64", "Scale linear system matrix using MC64",
       "mc77", "Scale linear system matrix using MC77 [1,3,0]",
-      "If ma97_scaling=dynamic, this scaling is used according to the trigger ma97_switch3.");
+      "If ma97_scaling=dynamic, this scaling is used according to the trigger ma97_switch3.",
+      true);
    roptions->AddStringOption9(
       "ma97_switch3",
       "Third switch, determine when ma97_scaling3 is enabled.",
@@ -181,7 +189,8 @@ void Ma97SolverInterface::RegisterOptions(
       "high_delay_reuse", "Scaling to be used only when previous itr created more that 0.05*n additional delays, otherwise reuse scaling from previous itr",
       "od_hd", "Combination of on_demand and high_delay",
       "od_hd_reuse", "Combination of on_demand_reuse and high_delay_reuse",
-      "If ma97_scaling=dynamic, ma97_scaling3 is enabled according to this condition.");
+      "If ma97_scaling=dynamic, ma97_scaling3 is enabled according to this condition.",
+      true);
    roptions->AddStringOption7(
       "ma97_order",
       "Controls type of ordering",
@@ -206,7 +215,37 @@ void Ma97SolverInterface::RegisterOptions(
       "Controls if blas2 or blas3 routines are used for solve",
       "no",
       "no", "Use BLAS2 (faster, some implementations bit incompatible)",
-      "yes", "Use BLAS3 (slower)");
+      "yes", "Use BLAS3 (slower)",
+      "",
+      true);
+}
+
+/// set MA97 functions to use for every instantiation of this class
+void Ma97SolverInterface::SetFunctions(
+   IPOPT_DECL_MA97_DEFAULT_CONTROL(*ma97_default_control),
+   IPOPT_DECL_MA97_ANALYSE(*ma97_analyse),
+   IPOPT_DECL_MA97_FACTOR(*ma97_factor),
+   IPOPT_DECL_MA97_FACTOR_SOLVE(*ma97_factor_solve),
+   IPOPT_DECL_MA97_SOLVE(*ma97_solve),
+   IPOPT_DECL_MA97_FINALISE(*ma97_finalise),
+   IPOPT_DECL_MA97_FREE_AKEEP(*ma97_free_akeep)
+)
+{
+   DBG_ASSERT(ma97_default_control != NULL);
+   DBG_ASSERT(ma97_analyse != NULL);
+   DBG_ASSERT(ma97_factor != NULL);
+   DBG_ASSERT(ma97_factor_solve != NULL);
+   DBG_ASSERT(ma97_solve != NULL);
+   DBG_ASSERT(ma97_finalise != NULL);
+   DBG_ASSERT(ma97_free_akeep != NULL);
+
+   user_ma97_default_control = ma97_default_control;
+   user_ma97_analyse = ma97_analyse;
+   user_ma97_factor = ma97_factor;
+   user_ma97_factor_solve = ma97_factor_solve;
+   user_ma97_solve = ma97_solve;
+   user_ma97_finalise = ma97_finalise;
+   user_ma97_free_akeep = ma97_free_akeep;
 }
 
 int Ma97SolverInterface::ScaleNameToNum(
@@ -239,16 +278,64 @@ bool Ma97SolverInterface::InitializeImpl(
    const std::string& prefix
 )
 {
+   if( user_ma97_default_control != NULL )
+   {
+      ma97_default_control = user_ma97_default_control;
+      ma97_analyse = user_ma97_analyse;
+      ma97_factor = user_ma97_factor;
+      ma97_factor_solve = user_ma97_factor_solve;
+      ma97_solve = user_ma97_solve;
+      ma97_finalise = user_ma97_finalise;
+      ma97_free_akeep = user_ma97_free_akeep;
+   }
+   else
+   {
+#if (defined(COINHSL_HAS_MA97) && !defined(IPOPT_SINGLE)) || (defined(COINHSL_HAS_MA97S) && defined(IPOPT_SINGLE))
+      // use HSL functions that should be available in linked HSL library
+      ma97_default_control = &::ma97_default_control;
+      ma97_analyse = &::ma97_analyse;
+      ma97_factor = &::ma97_factor;
+      ma97_factor_solve = &::ma97_factor_solve;
+      ma97_solve = &::ma97_solve;
+      ma97_finalise = &::ma97_finalise;
+      ma97_free_akeep = &::ma97_free_akeep;
+#else
+      // try to load HSL functions from a shared library at runtime
+      DBG_ASSERT(IsValid(hslloader));
+
+#define STR2(x) #x
+#define STR(x) STR2(x)
+      ma97_default_control = (IPOPT_DECL_MA97_DEFAULT_CONTROL(*))hslloader->loadSymbol(STR(ma97_default_control));
+      ma97_analyse = (IPOPT_DECL_MA97_ANALYSE(*))hslloader->loadSymbol(STR(ma97_analyse));
+      ma97_factor = (IPOPT_DECL_MA97_FACTOR(*))hslloader->loadSymbol(STR(ma97_factor));
+      ma97_factor_solve = (IPOPT_DECL_MA97_FACTOR_SOLVE(*))hslloader->loadSymbol(STR(ma97_factor_solve));
+      ma97_solve = (IPOPT_DECL_MA97_SOLVE(*))hslloader->loadSymbol(STR(ma97_solve));
+      ma97_finalise = (IPOPT_DECL_MA97_FINALISE(*))hslloader->loadSymbol(STR(ma97_finalise));
+      ma97_free_akeep = (IPOPT_DECL_MA97_FREE_AKEEP(*))hslloader->loadSymbol(STR(ma97_free_akeep));
+#endif
+   }
+
+   DBG_ASSERT(ma97_default_control != NULL);
+   DBG_ASSERT(ma97_analyse != NULL);
+   DBG_ASSERT(ma97_factor != NULL);
+   DBG_ASSERT(ma97_factor_solve != NULL);
+   DBG_ASSERT(ma97_solve != NULL);
+   DBG_ASSERT(ma97_finalise != NULL);
+   DBG_ASSERT(ma97_free_akeep != NULL);
+
    ma97_default_control(&control_);
    control_.f_arrays = 1; // Use Fortran numbering (faster)
    control_.action = 0; // false, shuold exit with error on singularity
 
-   options.GetIntegerValue("ma97_print_level", control_.print_level, prefix);
-   options.GetIntegerValue("ma97_nemin", control_.nemin, prefix);
+   Index temp;
+   options.GetIntegerValue("ma97_print_level", temp, prefix);
+   control_.print_level = temp;
+   options.GetIntegerValue("ma97_nemin", temp, prefix);
+   control_.nemin = temp;
    options.GetNumericValue("ma97_small", control_.small, prefix);
    options.GetNumericValue("ma97_u", control_.u, prefix);
    options.GetNumericValue("ma97_umax", umax_, prefix);
-   std::string order_method, scaling_method, rescale_strategy;
+   std::string order_method, scaling_method;
    options.GetStringValue("ma97_order", order_method, prefix);
    if( order_method == "metis" )
    {
@@ -384,7 +471,8 @@ ESymSolverStatus Ma97SolverInterface::InitializeStructure(
 )
 {
    struct ma97_info info, info2;
-   void* akeep_amd, *akeep_metis;
+   void* akeep_amd;
+   void* akeep_metis;
 
    // Store size for later use
    ndim_ = dim;
@@ -394,7 +482,7 @@ ESymSolverStatus Ma97SolverInterface::InitializeStructure(
    {
       delete[] val_;
    }
-   val_ = new double[nonzeros];
+   val_ = new Number[nonzeros];
 
    // Check if analyse needs to be postponed
    if( ordering_ == ORDER_MATCHED_AMD || ordering_ == ORDER_MATCHED_METIS )
@@ -431,7 +519,7 @@ ESymSolverStatus Ma97SolverInterface::InitializeStructure(
          return SYMSOLVER_FATAL_ERROR;
       }
       Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                     "AMD   nfactor = %d, nflops = %d:\n", info2.num_factor, info2.num_flops);
+                     "AMD   nfactor = %ld, nflops = %ld:\n", info2.num_factor, info2.num_flops);
       control_.ordering = 3; // METIS
       ma97_analyse(0, dim, ia, ja, NULL, &akeep_metis, &control_, &info, NULL);
       if( info.flag < 0 )
@@ -439,7 +527,7 @@ ESymSolverStatus Ma97SolverInterface::InitializeStructure(
          return SYMSOLVER_FATAL_ERROR;
       }
       Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                     "MeTiS nfactor = %d, nflops = %d:\n", info.num_factor, info.num_flops);
+                     "MeTiS nfactor = %ld, nflops = %ld:\n", info.num_factor, info.num_flops);
       if( info.num_flops > info2.num_flops )
       {
          // Use AMD
@@ -503,7 +591,7 @@ ESymSolverStatus Ma97SolverInterface::InitializeStructure(
    }
 
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                  "HSL_MA97: PREDICTED nfactor %d, maxfront %d\n", info.num_factor, info.maxfront);
+                  "HSL_MA97: PREDICTED nfactor %ld, maxfront %d\n", info.num_factor, info.maxfront);
 
    if( HaveIpData() )
    {
@@ -525,13 +613,12 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
    const Index* ia,
    const Index* ja,
    Index        nrhs,
-   double*      rhs_vals,
+   Number*      rhs_vals,
    bool         check_NegEVals,
    Index        numberOfNegEVals
 )
 {
    struct ma97_info info;
-   Number t1 = 0, t2;
 
    if( new_matrix || pivtol_changed_ )
    {
@@ -541,7 +628,7 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
       {
          Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                         "Dumping matrix %d\n", fctidx_);
-         HSL_FUNC (dump_mat_csc, DUMP_MAT_CSC)
+         IPOPT_HSL_FUNCP(dump_mat_csc, DUMP_MAT_CSC)
          (&fctidx_, &ndim_, ia, ja, val_);
          fctidx_++;
       }
@@ -556,7 +643,7 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
          control_.scaling = scaling_type_;
          if( scaling_type_ != 0 && scaling_ == NULL )
          {
-            scaling_ = new double[ndim_];   // alloc if not already
+            scaling_ = new Number[ndim_];   // alloc if not already
          }
       }
       else
@@ -591,7 +678,7 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
          }
 
          Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                        "HSL_MA97: PREDICTED nfactor %d, maxfront %d\n", info.num_factor, info.maxfront);
+                        "HSL_MA97: PREDICTED nfactor %ld, maxfront %d\n", info.num_factor, info.maxfront);
 
          if( HaveIpData() )
          {
@@ -611,6 +698,7 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
 
       }
 
+      Number t1 = 0;
       if( HaveIpData() )
       {
          t1 = IpData().TimingStats().LinearSystemFactorization().TotalWallclockTime();
@@ -620,11 +708,11 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
       //ma97_factor_solve(4, ia, ja, val_, nrhs, rhs_vals, ndim_, &akeep_, &fkeep_,
       //                  &control_, &info, scaling_);
       Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                     "HSL_MA97: delays %d, nfactor %d, nflops %ld, maxfront %d\n", info.num_delay, info.num_factor, info.num_flops, info.maxfront);
+                     "HSL_MA97: delays %d, nfactor %ld, nflops %ld, maxfront %d\n", info.num_delay, info.num_factor, info.num_flops, info.maxfront);
       if( HaveIpData() )
       {
          IpData().TimingStats().LinearSystemFactorization().End();
-         t2 = IpData().TimingStats().LinearSystemFactorization().TotalWallclockTime();
+         Number t2 = IpData().TimingStats().LinearSystemFactorization().TotalWallclockTime();
          Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                         "Ma97SolverInterface::Factorization: ma97_factor_solve took %10.3f\n", t2 - t1);
       }
@@ -691,7 +779,7 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
       if( check_NegEVals && info.num_neg != numberOfNegEVals )
       {
          Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                        "In Ma97SolverInterface::Factorization: info.num_neg = %d, but numberOfNegEVals = %d\n", info.num_neg, numberOfNegEVals);
+                        "In Ma97SolverInterface::Factorization: info.num_neg = %d, but numberOfNegEVals = %" IPOPT_INDEX_FORMAT "\n", info.num_neg, numberOfNegEVals);
          return SYMSOLVER_WRONG_INERTIA;
       }
 
@@ -721,7 +809,14 @@ ESymSolverStatus Ma97SolverInterface::MultiSolve(
       }
    }
 
-   return SYMSOLVER_SUCCESS;
+   if( info.flag >= 0 )
+   {
+      return SYMSOLVER_SUCCESS;
+   }
+   else
+   {
+      return SYMSOLVER_FATAL_ERROR;
+   }
 }
 
 bool Ma97SolverInterface::IncreaseQuality()
@@ -752,12 +847,10 @@ bool Ma97SolverInterface::IncreaseQuality()
    pivtol_changed_ = true;
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                   "Increasing pivot tolerance for HSL_MA97 from %7.2e ", control_.u);
-   control_.u = Min(umax_, pow(control_.u, 0.75));
+   control_.u = Min(umax_, std::pow(control_.u, Number(0.75)));
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                   "to %7.2e.\n", control_.u);
    return true;
 }
 
 } // namespace Ipopt
-
-#endif /* COINHSL_HAS_MA97 or HAVE_LINEARSOLVERLOADER */

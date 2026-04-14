@@ -14,7 +14,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -51,7 +51,7 @@ void DenseSymMatrix::MultVectorImpl(
    DenseVector* dense_y = static_cast<DenseVector*>(&y);
    DBG_ASSERT(dynamic_cast<DenseVector*>(&y));
 
-   IpBlasDsymv(Dim(), alpha, values_, NRows(), dense_x->Values(), 1, beta, dense_y->Values(), 1);
+   IpBlasSymv(Dim(), alpha, values_, NRows(), dense_x->Values(), 1, beta, dense_y->Values(), 1);
 }
 
 void DenseSymMatrix::FillIdentity(
@@ -177,7 +177,7 @@ void DenseSymMatrix::HighRankUpdate(
       nrank = V.NCols();
    }
 
-   IpBlasDsyrk(trans, Dim(), nrank, alpha, V.Values(), V.NRows(), beta, values_, NRows());
+   IpBlasSyrk(trans, Dim(), nrank, alpha, V.Values(), V.NRows(), beta, values_, NRows());
 
    initialized_ = true;
    ObjectChanged();
@@ -241,12 +241,12 @@ void DenseSymMatrix::ComputeRowAMaxImpl(
    DBG_ASSERT(dynamic_cast<DenseVector*>(&rows_norms));
    Number* vec_vals = dense_vec->Values();
 
-   const double* vals = values_;
+   const Number* vals = values_;
    for( Index irow = 0; irow < NRows(); irow++ )
    {
       for( Index jcol = 0; jcol <= irow; jcol++ )
       {
-         const double f = fabs(*vals);
+         const Number f = std::abs(*vals);
          vec_vals[irow] = Max(vec_vals[irow], f);
          vec_vals[jcol] = Max(vec_vals[jcol], f);
          vals++;
@@ -266,7 +266,7 @@ void DenseSymMatrix::PrintImpl(
    jnlst.Printf(level, category,
                 "\n");
    jnlst.PrintfIndented(level, category, indent,
-                        "%sDenseSymMatrix \"%s\" of dimension %d (only lower triangular part printed):\n", prefix.c_str(), name.c_str(),
+                        "%sDenseSymMatrix \"%s\" of dimension %" IPOPT_INDEX_FORMAT " (only lower triangular part printed):\n", prefix.c_str(), name.c_str(),
                         Dim());
 
    if( initialized_ )
@@ -276,7 +276,7 @@ void DenseSymMatrix::PrintImpl(
          for( Index i = j; i < NRows(); i++ )
          {
             jnlst.PrintfIndented(level, category, indent,
-                                 "%s%s[%5d,%5d]=%23.16e\n", prefix.c_str(), name.c_str(), i, j, values_[i + NRows() * j]);
+                                 "%s%s[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "]=%23.16e\n", prefix.c_str(), name.c_str(), i, j, values_[i + NRows() * j]);
          }
       }
    }

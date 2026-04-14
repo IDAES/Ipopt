@@ -15,7 +15,7 @@ extern Ipopt::IterativeSolverTerminationTester::ETerminationTest test_result_;
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -101,8 +101,8 @@ bool InexactPDSolver::Solve(
    DBG_PRINT_VECTOR(2, "sol_vU in", *sol.v_U());
 
    // Receive data about matrix
-   SmartPtr<const Vector> x = IpData().curr()->x();
-   SmartPtr<const Vector> s = IpData().curr()->s();
+//   SmartPtr<const Vector> x = IpData().curr()->x();
+//   SmartPtr<const Vector> s = IpData().curr()->s();
    SmartPtr<const SymMatrix> W = IpData().W();
    SmartPtr<const Matrix> J_c = IpCq().curr_jac_c();
    SmartPtr<const Matrix> J_d = IpCq().curr_jac_d();
@@ -262,7 +262,7 @@ bool InexactPDSolver::Solve(
          else
          {
             char buf[32];
-            Snprintf(buf, 31, " TT=%d ", test_result_);
+            Snprintf(buf, 31, " TT=%d", test_result_);
             IpData().Append_info_string(buf);
             if( test_result_ == IterativeSolverTerminationTester::CONTINUE )
             {
@@ -303,7 +303,7 @@ bool InexactPDSolver::Solve(
 
    // Some output
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
-                  "Number of trial factorizations performed: %d\n", count);
+                  "Number of trial factorizations performed: %" IPOPT_INDEX_FORMAT "\n", count);
    Jnlst().Printf(J_DETAILED, J_LINEAR_ALGEBRA,
                   "Final perturbation parameters: delta_x=%e delta_s=%e\n                         delta_c=%e delta_d=%e\n", delta_x,
                   delta_s, delta_c, delta_d);
@@ -342,7 +342,7 @@ void InexactPDSolver::ComputeResiduals(
    const Vector&         v_U,
    const Vector&         slack_s_L,
    const Vector&         slack_s_U,
-   const Vector&         sigma_s,
+   const Vector&         /*sigma_s*/,
    const IteratesVector& rhs,
    const IteratesVector& res,
    IteratesVector&       resid
@@ -444,7 +444,7 @@ bool InexactPDSolver::HessianRequiresChange()
    Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
                   "TT: u_norm_scaled = %23.16e\n", u_norm_scaled);
 
-   Number Upsilon;
+   Number Upsilon = 0.;
    Number Nu;
    Number v_norm_scaled = -1.;
    if( compute_normal )
@@ -471,7 +471,7 @@ bool InexactPDSolver::HessianRequiresChange()
    if( !compute_normal )
    {
       lhs = Upsilon;
-      rhs = pow(tcc_psi_, 2) * Nu;
+      rhs = std::pow(tcc_psi_, 2) * Nu;
       Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
                      "TCC1 testing Upsilon(=%23.16e) <= (tcc_psi_^2)*Nu(=%23.16e) --> ", lhs, rhs);
    }
@@ -506,14 +506,14 @@ bool InexactPDSolver::HessianRequiresChange()
    rhs = 0.5 * uWu;
    if( !compute_normal )
    {
-      lhs = tcc_theta_ * pow(mu, tcc_theta_mu_exponent_) * Upsilon;
+      lhs = tcc_theta_ * std::pow(mu, tcc_theta_mu_exponent_) * Upsilon;
       Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
                      "TCC2a testing 0.5*uWu(=%23.16e) >= tcc_theta_*pow(mu,tcc_theta_mu_exponent_)*Upsilon(=%23.16e) -->", rhs,
                      lhs);
    }
    else
    {
-      lhs = tcc_theta_ * pow(mu, tcc_theta_mu_exponent_) * pow(u_norm_scaled, 2);
+      lhs = tcc_theta_ * std::pow(mu, tcc_theta_mu_exponent_) * std::pow(u_norm_scaled, 2);
       Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
                      "TCC2a testing 0.5*uWu(=%23.16e) >= tcc_theta_*pow(mu,tcc_theta_mu_exponent_)*u_norm^2(=%23.16e) -->", rhs,
                      lhs);

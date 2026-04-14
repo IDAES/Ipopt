@@ -46,6 +46,7 @@ public:
    /** constructor */
    SensAmplTNLP(
       const SmartPtr<const Journalist>&  jnlst,
+      const SmartPtr<RegisteredOptions>  regoptions,
       const SmartPtr<OptionsList>        options,
       char**&                            argv,
       SmartPtr<AmplSuffixHandler>        suffix_handler = NULL,
@@ -54,7 +55,8 @@ public:
       const char*                        ampl_option_string = NULL,
       const char*                        ampl_invokation_string = NULL,
       const char*                        ampl_banner_string = NULL,
-      std::string*                       nl_file_content = NULL
+      std::string*                       nl_file_content = NULL,
+      bool                               checkinterrupt = false
    );
 
    virtual ~SensAmplTNLP();
@@ -99,11 +101,11 @@ public:
       IpoptCalculatedQuantities* ip_cq
    );
 
-   const Index* get_index_suffix(
+   const int* get_index_suffix(
       const char* suffix_name
    );
 
-   std::vector<Index> get_index_suffix_vec(
+   std::vector<int> get_index_suffix_vec(
       const char* suffix_name
    );
 
@@ -115,11 +117,11 @@ public:
       const char* suffix_name
    );
 
-   const Index* get_index_suffix_constr(
+   const int* get_index_suffix_constr(
       const char* suffix_name
    );
 
-   std::vector<Index> get_index_suffix_constr_vec(
+   std::vector<int> get_index_suffix_constr_vec(
       const char* suffix_name
    );
 

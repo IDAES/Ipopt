@@ -11,7 +11,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -56,7 +56,8 @@ void MinC_1NrmRestorationPhase::RegisterOptions(
       0.,
       "If the restoration phase is terminated because of the \"acceptable\" termination criteria and "
       "the primal infeasibility is smaller than this value, the restoration phase is declared to have failed. "
-      "The default value is actually 1e2*tol, where tol is the general termination tolerance.");
+      "The default value is actually 1e2*tol, where tol is the general termination tolerance.",
+      true);
 }
 
 bool MinC_1NrmRestorationPhase::InitializeImpl(
@@ -75,7 +76,10 @@ bool MinC_1NrmRestorationPhase::InitializeImpl(
    // This is registered in OptimalityErrorConvergenceCheck
    options.GetNumericValue("constr_viol_tol", constr_viol_tol_, prefix);
 
-   // Avoid that the restoration phase is trigged by user option in
+   options.GetNumericValue("max_wall_time", max_wall_time_, prefix);
+   options.GetNumericValue("max_cpu_time", max_cpu_time_, prefix);
+
+   // Avoid that the restoration phase is triggered by user option in
    // first iteration of the restoration phase
    resto_options_->SetStringValue("resto.start_with_resto", "no");
 
@@ -110,15 +114,39 @@ bool MinC_1NrmRestorationPhase::PerformRestoration()
    // Increase counter for restoration phase calls
    count_restorations_++;
    Jnlst().Printf(J_DETAILED, J_MAIN,
-                  "Starting Restoration Phase for the %d. time\n", count_restorations_);
+                  "Starting Restoration Phase for the %" IPOPT_INDEX_FORMAT ". time\n", count_restorations_);
 
    DBG_ASSERT(IpCq().curr_constraint_violation() > 0.);
 
    // ToDo set those up during initialize?
    // Create the restoration phase NLP etc objects
-   SmartPtr<IpoptData> resto_ip_data = new IpoptData(NULL, IpData().cpu_time_start());
+   SmartPtr<IpoptData> resto_ip_data = new IpoptData(NULL);
    SmartPtr<IpoptNLP> resto_ip_nlp = new RestoIpoptNLP(IpNLP(), IpData(), IpCq());
    SmartPtr<IpoptCalculatedQuantities> resto_ip_cq = new IpoptCalculatedQuantities(resto_ip_nlp, resto_ip_data);
+
+   if( max_wall_time_ < 1e20 )
+   {
+      // setup timelimit for resto: original timelimit - elapsed time
+      Number elapsed = WallclockTime() - IpData().TimingStats().OverallAlgorithm().StartWallclockTime();
+      DBG_ASSERT(elapsed >= 0);
+      if( elapsed >= max_wall_time_ )
+      {
+         THROW_EXCEPTION(RESTORATION_WALLTIME_EXCEEDED, "Maximal wallclock time exceeded at start of restoration phase.");
+      }
+      resto_options_->SetNumericValue("resto.max_wall_time", max_wall_time_ - elapsed);
+   }
+
+   if( max_cpu_time_ < 1e20 )
+   {
+      // setup timelimit for resto: original timelimit - elapsed time
+      Number elapsed = CpuTime() - IpData().TimingStats().OverallAlgorithm().StartCpuTime();
+      DBG_ASSERT(elapsed >= 0);
+      if( elapsed >= max_cpu_time_ )
+      {
+         THROW_EXCEPTION(RESTORATION_CPUTIME_EXCEEDED, "Maximal CPU time exceeded at start of restoration phase.");
+      }
+      resto_options_->SetNumericValue("resto.max_cpu_time", max_cpu_time_ - elapsed);
+   }
 
    // Determine if this is a square problem
    bool square_problem = IpCq().IsSquareProblem();
@@ -129,7 +157,7 @@ bool MinC_1NrmRestorationPhase::PerformRestoration()
    if( square_problem )
    {
       actual_resto_options = new OptionsList(*resto_options_);
-      // If this is a square problem, the want the restoration phase
+      // If this is a square problem, then we want the restoration phase
       // never to be left until the problem is converged
       actual_resto_options->SetNumericValueIfUnset("required_infeasibility_reduction", 0.);
    }
@@ -229,7 +257,7 @@ bool MinC_1NrmRestorationPhase::PerformRestoration()
          Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
                         "Optimal Objective Value = %.16E\n", resto_ip_cq->curr_f());
          Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                        "Number of Iterations = %d\n", resto_ip_data->iter_count());
+                        "Number of Iterations = %" IPOPT_INDEX_FORMAT "\n", resto_ip_data->iter_count());
       }
       if( Jnlst().ProduceOutput(J_VECTOR, J_LINE_SEARCH) )
       {
@@ -238,10 +266,18 @@ bool MinC_1NrmRestorationPhase::PerformRestoration()
 
       retval = 0;
    }
+   else if( square_problem && resto_status == STOP_AT_ACCEPTABLE_POINT && IpCq().unscaled_curr_nlp_constraint_violation(NORM_MAX) < constr_viol_tol_ )
+   {
+      // square problem with point that is feasible w.r.t. constr_viol_tol_, though probably not w.r.t. tol
+      // we can return feasibility-problem-solved here, but not optimal
+      Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
+                     "Recursive restoration phase algorithm terminated acceptably for square problem.\n");
+      THROW_EXCEPTION(FEASIBILITY_PROBLEM_SOLVED,
+                      "Restoration phase converged to sufficiently feasible point of original square problem.");
+   }
    else if( resto_status == STOP_AT_TINY_STEP || resto_status == STOP_AT_ACCEPTABLE_POINT )
    {
       Number orig_primal_inf = IpCq().curr_primal_infeasibility(NORM_MAX);
-      // ToDo make the factor in following line an option
       if( orig_primal_inf <= resto_failure_feasibility_threshold_ )
       {
          Jnlst().Printf(J_WARNING, J_LINE_SEARCH,
@@ -262,6 +298,10 @@ bool MinC_1NrmRestorationPhase::PerformRestoration()
    {
       THROW_EXCEPTION(RESTORATION_CPUTIME_EXCEEDED, "Maximal CPU time exceeded in restoration phase.");
    }
+   else if( resto_status == WALLTIME_EXCEEDED )
+   {
+      THROW_EXCEPTION(RESTORATION_WALLTIME_EXCEEDED, "Maximal wallclock time exceeded in restoration phase.");
+   }
    else if( resto_status == LOCAL_INFEASIBILITY )
    {
       // converged to locally infeasible point - pass this on to the outer algorithm...
@@ -273,15 +313,29 @@ bool MinC_1NrmRestorationPhase::PerformRestoration()
                      "Restoration phase in the restoration phase failed.\n");
       THROW_EXCEPTION(RESTORATION_FAILED, "Restoration phase in the restoration phase failed.");
    }
+   else if( resto_status == ERROR_IN_STEP_COMPUTATION )
+   {
+      Jnlst().Printf(J_WARNING, J_LINE_SEARCH,
+                     "Step computation in the restoration phase failed.\n");
+      THROW_EXCEPTION(RESTORATION_FAILED, "Step computation in the restoration phase failed.");
+   }
    else if( resto_status == USER_REQUESTED_STOP )
    {
       // Use requested stop during restoration phase - rethrow exception
       THROW_EXCEPTION(RESTORATION_USER_STOP, "User requested stop during restoration phase");
    }
+   else if( resto_status == INVALID_NUMBER_DETECTED )
+   {
+      // this could be that we got stuck at a point that can be evaluated, but not differentiated
+      Jnlst().Printf(J_STRONGWARNING, J_LINE_SEARCH,
+                     "Restoration phase failed due to evaluation errors.\n");
+      retval = 1;
+   }
    else
    {
-      Jnlst().Printf(J_ERROR, J_MAIN,
-                     "Sorry, things failed ?!?!\n");
+      // often this
+      Jnlst().Printf(J_STRONGWARNING, J_LINE_SEARCH,
+                     "Restoration phase failed with unexpected solverreturn status %d\n", (int)resto_status);
       retval = 1;
    }
 
@@ -310,14 +364,14 @@ bool MinC_1NrmRestorationPhase::PerformRestoration()
          if( constr_viol <= constr_viol_tol_ )
          {
             Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                           "Recursive restoration phase algorithm termined successfully for square problem.\n");
+                           "Recursive restoration phase algorithm terminated successfully for square problem.\n");
             IpData().AcceptTrialPoint();
             THROW_EXCEPTION(FEASIBILITY_PROBLEM_SOLVED,
                             "Restoration phase converged to sufficiently feasible point of original square problem.");
          }
       }
 
-      // Update the bound multiplers, pretending that the entire
+      // Update the bound multipliers, pretending that the entire
       // progress in x and s in the restoration phase has been one
       // [rimal-dual Newton step (and therefore the result of solving
       // an augmented system)

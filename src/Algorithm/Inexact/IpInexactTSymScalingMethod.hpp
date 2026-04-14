@@ -23,13 +23,13 @@ class InexactTSymScalingMethod: public TSymScalingMethod
 {
 public:
    /** @name Constructor/Destructor */
-   //@{
+   ///@{
    InexactTSymScalingMethod()
    { }
 
    virtual ~InexactTSymScalingMethod()
    { }
-   //@}
+   ///@}
 
    virtual bool InitializeImpl(
       const OptionsList& options,
@@ -42,10 +42,10 @@ public:
    virtual bool ComputeSymTScalingFactors(
       Index         n,
       Index         nnz,
-      const ipfint* airn,
-      const ipfint* ajcn,
-      const double* a,
-      double*       scaling_factors
+      const Index*  airn,
+      const Index*  ajcn,
+      const Number* a,
+      Number*       scaling_factors
    );
 
 private:
@@ -57,7 +57,7 @@ private:
     * declare them private and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** Copy Constructor */
    InexactTSymScalingMethod(
       const InexactTSymScalingMethod&

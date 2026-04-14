@@ -21,18 +21,34 @@
 namespace Ipopt
 {
 
-/** This class maps the traditional NLP into
- *  something that is more useful by Ipopt.
+/** This class maps a IpoptNLP into one that is used for the restoration phase of %Ipopt.
  *
- *  This class takes care of storing the
- *  calculated model results, handles caching,
- *  and (some day) takes care of addition of slacks.
+ *  Given a IpoptNLP
+ *  \f{eqnarray*}
+ *     \mathrm{min}  && f(x), \\
+ *     \mathrm{s.t.} && c(x) = 0,               &\qquad y_c\\
+ *                   && d_L \leq d(x) \leq d_U, &\qquad y_d \\
+ *                   && x_L \leq  x \leq x_U,   &\qquad z_L, z_U
+ *  \f}
+ *  parameters \f$\rho\f$, \f$\eta\f$, and a reference point \f$x_r\f$,
+ *  a RestoIpoptNLP is the %NLP
+ *  \f{eqnarray*}
+ *     \mathrm{min}  && \rho (p_c^Te + n_c^Te + p_d^Te + n_d^Te) + \frac{\eta}{2} \Vert D_r (x-x_r) \Vert_2^2, \\
+ *     \mathrm{s.t.} && c(x) - p_c + n_c = 0,               &\qquad y_c\\
+ *                   && d_L \leq d(x) - p_d + n_d \leq d_U, &\qquad y_d \\
+ *                   && x_L \leq  x \leq x_U,               &\qquad z_L, z_U \\
+ *                   && p_c, n_c, p_d, n_d \geq 0.          &\qquad ...
+ *  \f}
+ *  where \f$D_r = \mathrm{diag}(\frac{1}{\max\{1,|x_{r,i}|\}},\ldots,\frac{1}{\max\{1,|x_{r,n}|\}})\f$.
+ *
+ *  Parameter \f$\rho\f$ is determined by option `resto_penalty_parameter` (default = 1000).
+ *  Parameter \f$\eta = \eta_f \sqrt{\mu}\f$, where \f$\eta_f\f$ is determined by option `resto_proximity_weight` (default = 1).
  */
 class RestoIpoptNLP: public IpoptNLP
 {
 public:
    /**@name Constructors/Destructors */
-   //@{
+   ///@{
    RestoIpoptNLP(
       IpoptNLP&                  orig_ip_nlp,
       IpoptData&                 orig_ip_data,
@@ -41,7 +57,7 @@ public:
 
    /** Destructor */
    ~RestoIpoptNLP();
-   //@}
+   ///@}
 
    virtual bool Initialize(
       const Journalist&  jnlst,
@@ -88,7 +104,7 @@ public:
    { }
 
    /** Accessor methods for model data */
-   //@{
+   ///@{
    /** Method for telling IpoptCalculatedQuantities that the
     *  restoration phase objective function depends on the barrier
     *  parameter
@@ -222,7 +238,7 @@ public:
    {
       return GetRawPtr(x_space_);
    }
-   //@}
+   ///@}
 
    /** Accessor method for vector/matrix spaces pointers */
    virtual void GetSpaces(
@@ -272,7 +288,7 @@ public:
    /** @name Accessor method for the information of the original NLP.
     *
     *  These methods are not overloaded from IpoptNLP. */
-   //@{
+   ///@{
    IpoptNLP& OrigIpNLP() const
    {
       return *orig_ip_nlp_;
@@ -287,7 +303,7 @@ public:
    {
       return *orig_ip_cq_;
    }
-   //@}
+   ///@}
 
    /** Accessor Method for obtaining the Rho penalization factor for
     *  the ell_1 norm.
@@ -298,7 +314,7 @@ public:
    }
 
    /** @name Counters for the number of function evaluations. */
-   //@{
+   ///@{
    virtual Index f_evals() const
    {
       return f_evals_;
@@ -327,7 +343,7 @@ public:
    {
       return h_evals_;
    }
-   //@}
+   ///@}
 
    /** Method to calculate eta, the factor for the regularization term */
    Number Eta(
@@ -348,7 +364,7 @@ public:
 
 private:
    /** @name Pointers for the original NLP information. */
-   //@{
+   ///@{
    /** Pointer to the original IpoptNLP */
    SmartPtr<IpoptNLP> orig_ip_nlp_;
 
@@ -357,10 +373,10 @@ private:
 
    /** Pointer to the original IpoptCalculatedQuantities */
    SmartPtr<IpoptCalculatedQuantities> orig_ip_cq_;
-   //@}
+   ///@}
 
    /** Necessary Vector/Matrix spaces */
-   //@{
+   ///@{
    SmartPtr<CompoundVectorSpace> x_space_;
 
    SmartPtr<CompoundVectorSpace> c_space_;
@@ -388,10 +404,10 @@ private:
    SmartPtr<CompoundMatrixSpace> jac_d_space_;
 
    SmartPtr<CompoundSymMatrixSpace> h_space_;
-   //@}
+   ///@}
 
    /**@name Storage for Model Quantities */
-   //@{
+   ///@{
    /** Lower bounds on x */
    SmartPtr<CompoundVector> x_L_;
 
@@ -415,13 +431,11 @@ private:
 
    /** Permutation matrix (d_U_ -> d */
    SmartPtr<CompoundMatrix> Pd_U_;
-   //@}
+   ///@}
 
    /** @name Values particular to the restoration phase problem statement */
-   //@{
-   /** Penalty parameter for the \$l_1\$ norm
-    * @todo make this parameter?
-    */
+   ///@{
+   /** Penalty parameter for the \$l_1\$ norm, given by resto_penalty_parameter */
    Number rho_;
 
    /** scaling factor for eta calculation */
@@ -430,15 +444,16 @@ private:
    /** exponent for mu in eta calculation */
    Number eta_mu_exponent_;
 
-   // TODO in the following we should use pointers to CONST values
-   // TODO We can get rid of one of the dr DR
-   /** Scaling factors for the \$x\$ part of the regularization term */
-   SmartPtr<Vector> dr_x_;
-   SmartPtr<DiagMatrix> DR_x_;
+   /// Scaling factors for the \$x\$ part of the regularization term
+   SmartPtr<const Vector> dr_x_;
+   /// Squared scaling factors for the \$x\$ part of the regularization term, for grad_f
+   SmartPtr<const Vector> dr2_x_;
+   /// Matrix with squared scaling factors, for h()
+   SmartPtr<const DiagMatrix> DR2_x_;
 
    /** \$x\$ part of the reference point in the regularization term */
-   SmartPtr<Vector> x_ref_;
-   //@}
+   SmartPtr<const Vector> x_ref_;
+   ///@}
 
    /**@name Default Compiler Generated Methods
     * (Hidden to avoid implicit creation/calling).
@@ -448,7 +463,7 @@ private:
     * them for us, so we declare them private
     * and do not define them. This ensures that
     * they will not be implicitly created/called. */
-   //@{
+   ///@{
    /** Default Constructor */
    RestoIpoptNLP();
 
@@ -461,10 +476,10 @@ private:
    void operator=(
       const RestoIpoptNLP&
    );
-   //@}
+   ///@}
 
    /** @name Algorithmic parameter */
-   //@{
+   ///@{
    /** Flag indicating if evaluation of the objective should be
     *  performed for every restoration phase objective function
     *  evaluation.
@@ -473,13 +488,13 @@ private:
 
    /** Flag indicating how Hessian information is obtained */
    HessianApproximationType hessian_approximation_;
-   //@}
+   ///@}
 
    /** Flag indicating if initialization method has been called */
    bool initialized_;
 
    /** @name Counters for the function evaluations */
-   //@{
+   ///@{
    Index f_evals_;
    Index grad_f_evals_;
    Index c_evals_;
@@ -487,7 +502,7 @@ private:
    Index d_evals_;
    Index jac_d_evals_;
    Index h_evals_;
-   //@}
+   ///@}
 };
 
 } // namespace Ipopt

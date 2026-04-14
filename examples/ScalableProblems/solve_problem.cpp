@@ -5,6 +5,7 @@
 // Authors:  Andreas Waechter            IBM    2004-11-05
 
 #include "IpIpoptApplication.hpp"
+#include "IpUtils.hpp"
 #include "RegisteredTNLP.hpp"
 
 #include <cstdio>
@@ -14,29 +15,8 @@
 
 //**********************************************************************
 // Stuff for benchmarking
+// Enable this define to allow passing timelimit as 3rd program parameter
 // #define TIME_LIMIT
-#ifdef TIME_LIMIT
-
-#include <unistd.h>
-#include <pthread.h>
-
-extern "C" void* killer_thread(
-   void* arg
-)
-{
-   int runtime = *reinterpret_cast<int*>(arg);
-   if (runtime <= 0)
-   {
-      printf("Invalid argument for run time (%d)\n", runtime);
-      exit(-100);
-   }
-   printf("Limiting wall clock time to %d seconds.\n", runtime);
-   sleep(runtime);
-   printf("EXIT: Exceeding wall clock time limit of %d seconds.\n", runtime);
-   exit(-999);
-   return NULL;
-}
-#endif
 //**********************************************************************
 
 using namespace Ipopt;
@@ -118,31 +98,30 @@ static void print_problems()
 }
 
 int main(
-   int   argv,
-   char* argc[]
+   int   argc,
+   char* argv[]
 )
 {
-   if( argv == 2 && !strcmp(argc[1], "list") )
+   if( argc == 2 && !strcmp(argv[1], "list") )
    {
       print_problems();
       return 0;
    }
 
 #ifdef TIME_LIMIT
-   if (argv == 4)
+   int runtime;
+   if( argc == 4 )
    {
-      int runtime = atoi(argc[3]);
-      pthread_t thread;
-      pthread_create(&thread, NULL, killer_thread, &runtime);
+      runtime = atoi(argv[3]);
    }
    else
 #endif
-      if( argv != 3 && argv != 1 )
+      if( argc != 3 && argc != 1 )
       {
-         printf("Usage: %s (this will ask for problem name)\n", argc[0]);
-         printf("       %s ProblemName N\n", argc[0]);
+         printf("Usage: %s (this will ask for problem name)\n", argv[0]);
+         printf("       %s ProblemName N\n", argv[0]);
          printf("          where N is a positive parameter determining problem size\n");
-         printf("       %s list\n", argc[0]);
+         printf("       %s list\n", argv[0]);
          printf("          to list all registered problems.\n");
          return -1;
       }
@@ -150,18 +129,18 @@ int main(
    SmartPtr<RegisteredTNLP> tnlp;
    Index N;
 
-   if( argv != 1 )
+   if( argc != 1 )
    {
       // Create an instance of your nlp...
-      tnlp = RegisteredTNLPs::GetTNLP(argc[1]);
+      tnlp = RegisteredTNLPs::GetTNLP(argv[1]);
       if( !IsValid(tnlp) )
       {
-         printf("Problem with name \"%s\" not known.\n", argc[1]);
+         printf("Problem with name \"%s\" not known.\n", argv[1]);
          print_problems();
          return -2;
       }
 
-      N = atoi(argc[2]);
+      N = atoi(argv[2]);
    }
    else
    {
@@ -177,7 +156,7 @@ int main(
          }
          else
          {
-            tnlp = RegisteredTNLPs::GetTNLP(inputword.c_str());
+            tnlp = RegisteredTNLPs::GetTNLP(inputword);
             if( !IsValid(tnlp) )
             {
                printf("Problem with name \"%s\" not known.\n", inputword.c_str());
@@ -220,7 +199,15 @@ int main(
    // DOES NOT WORK FOR VLUKL* PROBLEMS:
    // app->Options()->SetStringValueIfUnset("nlp_scaling_method", "user-scaling");
 
+#ifdef TIME_LIMIT
+   app->Options()->SetNumericValue("max_wall_time", runtime);
+#endif
+
+   Ipopt::RegisterInterruptHandler(NULL, &tnlp->interrupted_, 5);
+
    status = app->OptimizeTNLP(GetRawPtr(tnlp));
+
+   Ipopt::UnregisterInterruptHandler();
 
    return (int) status;
 }

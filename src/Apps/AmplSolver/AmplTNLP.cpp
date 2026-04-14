@@ -21,13 +21,204 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
+
+void AmplTNLP::gutsOfConstructor(
+   const SmartPtr<RegisteredOptions> regoptions,
+   const SmartPtr<OptionsList>       options,
+   const char* const*                argv,
+   bool                              allow_discrete /* = false */,
+   SmartPtr<AmplOptionsList>         ampl_options_list /* = NULL */,
+   const char*                       ampl_option_string /* = NULL */,
+   const char*                       ampl_invokation_string /* = NULL */,
+   const char*                       ampl_banner_string /* = NULL */,
+   std::string*                      nl_file_content /* = NULL */
+)
+{
+   // The ASL include files #define certain
+   // variables that they expect you to work with.
+   // These variables then appear as though they are
+   // global variables when, in fact, they are not
+   // Most of them are data members of an asl object
+
+   // Create the ASL structure
+   ASL_pfgh* asl = reinterpret_cast<ASL_pfgh*>(ASL_alloc(ASL_read_pfgh));
+   DBG_ASSERT(asl);
+   asl_ = asl; // keep the pointer for ourselves to use later...
+
+   // First assume that we don't want to halt on error (default)
+   nerror_ = (void*) new fint;
+   *(fint*)nerror_ = 0;
+
+   // Read the options and stub
+   char* stub = get_options(regoptions, options, ampl_options_list, ampl_option_string, ampl_invokation_string, ampl_banner_string,
+                            argv);
+   FILE* nl = NULL;
+   if( nl_file_content )
+   {
+      nl = jac0dim(const_cast<char*>(nl_file_content->c_str()), -(ftnlen )nl_file_content->length());
+   }
+   else
+   {
+      if( !stub )
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "No .nl file given!\n");
+         THROW_EXCEPTION(INVALID_TNLP, "No .nl file given!\n");
+      }
+      nl = jac0dim(stub, (ftnlen)strlen(stub));
+      DBG_ASSERT(nl);
+   }
+   jnlst_->Printf(J_SUMMARY, J_MAIN, "\n");
+
+   // check the problem statistics (see Table 1 in AMPL doc)
+   DBG_ASSERT(n_var > 0); // need some continuous variables
+   if( !allow_discrete && (nbv > 0 || niv > 0 || nlvbi > 0 || nlvci > 0 || nlvoi > 0) )
+   {
+      jnlst_->Printf(J_WARNING, J_MAIN, "==> Warning: Treating %d binary and %d integer variables as continuous.\n\n",
+                     nbv, niv + nlvbi + nlvci + nlvoi);
+      // never used: allow_discrete = true;
+   }
+   allow_discrete = true;
+   ASSERT_EXCEPTION(allow_discrete || (nbv == 0 && niv == 0 && nlvbi == 0 && nlvci == 0 && nlvoi == 0), IpoptException,
+                    "Discrete variables not allowed when the allow_discrete flag is false, "
+                    "Either remove the integer variables, or change the flag in the constructor of AmplTNLP");
+
+   if( n_cc != 0 )
+   {
+      jnlst_->Printf(J_ERROR, J_MAIN,
+                     "\n\n***** Ipopt does not support complementarity constraints.  Aborting. *****\n\n");
+      ASSERT_EXCEPTION(n_cc == 0, IpoptException,
+                       "Ipopt does not support complementarity constraints.");
+   }
+
+   DBG_ASSERT(nlo == 0 || nlo == 1); // Can handle nonlinear obj.
+   DBG_ASSERT(nwv == 0); // Don't know what "linear arc" variables are
+   DBG_ASSERT(nlnc == 0); // Don't know what "nonlinear network"constraints are
+   DBG_ASSERT(lnc == 0); // Don't know what "linear network" constraints are
+
+   // Set options in the asl structure
+   want_xpi0 = 1 | 2;  // allocate initial values for primal and dual if available
+   obj_no = 0;
+   DBG_ASSERT((want_xpi0 & 1) == 1 && (want_xpi0 & 2) == 2);
+
+   // allocate space for initial values
+   X0 = new real[n_var];
+   havex0 = new char[n_var];
+   pi0 = new real[n_con];
+   havepi0 = new char[n_con];
+
+   // prepare for suffixes
+   if( IsValid(suffix_handler_) )
+   {
+      suffix_handler_->PrepareAmplForSuffixes(asl);
+   }
+
+   // read the rest of the nl file
+#ifdef IPOPT_INT64
+   int retcode = pfgh_read(nl, ASL_return_read_err | ASL_findgroups | ASL_allow_Z | ASL_use_Z);
+#else
+   int retcode = pfgh_read(nl, ASL_return_read_err | ASL_findgroups);
+#endif
+   switch( retcode )
+   {
+      case ASL_readerr_none:
+      {
+         break;
+      }
+      case ASL_readerr_nofile:
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "Cannot open .nl file\n");
+         THROW_EXCEPTION(INVALID_TNLP, "Cannot open .nl file");
+      }
+      case ASL_readerr_nonlin:
+      {
+         DBG_ASSERT(false); // this better not be an error!
+         jnlst_->Printf(J_ERROR, J_MAIN, "model involves nonlinearities (ed0read)\n");
+         THROW_EXCEPTION(INVALID_TNLP, "model involves nonlinearities (ed0read)");
+      }
+      case ASL_readerr_argerr:
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "user-defined function with bad args\n");
+         THROW_EXCEPTION(INVALID_TNLP, "user-defined function with bad args");
+      }
+      case ASL_readerr_unavail:
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "user-defined function not available\n");
+         THROW_EXCEPTION(INVALID_TNLP, "user-defined function not available");
+      }
+      case ASL_readerr_corrupt:
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "corrupt .nl file\n");
+         THROW_EXCEPTION(INVALID_TNLP, "corrupt .nl file");
+      }
+      case ASL_readerr_bug:
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "bug in .nl reader\n");
+         THROW_EXCEPTION(INVALID_TNLP, "bug in .nl reader");
+      }
+      case ASL_readerr_CLP:
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "Ampl model contains a constraint without \"=\", \">=\", or \"<=\".\n");
+         THROW_EXCEPTION(INVALID_TNLP, "Ampl model contains a constraint without \"=\", \">=\", or \"<=\".");
+      }
+      default:
+      {
+         jnlst_->Printf(J_ERROR, J_MAIN, "Unknown error in stub file read. retcode = %d\n", retcode);
+         THROW_EXCEPTION(INVALID_TNLP, "Unknown error in stub file read");
+      }
+   }
+
+   if( checkinterrupt_ && !RegisterInterruptHandler(NULL, &interrupted_, 5) )
+   {
+      jnlst_->Printf(J_STRONGWARNING, J_MAIN, "Could not register handler for interrupt signals.\n");
+   }
+}
+
+AmplTNLP::AmplTNLP(
+   const SmartPtr<const Journalist>& jnlst,
+   const SmartPtr<RegisteredOptions> regoptions,
+   const SmartPtr<OptionsList>       options,
+   const char* const*                argv,
+   SmartPtr<AmplSuffixHandler>       suffix_handler /* = NULL */,
+   bool                              allow_discrete /* = false */,
+   SmartPtr<AmplOptionsList>         ampl_options_list /* = NULL */,
+   const char*                       ampl_option_string /* = NULL */,
+   const char*                       ampl_invokation_string /* = NULL */,
+   const char*                       ampl_banner_string /* = NULL */,
+   std::string*                      nl_file_content /* = NULL */,
+   bool                              checkinterrupt /* = false */
+)
+   : TNLP(),
+     jnlst_(jnlst),
+     asl_(NULL),
+     obj_sign_(1),
+     nz_h_full_(-1),
+     x_sol_(NULL),
+     z_L_sol_(NULL),
+     z_U_sol_(NULL),
+     g_sol_(NULL),
+     lambda_sol_(NULL),
+     obj_sol_(0.0),
+     objval_called_with_current_x_(false),
+     conval_called_with_current_x_(false),
+     hesset_called_(false),
+     set_active_objective_called_(false),
+     Oinfo_ptr_(NULL),
+     suffix_handler_(suffix_handler),
+     checkinterrupt_(checkinterrupt),
+     interrupted_(false)
+{
+   DBG_START_METH("AmplTNLP::AmplTNLP", dbg_verbosity);
+
+   gutsOfConstructor(regoptions, options, argv, allow_discrete, ampl_options_list, ampl_option_string, ampl_invokation_string, ampl_banner_string, nl_file_content);
+}
 
 AmplTNLP::AmplTNLP(
    const SmartPtr<const Journalist>& jnlst,
    const SmartPtr<OptionsList>       options,
+   // cppcheck-suppress constParameter
    char**&                           argv,
    SmartPtr<AmplSuffixHandler>       suffix_handler /* = NULL */,
    bool                              allow_discrete /* = false */,
@@ -53,148 +244,13 @@ AmplTNLP::AmplTNLP(
      hesset_called_(false),
      set_active_objective_called_(false),
      Oinfo_ptr_(NULL),
-     suffix_handler_(suffix_handler)
+     suffix_handler_(suffix_handler),
+     checkinterrupt_(false),
+     interrupted_(false)
 {
    DBG_START_METH("AmplTNLP::AmplTNLP", dbg_verbosity);
 
-   // The ASL include files #define certain
-   // variables that they expect you to work with.
-   // These variables then appear as though they are
-   // global variables when, in fact, they are not
-   // Most of them are data members of an asl object
-
-   // Create the ASL structure
-   ASL_pfgh* asl = (ASL_pfgh*) ASL_alloc(ASL_read_pfgh);
-   DBG_ASSERT(asl);
-   asl_ = asl; // keep the pointer for ourselves to use later...
-
-   // First assume that we don't want to halt on error (default)
-   fint* fint_nerror = new fint;
-   *fint_nerror = 0;
-   nerror_ = (void*) fint_nerror;
-
-   // Read the options and stub
-   char* stub = get_options(options, ampl_options_list, ampl_option_string, ampl_invokation_string, ampl_banner_string,
-                            argv);
-   FILE* nl = NULL;
-   if( nl_file_content )
-   {
-      nl = jac0dim(const_cast<char*>(nl_file_content->c_str()), -(ftnlen )nl_file_content->length());
-   }
-   else
-   {
-      if( !stub )
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "No .nl file given!\n");
-         THROW_EXCEPTION(INVALID_TNLP, "No .nl file given!\n");
-      }
-      nl = jac0dim(stub, (fint )strlen(stub));
-      DBG_ASSERT(nl);
-   }
-   jnlst_->Printf(J_SUMMARY, J_MAIN, "\n");
-
-   // check the problem statistics (see Table 1 in AMPL doc)
-   DBG_ASSERT(n_var > 0); // need some continuous variables
-   if( !allow_discrete && (nbv > 0 || niv > 0 || nlvbi > 0 || nlvci > 0 || nlvoi > 0) )
-   {
-      jnlst_->Printf(J_WARNING, J_MAIN, "==> Warning: Treating %d binary and %d integer variables as continous.\n\n",
-                     nbv, niv + nlvbi + nlvci + nlvoi);
-      allow_discrete = true;
-   }
-   allow_discrete = true;
-   ASSERT_EXCEPTION(allow_discrete || (nbv == 0 && niv == 0 && nlvbi == 0 && nlvci == 0 && nlvoi == 0), IpoptException,
-                    "Discrete variables not allowed when the allow_discrete flag is false, "
-                    "Either remove the integer variables, or change the flag in the constructor of AmplTNLP");
-
-   if( n_cc != 0 )
-   {
-      jnlst_->Printf(J_ERROR, J_MAIN,
-                     "\n\n***** Currently, the AMPL interface to Ipopt does not support\n      complementarity constraints.  Aborting. *****\n\n");
-      ASSERT_EXCEPTION(n_cc == 0, IpoptException,
-                       "Currently, the AMPL interface to Ipopt does not support complementarity constraints.");
-   }
-
-   DBG_ASSERT(nlo == 0 || nlo == 1); // Can handle nonlinear obj.
-   DBG_ASSERT(nwv == 0); // Don't know what "linear arc" variables are
-   DBG_ASSERT(nlnc == 0); // Don't know what "nonlinear network"constraints are
-   DBG_ASSERT(lnc == 0); // Don't know what "linear network" constraints are
-
-   // Set options in the asl structure
-   want_xpi0 = 1 | 2;  // allocate initial values for primal and dual if available
-   obj_no = 0;
-   DBG_ASSERT((want_xpi0 & 1) == 1 && (want_xpi0 & 2) == 2);
-
-   // allocate space for initial values
-   X0 = new real[n_var];
-   havex0 = new char[n_var];
-   pi0 = new real[n_con];
-   havepi0 = new char[n_con];
-
-   // prepare for suffixes
-   if( IsValid(suffix_handler) )
-   {
-      suffix_handler->PrepareAmplForSuffixes(asl_);
-   }
-
-   // read the rest of the nl file
-   int retcode = pfgh_read(nl, ASL_return_read_err | ASL_findgroups);
-
-   switch( retcode )
-   {
-      case ASL_readerr_none:
-      {
-         break;
-      }
-      case ASL_readerr_nofile:
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "Cannot open .nl file\n");
-         THROW_EXCEPTION(INVALID_TNLP, "Cannot open .nl file");
-         break;
-      }
-      case ASL_readerr_nonlin:
-      {
-         DBG_ASSERT(false); // this better not be an error!
-         jnlst_->Printf(J_ERROR, J_MAIN, "model involves nonlinearities (ed0read)\n");
-         THROW_EXCEPTION(INVALID_TNLP, "model involves nonlinearities (ed0read)");
-         break;
-      }
-      case ASL_readerr_argerr:
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "user-defined function with bad args\n");
-         THROW_EXCEPTION(INVALID_TNLP, "user-defined function with bad args");
-         break;
-      }
-      case ASL_readerr_unavail:
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "user-defined function not available\n");
-         THROW_EXCEPTION(INVALID_TNLP, "user-defined function not available");
-         break;
-      }
-      case ASL_readerr_corrupt:
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "corrupt .nl file\n");
-         THROW_EXCEPTION(INVALID_TNLP, "corrupt .nl file");
-         break;
-      }
-      case ASL_readerr_bug:
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "bug in .nl reader\n");
-         THROW_EXCEPTION(INVALID_TNLP, "bug in .nl reader");
-         break;
-      }
-      case ASL_readerr_CLP:
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "Ampl model contains a constraint without \"=\", \">=\", or \"<=\".\n");
-         THROW_EXCEPTION(INVALID_TNLP, "Ampl model contains a constraint without \"=\", \">=\", or \"<=\".");
-         break;
-      }
-      default:
-      {
-         jnlst_->Printf(J_ERROR, J_MAIN, "Unknown error in stub file read. retcode = %d\n", retcode);
-         THROW_EXCEPTION(INVALID_TNLP, "Unknown error in stub file read");
-         break;
-      }
-   }
+   gutsOfConstructor(NULL, options, argv, allow_discrete, ampl_options_list, ampl_option_string, ampl_invokation_string, ampl_banner_string, nl_file_content);
 }
 
 void AmplTNLP::set_active_objective(
@@ -209,6 +265,7 @@ void AmplTNLP::set_active_objective(
                       "Internal error: AmplTNLP::set_active_objective called after AmplTNLP::call_hesset.");
    }
    ASL_pfgh* asl = asl_;
+   DBG_ASSERT(asl);
    obj_no = in_obj_no;
    set_active_objective_called_ = true;
 }
@@ -222,6 +279,7 @@ void AmplTNLP::call_hesset()
    }
 
    ASL_pfgh* asl = asl_;
+   DBG_ASSERT(asl);
 
    if( n_obj == 0 )
    {
@@ -308,6 +366,11 @@ AmplTNLP::~AmplTNLP()
    }
 
    delete (fint*) nerror_;
+
+   if( checkinterrupt_ && !UnregisterInterruptHandler() )
+   {
+      jnlst_->Printf(J_STRONGWARNING, J_MAIN, "Failed to unregister handler for interrupt signals.\n");
+   }
 }
 
 bool AmplTNLP::get_nlp_info(
@@ -319,7 +382,7 @@ bool AmplTNLP::get_nlp_info(
 )
 {
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
 
    if( !hesset_called_ )
    {
@@ -328,7 +391,11 @@ bool AmplTNLP::get_nlp_info(
 
    n = n_var; // # of variables (variable types have been asserted in the constructor
    m = n_con; // # of constraints
+#ifdef IPOPT_INT64
+   nnz_jac_g = nZc; // # of non-zeros in the jacobian
+#else
    nnz_jac_g = nzc; // # of non-zeros in the jacobian
+#endif
    nnz_h_lag = nz_h_full_; // # of non-zeros in the hessian
 
    index_style = TNLP::FORTRAN_STYLE;
@@ -348,7 +415,7 @@ bool AmplTNLP::get_var_con_metadata(
 )
 {
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
 
    // pick up the variable and constraints names if available
    Index rlen = maxrownamelen;
@@ -399,7 +466,7 @@ bool AmplTNLP::get_bounds_info(
 )
 {
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
 
    DBG_ASSERT(n == n_var);
    DBG_ASSERT(m == n_con);
@@ -425,6 +492,7 @@ bool AmplTNLP::get_constraints_linearity(
 )
 {
    ASL_pfgh* asl = AmplSolverObject();
+   DBG_ASSERT(asl);
    //check that n is good
    DBG_ASSERT(n == n_con);
    (void) n;
@@ -456,7 +524,7 @@ bool AmplTNLP::get_starting_point(
 )
 {
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
    DBG_ASSERT(n == n_var);
    DBG_ASSERT(m == n_con);
 
@@ -470,8 +538,8 @@ bool AmplTNLP::get_starting_point(
    {
       // Modified for warm-start from AMPL
       DBG_ASSERT(IsValid(suffix_handler_));
-      const double* zL_init = suffix_handler_->GetNumberSuffixValues("ipopt_zL_in", AmplSuffixHandler::Variable_Source);
-      const double* zU_init = suffix_handler_->GetNumberSuffixValues("ipopt_zU_in", AmplSuffixHandler::Variable_Source);
+      const Number* zL_init = suffix_handler_->GetNumberSuffixValues("ipopt_zL_in", AmplSuffixHandler::Variable_Source);
+      const Number* zU_init = suffix_handler_->GetNumberSuffixValues("ipopt_zU_in", AmplSuffixHandler::Variable_Source);
       for( Index i = 0; i < n; i++ )
       {
          z_L[i] = zL_init != NULL ? obj_sign_ * zL_init[i] : 1.0;
@@ -515,7 +583,7 @@ bool AmplTNLP::eval_grad_f(
    DBG_START_METH("AmplTNLP::eval_grad_f",
                   dbg_verbosity);
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
 
    if( !apply_new_x(new_x, n, x) )
    {
@@ -559,6 +627,7 @@ bool AmplTNLP::eval_g(
    DBG_START_METH("AmplTNLP::eval_g", dbg_verbosity);
 
    DBG_DO(ASL_pfgh* asl = asl_);
+   DBG_ASSERT(asl);
    DBG_ASSERT(n == n_var);
    DBG_ASSERT(m == n_con);
 
@@ -584,7 +653,7 @@ bool AmplTNLP::eval_jac_g(
    DBG_START_METH("AmplTNLP::eval_jac_g",
                   dbg_verbosity);
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
    DBG_ASSERT(n == n_var);
    DBG_ASSERT(m == n_con);
    (void) m;
@@ -646,17 +715,21 @@ bool AmplTNLP::eval_h(
    DBG_START_METH("AmplTNLP::eval_h",
                   dbg_verbosity);
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
    DBG_ASSERT(n == n_var);
    DBG_ASSERT(m == n_con);
 
    if( iRow && jCol && !values )
    {
       // setup the structure
-      int k = 0;
-      for( int i = 0; i < n; i++ )
+      Index k = 0;
+      for( Index i = 0; i < n; i++ )
       {
-         for( int j = sputinfo->hcolstarts[i]; j < sputinfo->hcolstarts[i + 1]; j++ )
+#ifdef IPOPT_INT64
+         for( size_t j = sputinfo->hcolstartsZ[i]; j < sputinfo->hcolstartsZ[i + 1]; j++ )
+#else
+         for( Index j = sputinfo->hcolstarts[i]; j < sputinfo->hcolstarts[i + 1]; j++ )
+#endif
          {
             iRow[k] = i + 1;
             jCol[k] = sputinfo->hrownos[j] + 1;
@@ -705,6 +778,26 @@ bool AmplTNLP::eval_h(
    return false;
 }
 
+bool AmplTNLP::intermediate_callback(
+   AlgorithmMode              /*mode*/,
+   Index                      /*iter*/,
+   Number                     /*obj_value*/,
+   Number                     /*inf_pr*/,
+   Number                     /*inf_du*/,
+   Number                     /*mu*/,
+   Number                     /*d_norm*/,
+   Number                     /*regularization_size*/,
+   Number                     /*alpha_du*/,
+   Number                     /*alpha_pr*/,
+   Index                      /*ls_trials*/,
+   const IpoptData*           /*ip_data*/,
+   IpoptCalculatedQuantities* /*ip_cq*/
+)
+{
+   /* returning false makes Ipopt stop */
+   return !interrupted_;
+}
+
 void AmplTNLP::finalize_solution(
    SolverReturn               status,
    Index                      n,
@@ -720,6 +813,7 @@ void AmplTNLP::finalize_solution(
 )
 {
    ASL_pfgh* asl = asl_;
+   DBG_ASSERT(asl);
 
    if( !x_sol_ )
    {
@@ -742,81 +836,124 @@ void AmplTNLP::finalize_solution(
       lambda_sol_ = new Number[m];
    }
 
-   IpBlasDcopy(n, x, 1, x_sol_, 1);
-   IpBlasDcopy(m, g, 1, g_sol_, 1);
+   IpBlasCopy(n, x, 1, x_sol_, 1);
+   IpBlasCopy(m, g, 1, g_sol_, 1);
    if( obj_sign_ == -1.0 ) // maximization
    {
-      for( int i = 0; i < n; ++i )
+      for( Index i = 0; i < n; ++i )
       {
          z_L_sol_[i] = -z_L[i];
       }
-      IpBlasDcopy(n, z_U, 1, z_U_sol_, 1);
-      IpBlasDcopy(m, lambda, 1, lambda_sol_, 1);
+      IpBlasCopy(n, z_U, 1, z_U_sol_, 1);
+      IpBlasCopy(m, lambda, 1, lambda_sol_, 1);
    }
    else
    {
-      IpBlasDcopy(n, z_L, 1, z_L_sol_, 1);
-      for( int i = 0; i < n; ++i )
+      IpBlasCopy(n, z_L, 1, z_L_sol_, 1);
+      for( Index i = 0; i < n; ++i )
       {
          z_U_sol_[i] = -z_U[i];
       }
-      for( int i = 0; i < m; ++i )
+      for( Index i = 0; i < m; ++i )
       {
          lambda_sol_[i] = -lambda[i];
       }
    }
    obj_sol_ = obj_value;
 
-   std::string message;
-   if( status == SUCCESS )
+   std::string message = " \nIpopt " IPOPT_VERSION ": ";
+   switch( status )
    {
-      message = "Optimal Solution Found";
-      solve_result_num = 0;
-   }
-   else if( status == MAXITER_EXCEEDED )
-   {
-      message = "Maximum Number of Iterations Exceeded.";
-      solve_result_num = 400;
-   }
-   else if( status == CPUTIME_EXCEEDED )
-   {
-      message = "Maximum CPU Time Exceeded.";
-      solve_result_num = 401;
-   }
-   else if( status == STOP_AT_TINY_STEP )
-   {
-      message = "Search Direction becomes Too Small.";
-      solve_result_num = 500;
-   }
-   else if( status == STOP_AT_ACCEPTABLE_POINT )
-   {
-      message = "Solved To Acceptable Level.";
-      solve_result_num = 1;
-   }
-   else if( status == FEASIBLE_POINT_FOUND )
-   {
-      message = "Found feasible point for square problem.";
-      solve_result_num = 2;
-   }
-   else if( status == LOCAL_INFEASIBILITY )
-   {
-      message = "Converged to a locally infeasible point. Problem may be infeasible.";
-      solve_result_num = 200;
-   }
-   else if( status == RESTORATION_FAILURE )
-   {
-      message = "Restoration Phase Failed.";
-      solve_result_num = 501;
-   }
-   else if( status == DIVERGING_ITERATES )
-   {
-      message = "Iterates diverging; problem might be unbounded.";
-      solve_result_num = 300;
-   }
-   else
-   {
-      message = "Unknown Error";
-      solve_result_num = 502;
+      case SUCCESS:
+         message += "Optimal Solution Found";
+         solve_result_num = 0;
+         break;
+
+      case STOP_AT_ACCEPTABLE_POINT:
+         message += "Solved To Acceptable Level.";
+         solve_result_num = 1;
+         break;
+
+      case FEASIBLE_POINT_FOUND:
+         message += "Found feasible point for square problem.";
+         solve_result_num = 2;
+         break;
+
+      case LOCAL_INFEASIBILITY:
+         message += "Converged to a locally infeasible point. Problem may be infeasible.";
+         solve_result_num = 200;
+         break;
+
+      case DIVERGING_ITERATES:
+         message += "Iterates diverging; problem might be unbounded.";
+         solve_result_num = 300;
+         break;
+
+      case MAXITER_EXCEEDED:
+         message += "Maximum Number of Iterations Exceeded.";
+         solve_result_num = 400;
+         break;
+
+      case CPUTIME_EXCEEDED:
+         message += "Maximum CPU Time Exceeded.";
+         solve_result_num = 401;
+         break;
+
+      case WALLTIME_EXCEEDED:
+         message += "Maximum Wallclock Time Exceeded.";
+         solve_result_num = 402;
+         break;
+
+      case USER_REQUESTED_STOP:
+         message += "User requested stop.";
+         solve_result_num = 403;
+         break;
+
+      case STOP_AT_TINY_STEP:
+         message += "Search Direction becomes Too Small.";
+         solve_result_num = 500;
+         break;
+
+      case RESTORATION_FAILURE:
+         message += "Restoration Phase Failed.";
+         solve_result_num = 501;
+         break;
+
+      case ERROR_IN_STEP_COMPUTATION:
+         message += "Error in step computation.";
+         solve_result_num = 502;
+         break;
+
+      // the following should be dead code, i.e., finalize_solution isn't called in these cases
+      case INVALID_NUMBER_DETECTED:
+         message += "Invalid number in NLP function or derivative detected.";
+         solve_result_num = 550;
+         break;
+
+      case TOO_FEW_DEGREES_OF_FREEDOM:
+         message += "NLP has too few degrees of freedom.";
+         solve_result_num = 551;
+         break;
+
+      case INVALID_OPTION:
+         message += "Invalid option setting.";
+         solve_result_num = 552;
+         break;
+
+      case OUT_OF_MEMORY:
+         message += "Out of memory.";
+         solve_result_num = 553;
+         break;
+
+      case INTERNAL_ERROR:
+         message += "Internal error.";
+         solve_result_num = 554;
+         break;
+
+      case UNASSIGNED:
+         message += "Unknown Error";
+         solve_result_num = 599;
+         break;
    }
 
    if( IsValid(suffix_handler_) )
@@ -827,8 +964,7 @@ void AmplTNLP::finalize_solution(
    }
 
    // Write the .sol file
-   message = " \nIpopt " IPOPT_VERSION ": " + message;
-   write_solution_file(message.c_str());
+   write_solution_file(message);
 }
 
 bool AmplTNLP::internal_objval(
@@ -839,7 +975,7 @@ bool AmplTNLP::internal_objval(
    DBG_START_METH("AmplTNLP::internal_objval",
                   dbg_verbosity);
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
    objval_called_with_current_x_ = false; // in case the call below fails
 
    if( n_obj == 0 )
@@ -871,14 +1007,14 @@ bool AmplTNLP::internal_conval(
    DBG_START_METH("AmplTNLP::internal_conval",
                   dbg_verbosity);
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
    DBG_ASSERT(m == n_con);
    conval_called_with_current_x_ = false; // in case the call below fails
 
    bool allocated = false;
    if( !g )
    {
-      g = new double[m];
+      g = new Number[m];
       allocated = true;
    }
    conval(const_cast<Number*>(x), g, (fint* )nerror_);
@@ -886,7 +1022,6 @@ bool AmplTNLP::internal_conval(
    if( allocated )
    {
       delete[] g;
-      g = NULL;
    }
 
    if( nerror_ok(nerror_) )
@@ -907,7 +1042,7 @@ bool AmplTNLP::apply_new_x(
                   dbg_verbosity);
 
    ASL_pfgh* asl = asl_;
-   DBG_ASSERT(asl_);
+   DBG_ASSERT(asl);
 
    if( new_x )
    {
@@ -941,7 +1076,7 @@ void AmplTNLP::write_solution_file(
    // We need to copy the message into a non-const char array to make
    // it work with the AMPL C function.
    char* cmessage = new char[message.length() + 1];
-   strcpy(cmessage, message.c_str());
+   memcpy(cmessage, message.c_str(), message.length() + 1);
 
    write_sol(cmessage, x_sol_, lambda_sol_, (Option_Info* )Oinfo_ptr_);
 
@@ -983,14 +1118,14 @@ bool AmplTNLP::get_scaling_parameters(
 )
 {
    DBG_ASSERT(IsValid(suffix_handler_));
-   const double* obj = suffix_handler_->GetNumberSuffixValues("scaling_factor", AmplSuffixHandler::Objective_Source);
+   const Number* obj = suffix_handler_->GetNumberSuffixValues("scaling_factor", AmplSuffixHandler::Objective_Source);
    obj_scaling = (obj) ? obj[0] : 1.0;
 
-   const double* x = suffix_handler_->GetNumberSuffixValues("scaling_factor", AmplSuffixHandler::Variable_Source);
+   const Number* x = suffix_handler_->GetNumberSuffixValues("scaling_factor", AmplSuffixHandler::Variable_Source);
    if( x )
    {
       use_x_scaling = true;
-      for( int i = 0; i < n; i++ )
+      for( Index i = 0; i < n; i++ )
       {
          if( x[i] > 0.0 )
          {
@@ -1007,11 +1142,11 @@ bool AmplTNLP::get_scaling_parameters(
       use_x_scaling = false;
    }
 
-   const double* g = suffix_handler_->GetNumberSuffixValues("scaling_factor", AmplSuffixHandler::Constraint_Source);
+   const Number* g = suffix_handler_->GetNumberSuffixValues("scaling_factor", AmplSuffixHandler::Constraint_Source);
    if( g )
    {
       use_g_scaling = true;
-      for( int i = 0; i < m; i++ )
+      for( Index i = 0; i < m; i++ )
       {
          if( g[i] > 0 )
          {
@@ -1034,6 +1169,7 @@ bool AmplTNLP::get_scaling_parameters(
 Index AmplTNLP::get_number_of_nonlinear_variables()
 {
    ASL_pfgh* asl = asl_;
+   DBG_ASSERT(asl);
    return Max(nlvo, nlvc);
 }
 
@@ -1042,7 +1178,8 @@ bool AmplTNLP::get_list_of_nonlinear_variables(
    Index* pos_nonlin_vars
 )
 {
-   DBG_DO(ASL_pfgh* asl = asl_;)
+   DBG_DO(ASL_pfgh* asl = asl_);
+   DBG_ASSERT(asl);
    DBG_ASSERT(num_nonlin_vars == Max(nlvo, nlvc));
 
    // The first variables are the nonlinear ones (using Fortran
@@ -1065,6 +1202,8 @@ extern "C"
       AmplOptionsList::PrivatInfo* pinfo = (AmplOptionsList::PrivatInfo*) kw->info;
 
       real real_val;
+      // cppcheck-suppress autoVariables
+      // cppcheck-suppress unmatchedSuppression
       kw->info = &real_val;
       char* retval = D_val(oi, kw, value);
       kw->info = (void*) pinfo;
@@ -1087,6 +1226,8 @@ extern "C"
       AmplOptionsList::PrivatInfo* pinfo = (AmplOptionsList::PrivatInfo*) kw->info;
 
       int int_val;
+      // cppcheck-suppress autoVariables
+      // cppcheck-suppress unmatchedSuppression
       kw->info = &int_val;
       char* retval = I_val(oi, kw, value);
       kw->info = (void*) pinfo;
@@ -1109,6 +1250,8 @@ extern "C"
       AmplOptionsList::PrivatInfo* pinfo = (AmplOptionsList::PrivatInfo*) kw->info;
 
       char* str_val;
+      // cppcheck-suppress autoVariables
+      // cppcheck-suppress unmatchedSuppression
       kw->info = &str_val;
       char* retval = C_val(oi, kw, value);
       kw->info = (void*) pinfo;
@@ -1131,17 +1274,21 @@ extern "C"
       AmplOptionsList::PrivatInfo* pinfo = (AmplOptionsList::PrivatInfo*) kw->info;
 
       char* str_val;
+      // cppcheck-suppress autoVariables
+      // cppcheck-suppress unmatchedSuppression
       kw->info = &str_val;
       char* retval = C_val(oi, kw, value);
       kw->info = (void*) pinfo;
 
       fint** nerror = (fint**) pinfo->NError();
 
+      // cppcheck-suppress uninitvar
       if( strcmp(str_val, "yes") == 0 )
       {
          delete *nerror;
          *nerror = NULL;
       }
+      // cppcheck-suppress uninitvar
       else if( strcmp(str_val, "no") == 0 )
       {
          delete *nerror;
@@ -1159,15 +1306,15 @@ extern "C"
 }
 
 AmplOptionsList::AmplOption::AmplOption(
-   const std::string ipopt_option_name,
-   AmplOptionType    type,
-   const std::string description
+   const std::string& ipopt_option_name,
+   AmplOptionType     type,
+   const std::string& description
 )
    : ipopt_option_name_(ipopt_option_name),
      type_(type)
 {
-   description_ = new char[description.size() + 1];
-   strcpy(description_, description.c_str());
+   description_ = new char[description.length() + 1];
+   memcpy(description_, description.c_str(), description.length() + 1);
 }
 
 AmplOptionsList::~AmplOptionsList()
@@ -1178,7 +1325,7 @@ AmplOptionsList::~AmplOptionsList()
       keyword* keywords = (keyword*) keywds_;
       for( Index i = 0; i < nkeywds_; i++ )
       {
-         PrivatInfo* pinfo = (PrivatInfo*) keywords[i].info;
+         PrivatInfo* pinfo = static_cast<PrivatInfo*>(keywords[i].info);
          delete pinfo;
          delete[] keywords[i].name;
       }
@@ -1198,7 +1345,7 @@ void* AmplOptionsList::Keywords(
       keyword* keywords = (keyword*) keywds_;
       for( Index i = 0; i < nkeywds_; i++ )
       {
-         PrivatInfo* pinfo = (PrivatInfo*) keywords[i].info;
+         PrivatInfo* pinfo = static_cast<PrivatInfo*>(keywords[i].info);
          delete pinfo;
          delete[] keywords[i].name;
       }
@@ -1214,10 +1361,10 @@ void* AmplOptionsList::Keywords(
 
    Index ioption = 0;
    for( std::map<std::string, SmartPtr<const AmplOption> >::iterator iter = ampl_options_map_.begin();
-        iter != ampl_options_map_.end(); iter++ )
+        iter != ampl_options_map_.end(); ++iter )
    {
-      keywords[ioption].name = new char[iter->first.size() + 1];
-      strcpy(keywords[ioption].name, iter->first.c_str());
+      keywords[ioption].name = new char[iter->first.length() + 1];
+      memcpy(keywords[ioption].name, iter->first.c_str(), iter->first.length() + 1);
       keywords[ioption].desc = iter->second->Description();
       switch( iter->second->Type() )
       {
@@ -1266,8 +1413,7 @@ void AmplOptionsList::MakeValidLatexString(
    std::string& dest
 ) const
 {
-   std::string::iterator c;
-   for( c = source.begin(); c != source.end(); c++ )
+   for( std::string::iterator c = source.begin(); c != source.end(); ++c )
    {
       if( *c == '_' )
       {
@@ -1359,14 +1505,19 @@ void AmplOptionsList::PrintDoxygen(
    }
 }
 
+static const char sname_default[] = "ipopt";
+static const char bsname_default[] = "Ipopt " IPOPT_VERSION;
+static const char opname_default[] = "ipopt_options";
+
 char*
 AmplTNLP::get_options(
+   const SmartPtr<RegisteredOptions> regoptions,
    const SmartPtr<OptionsList>& options,
    SmartPtr<AmplOptionsList>&   ampl_options_list,
    const char*                  ampl_option_string,
    const char*                  ampl_invokation_string,
    const char*                  ampl_banner_string,
-   char**&                      argv
+   const char* const*           argv
 )
 {
    ASL_pfgh* asl = asl_;
@@ -1376,168 +1527,158 @@ AmplTNLP::get_options(
       ampl_options_list = new AmplOptionsList();
    }
 
-   // Output
-   ampl_options_list->AddAmplOption("print_level", "print_level", AmplOptionsList::Integer_Option, "Verbosity level");
-   ampl_options_list->AddAmplOption("outlev", "print_level", AmplOptionsList::Integer_Option, "Verbosity level");
-   ampl_options_list->AddAmplOption("print_user_options", "print_user_options", AmplOptionsList::String_Option,
-                                    "Toggle printing of user options");
-   ampl_options_list->AddAmplOption("print_options_documentation", "print_options_documentation",
-                                    AmplOptionsList::String_Option, "Print all available options (for ipopt.opt)");
-   ampl_options_list->AddAmplOption("output_file", "output_file", AmplOptionsList::String_Option,
-                                    "File name of an output file (leave unset for no file output)");
-   ampl_options_list->AddAmplOption("file_print_level", "file_print_level", AmplOptionsList::Integer_Option,
-                                    "Verbosity level for output file");
-   ampl_options_list->AddAmplOption("option_file_name", "option_file_name", AmplOptionsList::String_Option,
-                                    "File name of options file (default: ipopt.opt)");
+   if( IsValid(regoptions) )
+   {
+      for( RegisteredOptions::RegOptionsList::const_iterator it_opt(regoptions->RegisteredOptionsList().begin()); it_opt != regoptions->RegisteredOptionsList().end(); ++it_opt )
+      {
+         AmplOptionsList::AmplOptionType ampltype = AmplOptionsList::Number_Option;
 
-   // Termination
-   ampl_options_list->AddAmplOption("tol", "tol", AmplOptionsList::Number_Option,
-                                    "Desired convergence tolerance (relative)");
-   ampl_options_list->AddAmplOption("max_iter", "max_iter", AmplOptionsList::Integer_Option,
-                                    "Maximum number of iterations");
+         switch( it_opt->second->Type() )
+         {
+            case Ipopt::OT_Number:
+               ampltype = AmplOptionsList::Number_Option;
+               break;
+            case Ipopt::OT_Integer:
+               ampltype = AmplOptionsList::Integer_Option;
+               break;
+            case Ipopt::OT_String:
+               ampltype = AmplOptionsList::String_Option;
+               break;
+            case Ipopt::OT_Unknown:
+               continue;
+         }
+         ampl_options_list->AddAmplOption(it_opt->first, it_opt->first, ampltype, it_opt->second->ShortDescription());
+      }
+   }
+   else
+   {
+      // old deprecated use of AmplTNLP: manually list some options
+      // Output
+      ampl_options_list->AddAmplOption("print_level", "print_level", AmplOptionsList::Integer_Option, "Verbosity level");
+      ampl_options_list->AddAmplOption("print_user_options", "print_user_options", AmplOptionsList::String_Option,
+                                       "Toggle printing of user options");
+      ampl_options_list->AddAmplOption("print_options_documentation", "print_options_documentation",
+                                       AmplOptionsList::String_Option, "Print all available options (for ipopt.opt)");
+      ampl_options_list->AddAmplOption("output_file", "output_file", AmplOptionsList::String_Option,
+                                       "File name of an output file (leave unset for no file output)");
+      ampl_options_list->AddAmplOption("file_print_level", "file_print_level", AmplOptionsList::Integer_Option,
+                                       "Verbosity level for output file");
+      ampl_options_list->AddAmplOption("option_file_name", "option_file_name", AmplOptionsList::String_Option,
+                                       "File name of options file (default: ipopt.opt)");
+
+      // Termination
+      ampl_options_list->AddAmplOption("tol", "tol", AmplOptionsList::Number_Option,
+                                       "Desired convergence tolerance (relative)");
+      ampl_options_list->AddAmplOption("max_iter", "max_iter", AmplOptionsList::Integer_Option,
+                                       "Maximum number of iterations");
+      ampl_options_list->AddAmplOption("max_wall_time", "max_wall_time", AmplOptionsList::Number_Option, "Wallclock time limit");
+      ampl_options_list->AddAmplOption("max_cpu_time", "max_cpu_time", AmplOptionsList::Number_Option, "CPU time limit");
+      ampl_options_list->AddAmplOption("compl_inf_tol", "compl_inf_tol", AmplOptionsList::Number_Option,
+                                       "Acceptance threshold for the complementarity conditions");
+      ampl_options_list->AddAmplOption("dual_inf_tol", "dual_inf_tol", AmplOptionsList::Number_Option,
+                                       "Desired threshold for the dual infeasibility");
+      ampl_options_list->AddAmplOption("constr_viol_tol", "constr_viol_tol", AmplOptionsList::Number_Option,
+                                       "Desired threshold for the constraint violation");
+      ampl_options_list->AddAmplOption("acceptable_tol", "acceptable_tol", AmplOptionsList::Number_Option,
+                                       "Acceptable convergence tolerance (relative)");
+      ampl_options_list->AddAmplOption("acceptable_compl_inf_tol", "acceptable_compl_inf_tol",
+                                       AmplOptionsList::Number_Option, "Acceptance threshold for the complementarity conditions");
+      ampl_options_list->AddAmplOption("acceptable_dual_inf_tol", "acceptable_dual_inf_tol",
+                                       AmplOptionsList::Number_Option, "Acceptance threshold for the dual infeasibility");
+      ampl_options_list->AddAmplOption("acceptable_constr_viol_tol", "acceptable_constr_viol_tol",
+                                       AmplOptionsList::Number_Option, "Acceptance threshold for the constraint violation");
+
+      ampl_options_list->AddAmplOption("diverging_iterates_tol", "diverging_iterates_tol", AmplOptionsList::Number_Option,
+                                       "Threshold for maximal value of primal iterates");
+
+      // NLP scaling
+      ampl_options_list->AddAmplOption("obj_scaling_factor", "obj_scaling_factor", AmplOptionsList::Number_Option,
+                                       "Scaling factor for the objective function");
+      ampl_options_list->AddAmplOption("nlp_scaling_method", "nlp_scaling_method", AmplOptionsList::String_Option,
+                                       "Select the technique used for scaling the NLP");
+      ampl_options_list->AddAmplOption("nlp_scaling_max_gradient", "nlp_scaling_max_gradient",
+                                       AmplOptionsList::Number_Option, "Maximum gradient after scaling");
+
+      // NLP corrections
+      ampl_options_list->AddAmplOption("bound_relax_factor", "bound_relax_factor", AmplOptionsList::Number_Option,
+                                       "Factor for initial relaxation of the bounds");
+      ampl_options_list->AddAmplOption("honor_original_bounds", "honor_original_bounds", AmplOptionsList::String_Option,
+                                       "If no, solution might slightly violate bounds");
+
+      // Barrier parameter
+      ampl_options_list->AddAmplOption("mu_strategy", "mu_strategy", AmplOptionsList::String_Option,
+                                       "Update strategy for barrier parameter");
+      ampl_options_list->AddAmplOption("mu_oracle", "mu_oracle", AmplOptionsList::String_Option,
+                                       "Oracle for a new barrier parameter in the adaptive strategy");
+      // Barrier parameter
+      ampl_options_list->AddAmplOption("mu_max", "mu_max", AmplOptionsList::Number_Option,
+                                       "Maximal value for barrier parameter for adaptive strategy");
+      ampl_options_list->AddAmplOption("mu_init", "mu_init", AmplOptionsList::Number_Option,
+                                       "Initial value for the barrier parameter");
+
+      // Initialization
+      ampl_options_list->AddAmplOption("bound_frac", "bound_frac", AmplOptionsList::Number_Option,
+                                       "Desired minimal relative distance of initial point to bound");
+      ampl_options_list->AddAmplOption("bound_push", "bound_push", AmplOptionsList::Number_Option,
+                                       "Desired minimal absolute distance of initial point to bound");
+      ampl_options_list->AddAmplOption("slack_bound_frac", "slack_bound_frac", AmplOptionsList::Number_Option,
+                                       "Desired minimal relative distance of initial slack to bound");
+      ampl_options_list->AddAmplOption("slack_bound_push", "slack_bound_push", AmplOptionsList::Number_Option,
+                                       "Desired minimal absolute distance of initial slack to bound");
+      ampl_options_list->AddAmplOption("bound_mult_init_val", "bound_mult_init_val", AmplOptionsList::Number_Option,
+                                       "Initial value for the bound multipliers");
+      ampl_options_list->AddAmplOption("constr_mult_init_max", "constr_mult_init_max", AmplOptionsList::Number_Option,
+                                       "Maximal allowed least-square guess of constraint multipliers");
+
+      // Multiplier updates
+      ampl_options_list->AddAmplOption("alpha_for_y", "alpha_for_y", AmplOptionsList::String_Option,
+                                       "Step size for constraint multipliers");
+
+      // Line search
+      ampl_options_list->AddAmplOption("max_soc", "max_soc", AmplOptionsList::Integer_Option,
+                                       "Maximal number of second order correction trial steps");
+      ampl_options_list->AddAmplOption("watchdog_shortened_iter_trigger", "watchdog_shortened_iter_trigger",
+                                       AmplOptionsList::Integer_Option, "Trigger counter for watchdog procedure");
+
+      // Restoration phase
+      ampl_options_list->AddAmplOption("expect_infeasible_problem", "expect_infeasible_problem",
+                                       AmplOptionsList::String_Option, "Enable heuristics to quickly detect an infeasible problem");
+      ampl_options_list->AddAmplOption("required_infeasibility_reduction", "required_infeasibility_reduction",
+                                       AmplOptionsList::Number_Option, "Required infeasibility reduction in restoration phase");
+
+      // Added for Warm-Start
+      ampl_options_list->AddAmplOption("warm_start_init_point", "warm_start_init_point", AmplOptionsList::String_Option,
+                                       "Enables to specify bound multiplier values");
+      ampl_options_list->AddAmplOption("warm_start_bound_push", "warm_start_bound_push", AmplOptionsList::Number_Option,
+                                       "Enables to specify how much should variables should be pushed inside the feasible region");
+      ampl_options_list->AddAmplOption("warm_start_mult_bound_push", "warm_start_mult_bound_push",
+                                       AmplOptionsList::Number_Option,
+                                       "Enables to specify how much should bound multipliers should be pushed inside the feasible region");
+
+      // Quasi-Newton
+      ampl_options_list->AddAmplOption("hessian_approximation", "hessian_approximation", AmplOptionsList::String_Option,
+                                       "Can enable Quasi-Newton approximation of hessian");
+      // Linear solver
+      ampl_options_list->AddAmplOption("linear_solver", "linear_solver", AmplOptionsList::String_Option,
+                                       "Linear solver to be used for step calculation");
+      ampl_options_list->AddAmplOption("linear_system_scaling", "linear_system_scaling", AmplOptionsList::String_Option,
+                                       "Method for scaling the linear systems");
+      ampl_options_list->AddAmplOption("linear_scaling_on_demand", "linear_scaling_on_demand",
+                                       AmplOptionsList::String_Option, "Enables heuristic for scaling only when seems required");
+      ampl_options_list->AddAmplOption("max_refinement_steps", "max_refinement_steps", AmplOptionsList::Integer_Option,
+                                       "Maximal number of iterative refinement steps per linear system solve");
+      ampl_options_list->AddAmplOption("min_refinement_steps", "min_refinement_steps", AmplOptionsList::Integer_Option,
+                                       "Minimum number of iterative refinement steps per linear system solve");
+
+      // Quasi-Newton
+      ampl_options_list->AddAmplOption("hessian_approximation", "hessian_approximation", AmplOptionsList::String_Option,
+                                       "Can enable Quasi-Newton approximation of hessian");
+   }
+
+   // Synonyms for AMPL interface only
+   ampl_options_list->AddAmplOption("outlev", "print_level", AmplOptionsList::Integer_Option, "Verbosity level");
    ampl_options_list->AddAmplOption("maxit", "max_iter", AmplOptionsList::Integer_Option,
                                     "Maximum number of iterations");
-   ampl_options_list->AddAmplOption("max_cpu_time", "max_cpu_time", AmplOptionsList::Number_Option, "CPU time limit");
-   ampl_options_list->AddAmplOption("compl_inf_tol", "compl_inf_tol", AmplOptionsList::Number_Option,
-                                    "Acceptance threshold for the complementarity conditions");
-   ampl_options_list->AddAmplOption("dual_inf_tol", "dual_inf_tol", AmplOptionsList::Number_Option,
-                                    "Desired threshold for the dual infeasibility");
-   ampl_options_list->AddAmplOption("constr_viol_tol", "constr_viol_tol", AmplOptionsList::Number_Option,
-                                    "Desired threshold for the constraint violation");
-   ampl_options_list->AddAmplOption("acceptable_tol", "acceptable_tol", AmplOptionsList::Number_Option,
-                                    "Acceptable convergence tolerance (relative)");
-   ampl_options_list->AddAmplOption("acceptable_compl_inf_tol", "acceptable_compl_inf_tol",
-                                    AmplOptionsList::Number_Option, "Acceptance threshold for the complementarity conditions");
-   ampl_options_list->AddAmplOption("acceptable_dual_inf_tol", "acceptable_dual_inf_tol",
-                                    AmplOptionsList::Number_Option, "Acceptance threshold for the dual infeasibility");
-   ampl_options_list->AddAmplOption("acceptable_constr_viol_tol", "acceptable_constr_viol_tol",
-                                    AmplOptionsList::Number_Option, "Acceptance threshold for the constraint violation");
-
-   ampl_options_list->AddAmplOption("diverging_iterates_tol", "diverging_iterates_tol", AmplOptionsList::Number_Option,
-                                    "Threshold for maximal value of primal iterates");
-
-   // NLP scaling
-   ampl_options_list->AddAmplOption("obj_scaling_factor", "obj_scaling_factor", AmplOptionsList::Number_Option,
-                                    "Scaling factor for the objective function");
-   ampl_options_list->AddAmplOption("nlp_scaling_method", "nlp_scaling_method", AmplOptionsList::String_Option,
-                                    "Select the technique used for scaling the NLP");
-   ampl_options_list->AddAmplOption("nlp_scaling_max_gradient", "nlp_scaling_max_gradient",
-                                    AmplOptionsList::Number_Option, "Maximum gradient after scaling");
-
-   // NLP corrections
-   ampl_options_list->AddAmplOption("bound_relax_factor", "bound_relax_factor", AmplOptionsList::Number_Option,
-                                    "Factor for initial relaxation of the bounds");
-   ampl_options_list->AddAmplOption("honor_original_bounds", "honor_original_bounds", AmplOptionsList::String_Option,
-                                    "If no, solution might slightly violate bounds");
-
-   // Barrier parameter
-   ampl_options_list->AddAmplOption("mu_strategy", "mu_strategy", AmplOptionsList::String_Option,
-                                    "Update strategy for barrier parameter");
-   ampl_options_list->AddAmplOption("mu_oracle", "mu_oracle", AmplOptionsList::String_Option,
-                                    "Oracle for a new barrier parameter in the adaptive strategy");
-   // Barrier parameter
-   ampl_options_list->AddAmplOption("mu_max", "mu_max", AmplOptionsList::Number_Option,
-                                    "Maximal value for barrier parameter for adaptive strategy");
-   ampl_options_list->AddAmplOption("mu_init", "mu_init", AmplOptionsList::Number_Option,
-                                    "Initial value for the barrier parameter");
-
-   // Initialization
-   ampl_options_list->AddAmplOption("bound_frac", "bound_frac", AmplOptionsList::Number_Option,
-                                    "Desired minimal relative distance of initial point to bound");
-   ampl_options_list->AddAmplOption("bound_push", "bound_push", AmplOptionsList::Number_Option,
-                                    "Desired minimal absolute distance of initial point to bound");
-   ampl_options_list->AddAmplOption("slack_bound_frac", "slack_bound_frac", AmplOptionsList::Number_Option,
-                                    "Desired minimal relative distance of initial slack to bound");
-   ampl_options_list->AddAmplOption("slack_bound_push", "slack_bound_push", AmplOptionsList::Number_Option,
-                                    "Desired minimal absolute distance of initial slack to bound");
-   ampl_options_list->AddAmplOption("bound_mult_init_val", "bound_mult_init_val", AmplOptionsList::Number_Option,
-                                    "Initial value for the bound multipliers");
-   ampl_options_list->AddAmplOption("constr_mult_init_max", "constr_mult_init_max", AmplOptionsList::Number_Option,
-                                    "Maximal allowed least-square guess of constraint multipliers");
-
-   // Multiplier updates
-   ampl_options_list->AddAmplOption("alpha_for_y", "alpha_for_y", AmplOptionsList::String_Option,
-                                    "Step size for constraint multipliers");
-
-   // Line search
-   ampl_options_list->AddAmplOption("max_soc", "max_soc", AmplOptionsList::Integer_Option,
-                                    "Maximal number of second order correction trial steps");
-   ampl_options_list->AddAmplOption("watchdog_shortened_iter_trigger", "watchdog_shortened_iter_trigger",
-                                    AmplOptionsList::Integer_Option, "Trigger counter for watchdog procedure");
-
-   // Restoration phase
-   ampl_options_list->AddAmplOption("expect_infeasible_problem", "expect_infeasible_problem",
-                                    AmplOptionsList::String_Option, "Enable heuristics to quickly detect an infeasible problem");
-   ampl_options_list->AddAmplOption("required_infeasibility_reduction", "required_infeasibility_reduction",
-                                    AmplOptionsList::Number_Option, "Required infeasibility reduction in restoration phase");
-
-   // Added for Warm-Start
-   ampl_options_list->AddAmplOption("warm_start_init_point", "warm_start_init_point", AmplOptionsList::String_Option,
-                                    "Enables to specify bound multiplier values");
-   ampl_options_list->AddAmplOption("warm_start_bound_push", "warm_start_bound_push", AmplOptionsList::Number_Option,
-                                    "Enables to specify how much should variables should be pushed inside the feasible region");
-   ampl_options_list->AddAmplOption("warm_start_mult_bound_push", "warm_start_mult_bound_push",
-                                    AmplOptionsList::Number_Option,
-                                    "Enables to specify how much should bound multipliers should be pushed inside the feasible region");
-
-   // Quasi-Newton
-   ampl_options_list->AddAmplOption("hessian_approximation", "hessian_approximation", AmplOptionsList::String_Option,
-                                    "Can enable Quasi-Newton approximation of hessian");
-   // Linear solver
-   ampl_options_list->AddAmplOption("linear_solver", "linear_solver", AmplOptionsList::String_Option,
-                                    "Linear solver to be used for step calculation");
-   ampl_options_list->AddAmplOption("linear_system_scaling", "linear_system_scaling", AmplOptionsList::String_Option,
-                                    "Method for scaling the linear systems");
-   ampl_options_list->AddAmplOption("linear_scaling_on_demand", "linear_scaling_on_demand",
-                                    AmplOptionsList::String_Option, "Enables heuristic for scaling only when seems required");
-   ampl_options_list->AddAmplOption("max_refinement_steps", "max_refinement_steps", AmplOptionsList::Integer_Option,
-                                    "Maximal number of iterative refinement steps per linear system solve");
-   ampl_options_list->AddAmplOption("min_refinement_steps", "min_refinement_steps", AmplOptionsList::Integer_Option,
-                                    "Minimum number of iterative refinement steps per linear system solve");
-
-   // Quasi-Newton
-   ampl_options_list->AddAmplOption("hessian_approximation", "hessian_approximation", AmplOptionsList::String_Option,
-                                    "Can enable Quasi-Newton approximation of hessian");
-
-   // Special linear solver options
-   ampl_options_list->AddAmplOption("ma27_pivtol", "ma27_pivtol", AmplOptionsList::Number_Option,
-                                    "Pivot tolerance for the linear solver MA27");
-   ampl_options_list->AddAmplOption("ma27_pivtolmax", "ma27_pivtolmax", AmplOptionsList::Number_Option,
-                                    "Maximal pivot tolerance for the linear solver MA27");
-
-   ampl_options_list->AddAmplOption("ma57_pivtol", "ma57_pivtol", AmplOptionsList::Number_Option,
-                                    "Pivot tolerance for the linear solver MA57");
-   ampl_options_list->AddAmplOption("ma57_pivtolmax", "ma57_pivtolmax", AmplOptionsList::Number_Option,
-                                    "Maximal pivot tolerance for the linear solver MA57");
-   ampl_options_list->AddAmplOption("ma57_pivot_order", "ma57_pivot_order", AmplOptionsList::Integer_Option,
-                                    "Controls pivot order in MA57");
-
-   ampl_options_list->AddAmplOption("pardiso_matching_strategy", "pardiso_matching_strategy",
-                                    AmplOptionsList::String_Option, "Matching strategy for linear solver Pardiso");
-   //ampl_options_list->AddAmplOption("pardiso_out_of_core_power",
-   //                                 "pardiso_out_of_core_power",
-   //                                 AmplOptionsList::Integer_Option,
-   //                                 "Enables out-of-core version of linear solver Pardiso");
-
-#ifdef HAVE_WSMP
-
-   ampl_options_list->AddAmplOption("wsmp_num_threads",
-                                    "wsmp_num_threads",
-                                    AmplOptionsList::Integer_Option,
-                                    "Number of threads to be used in WSMP");
-   ampl_options_list->AddAmplOption("wsmp_pivtol",
-                                    "wsmp_pivtol",
-                                    AmplOptionsList::Number_Option,
-                                    "Pivot tolerance for the linear solver WSMP");
-   ampl_options_list->AddAmplOption("wsmp_pivtolmax",
-                                    "wsmp_pivtolmax",
-                                    AmplOptionsList::Number_Option,
-                                    "Maximum pivot tolerance for the linear solver WSMP");
-   ampl_options_list->AddAmplOption("wsmp_scaling",
-                                    "wsmp_scaling",
-                                    AmplOptionsList::Integer_Option,
-                                    "Determines how the matrix is scaled by WSMP");
-#endif
 
    // AMPL's wantsol option
    // description was originally taken from WS_desc_ASL+5, but that didn't make it through DLL boundaries
@@ -1549,16 +1690,14 @@ AmplTNLP::get_options(
    ampl_options_list->AddAmplOption("halt_on_ampl_error", "", AmplOptionsList::HaltOnError_Option,
                                     "Exit with message on evaluation error");
 
-   int n_options = ampl_options_list->NumberOfAmplOptions();
+   Index n_options = ampl_options_list->NumberOfAmplOptions();
 
    keyword* keywds = (keyword*) ampl_options_list->Keywords(options, jnlst_, (void**) &nerror_);
 
-   static const char sname_default[] = "ipopt";
-   static const char bsname_default[] = "Ipopt " IPOPT_VERSION;
-   static const char opname_default[] = "ipopt_options";
    const char* sname;
    const char* bsname;
    const char* opname;
+   size_t len;
    if( ampl_option_string )
    {
       opname = ampl_option_string;
@@ -1586,14 +1725,17 @@ AmplTNLP::get_options(
 
    DBG_ASSERT(!Oinfo_ptr_);
    Option_Info* Oinfo = new Option_Info;
-   Oinfo->sname = new char[strlen(sname) + 1];
-   strcpy(Oinfo->sname, sname);
-   Oinfo->bsname = new char[strlen(bsname) + 1];
-   strcpy(Oinfo->bsname, bsname);
-   Oinfo->opname = new char[strlen(opname) + 1];
-   strcpy(Oinfo->opname, opname);
+   len = strlen(sname);
+   Oinfo->sname = new char[len + 1];
+   memcpy(Oinfo->sname, sname, len + 1);
+   len = strlen(bsname);
+   Oinfo->bsname = new char[len + 1];
+   memcpy(Oinfo->bsname, bsname, len + 1);
+   len = strlen(opname);
+   Oinfo->opname = new char[len + 1];
+   memcpy(Oinfo->opname, opname, len + 1);
    Oinfo->keywds = keywds;
-   Oinfo->n_keywds = n_options;
+   Oinfo->n_keywds = (int)n_options;
    // Set the default for the remaining entries
    Oinfo->flags = 0;
    Oinfo->version = NULL;
@@ -1615,7 +1757,7 @@ AmplTNLP::get_options(
 
    Oinfo_ptr_ = Oinfo;
 
-   char* stub = getstops(argv, Oinfo);
+   char* stub = getstops(const_cast<char**>(argv), Oinfo);
 
    return stub;
 }
@@ -1669,10 +1811,8 @@ void AmplSuffixHandler::PrepareAmplForSuffixes(
    suftab_ = new SufDecl[n];
    for( Index i = 0; i < n; i++ )
    {
-      Index id_len = (Index) strlen(suffix_ids_[i].c_str());
-      suftab_[i].name = new char[id_len + 1];
-      strcpy(suftab_[i].name, suffix_ids_[i].c_str());
-
+      suftab_[i].name = new char[suffix_ids_[i].length() + 1];
+      memcpy(suftab_[i].name, suffix_ids_[i].c_str(), suffix_ids_[i].length() + 1);
       suftab_[i].table = 0;
 
       if( suffix_sources_[i] == Variable_Source )
@@ -1707,10 +1847,10 @@ void AmplSuffixHandler::PrepareAmplForSuffixes(
    suf_declare(suftab_, n);
 }
 
-const Index*
+const int*
 AmplSuffixHandler::GetIntegerSuffixValues(
-   std::string   suffix_string,
-   Suffix_Source source
+   const std::string& suffix_string,
+   Suffix_Source      source
 ) const
 {
    ASL_pfgh* asl = asl_;
@@ -1735,21 +1875,20 @@ AmplSuffixHandler::GetIntegerSuffixValues(
    }
    else
    {
-      kind = 0;
-      DBG_ASSERT(false && "Unknown suffix source in GetIntegerSuffixValues");
+      THROW_EXCEPTION(IpoptException, "Unknown suffix source in GetIntegerSuffixValues");
    }
    SufDesc* dp = suf_get(suffix_string.c_str(), kind);
    return dp->u.i;
 }
 
-std::vector<Index> AmplSuffixHandler::GetIntegerSuffixValues(
-   Index         n,
-   std::string   suffix_string,
-   Suffix_Source source
+std::vector<int> AmplSuffixHandler::GetIntegerSuffixValues(
+   Index              n,
+   const std::string& suffix_string,
+   Suffix_Source      source
 ) const
 {
-   std::vector<Index> ret;
-   const Index* ptr = GetIntegerSuffixValues(suffix_string, source);
+   std::vector<int> ret;
+   const int* ptr = GetIntegerSuffixValues(suffix_string, source);
    if( ptr )
    {
       ret.reserve(n);
@@ -1761,10 +1900,9 @@ std::vector<Index> AmplSuffixHandler::GetIntegerSuffixValues(
    return ret;
 }
 
-const Number*
-AmplSuffixHandler::GetNumberSuffixValues(
-   std::string   suffix_string,
-   Suffix_Source source
+const Number* AmplSuffixHandler::GetNumberSuffixValues(
+   const std::string& suffix_string,
+   Suffix_Source      source
 ) const
 {
    ASL_pfgh* asl = asl_;
@@ -1789,17 +1927,17 @@ AmplSuffixHandler::GetNumberSuffixValues(
    }
    else
    {
-      kind = 0;
-      DBG_ASSERT(false && "Unknown suffix source in GetNumberSuffixValues");
+      THROW_EXCEPTION(IpoptException, "Unknown suffix source in GetNumberSuffixValues");
    }
    SufDesc* dp = suf_get(suffix_string.c_str(), kind);
    return dp->u.r;
 }
 
 std::vector<Number> AmplSuffixHandler::GetNumberSuffixValues(
-   Index n,
-   std::string suffix_string,
-   Suffix_Source source) const
+   Index              n,
+   const std::string& suffix_string,
+   Suffix_Source      source
+) const
 {
    std::vector<Number> ret;
    const Number* ptr = GetNumberSuffixValues(suffix_string, source);

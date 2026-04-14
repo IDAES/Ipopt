@@ -16,7 +16,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -59,43 +59,55 @@ void CGSearchDirCalculator::RegisterOptions(
       "pen_des_fact",
       "a parameter used in penalty parameter computation (for Chen-Goldfarb line search).",
       0., true,
-      2e-1);
+      2e-1,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "kappa_x_dis",
       "a parameter used to check if the fast direction can be used as the line search direction (for Chen-Goldfarb line search).",
       0., true,
-      1e2);
+      1e2,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "kappa_y_dis",
       "a parameter used to check if the fast direction can be used as the line search direction (for Chen-Goldfarb line search).",
       0., true,
-      1e4);
+      1e4,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "vartheta",
       "a parameter used to check if the fast direction can be used as the line search direction (for Chen-Goldfarb line search).",
       0., true,
-      0.5);
+      0.5,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "delta_y_max",
       "a parameter used to check if the fast direction can be used as the line search direction (for Chen-Goldfarb line search).",
       0., true,
-      1e12);
+      1e12,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "fast_des_fact",
       "a parameter used to check if the fast direction can be used as the line search direction (for Chen-Goldfarb line search).",
       0., true,
-      1e-1);
+      1e-1,
+      "",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "pen_init_fac",
       "a parameter used to choose initial penalty parameters when the regularized Newton method is used.",
       0., true,
-      5e1);
-   roptions->AddStringOption2(
+      5e1,
+      "",
+      true);
+   roptions->AddBoolOption(
       "never_use_fact_cgpen_direction",
       "Toggle to switch off the fast Chen-Goldfarb direction",
-      "no",
-      "no", "always compute the fast direction",
-      "yes", "never compute the fast direction");
+      false);
 }
 
 bool CGSearchDirCalculator::InitializeImpl(
@@ -142,8 +154,8 @@ bool CGSearchDirCalculator::ComputeSearchDirection()
    /** Initialize the penalty parameter */
    if( !CGPenData().PenaltyInitialized() || !CGPenData().KKTPenaltyInitialized() )
    {
-      Number penalty_init = penalty_init_min_;
-      Number kkt_penalty_init = penalty_init_min_;
+      Number penalty_init;
+      Number kkt_penalty_init;
       if( !CGPenData().NeverTryPureNewton() )
       {
          Number y_max = Max(IpData().curr()->y_c()->Amax(), IpData().curr()->y_d()->Amax());
@@ -152,6 +164,7 @@ bool CGSearchDirCalculator::ComputeSearchDirection()
          Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
                         "Max(||y_c||_inf,||y_d||_inf = %8.2e\n", y_max);
          penalty_init = Max(penalty_init_min_, Min(y_max, penalty_init_max_));
+         kkt_penalty_init = penalty_init_min_;
       }
       else
       {
@@ -159,7 +172,7 @@ bool CGSearchDirCalculator::ComputeSearchDirection()
          // penalty_init = Max(penalty_init_min_, Min(penalty_init, penalty_init_max_));
          // For the moment,let's just not do scale
          penalty_init = 1e2 * IpCq().curr_primal_infeasibility(NORM_2);
-         penalty_init = Min(1e5, Max(1e1, penalty_init));
+         penalty_init = Min(Number(1e5), Max(Number(1e1), penalty_init));
          kkt_penalty_init = penalty_init;
       }
       CGPenData().Set_penalty(penalty_init);
@@ -195,10 +208,10 @@ bool CGSearchDirCalculator::ComputeSearchDirection()
       if( CGPenData().restor_iter() == IpData().iter_count() )
       {
          Number i = CGPenData().restor_counter();
-         Number fac = pen_init_fac_ * pow(1e-1, i);
+         Number fac = pen_init_fac_ * std::pow(1e-1, i);
          //Number restor_penalty_init = fac*IpCq().curr_primal_infeasibility(NORM_2);
          Number restor_penalty_init = fac;
-         restor_penalty_init = Min(1e6, Max(1e1, restor_penalty_init));
+         restor_penalty_init = Min(Number(1e6), Max(Number(1e1), restor_penalty_init));
          CGPenData().Set_penalty(restor_penalty_init);
          CGPenData().Set_kkt_penalty(restor_penalty_init);
       }
@@ -261,14 +274,14 @@ bool CGSearchDirCalculator::ComputeSearchDirection()
       SmartPtr<const Vector> delta_fast_s = CGPenData().delta_cgfast()->s();
       SmartPtr<const Vector> delta_x = CGPenData().delta_cgpen()->x();
       SmartPtr<const Vector> delta_s = CGPenData().delta_cgpen()->s();
-      Number tilde_dx_nrm = sqrt(pow(delta_fast_x->Nrm2(), 2.) + pow(delta_fast_s->Nrm2(), 2.));
-      Number diff_dx_nrm = sqrt(
-                              pow(delta_fast_x->Nrm2(), 2.) + pow(delta_fast_s->Nrm2(), 2.) - 2. * delta_x->Dot(*delta_fast_x)
-                              - 2. * delta_s->Dot(*delta_fast_s) + pow(delta_x->Nrm2(), 2.) + pow(delta_s->Nrm2(), 2.));
+      Number tilde_dx_nrm = std::sqrt(std::pow(delta_fast_x->Nrm2(), 2.) + std::pow(delta_fast_s->Nrm2(), 2.));
+      Number diff_dx_nrm = std::sqrt(
+                              std::pow(delta_fast_x->Nrm2(), 2.) + std::pow(delta_fast_s->Nrm2(), 2.) - 2. * delta_x->Dot(*delta_fast_x)
+                              - 2. * delta_s->Dot(*delta_fast_s) + std::pow(delta_x->Nrm2(), 2.) + std::pow(delta_s->Nrm2(), 2.));
       Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
                      "Testing if fast direction can be used.\n"
                      "  diff_dx_nrm = %8.2e tilde_dx_norm = %8.2e\n", diff_dx_nrm, tilde_dx_nrm);
-      tilde_dx_nrm = Max(tilde_dx_nrm, pow(tilde_dx_nrm, vartheta_));
+      tilde_dx_nrm = Max(tilde_dx_nrm, std::pow(tilde_dx_nrm, vartheta_));
       if( diff_dx_nrm > kappa_x_dis_ * tilde_dx_nrm )
       {
          keep_fast_delta = false;
@@ -282,10 +295,10 @@ bool CGSearchDirCalculator::ComputeSearchDirection()
          SmartPtr<const Vector> delta_fast_y_d = CGPenData().delta_cgfast()->y_d();
          SmartPtr<const Vector> delta_y_c = CGPenData().delta_cgpen()->y_c();
          SmartPtr<const Vector> delta_y_d = CGPenData().delta_cgpen()->y_d();
-         Number tilde_dy_nrm = sqrt(pow(delta_fast_y_c->Nrm2(), 2.) + pow(delta_fast_y_d->Nrm2(), 2.));
-         Number bar_y_nrm = sqrt(
-                               pow(y_c->Nrm2(), 2.) + pow(y_d->Nrm2(), 2.) + 2. * y_c->Dot(*delta_y_c) + 2. * y_d->Dot(*delta_y_d)
-                               + pow(delta_y_c->Nrm2(), 2.) + pow(delta_y_d->Nrm2(), 2.));
+         Number tilde_dy_nrm = std::sqrt(std::pow(delta_fast_y_c->Nrm2(), 2.) + std::pow(delta_fast_y_d->Nrm2(), 2.));
+         Number bar_y_nrm = std::sqrt(
+                               std::pow(y_c->Nrm2(), 2.) + std::pow(y_d->Nrm2(), 2.) + 2. * y_c->Dot(*delta_y_c) + 2. * y_d->Dot(*delta_y_d)
+                               + std::pow(delta_y_c->Nrm2(), 2.) + std::pow(delta_y_d->Nrm2(), 2.));
          Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
                         "Testing if fast direction can be used.\n"
                         "  tilde_dy_nrm = %8.2e bar_y_nrm = %8.2e\n", tilde_dy_nrm, bar_y_nrm);
@@ -331,7 +344,7 @@ bool CGSearchDirCalculator::ComputeSearchDirection()
       Number curr_kkt_penalty = CGPenData().curr_kkt_penalty();
       if( penalty > curr_penalty )
       {
-         penalty = Max(penalty, curr_penalty + 1.);
+         penalty = Max(penalty, curr_penalty + Number(1.));
       }
       else
       {

@@ -17,12 +17,13 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
 FilterLSAcceptor::FilterLSAcceptor(const SmartPtr<PDSystemSolver>& pd_solver)
    :
+   reference_initialized_(false),
    filter_(2),
    pd_solver_(pd_solver)
 {
@@ -46,7 +47,8 @@ void FilterLSAcceptor::RegisterOptions(SmartPtr<RegisteredOptions> roptions)
       "The algorithmic parameter theta_max is determined as theta_max_fact "
       "times the maximum of 1 and the constraint violation at initial point. "
       "Any point with a constraint violation larger than theta_max is "
-      "unacceptable to the filter (see Eqn. (21) in the implementation paper).");
+      "unacceptable to the filter (see Eqn. (21) in the implementation paper).",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "theta_min_fact",
       "Determines constraint violation threshold in the switching rule.",
@@ -54,62 +56,70 @@ void FilterLSAcceptor::RegisterOptions(SmartPtr<RegisteredOptions> roptions)
       1e-4,
       "The algorithmic parameter theta_min is determined as theta_min_fact "
       "times the maximum of 1 and the constraint violation at initial point. "
-      "The switching rules treats an iteration as an h-type iteration whenever "
+      "The switching rule treats an iteration as an h-type iteration whenever "
       "the current constraint violation is larger than theta_min (see "
-      "paragraph before Eqn. (19) in the implementation paper).");
+      "paragraph before Eqn. (19) in the implementation paper).",
+      true);
    roptions->AddBoundedNumberOption(
       "eta_phi",
       "Relaxation factor in the Armijo condition.",
       0.0, true,
       0.5, true,
       1e-8,
-      "(See Eqn. (20) in the implementation paper)");
+      "See Eqn. (20) in the implementation paper.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "delta",
       "Multiplier for constraint violation in the switching rule.",
       0.0, true,
       1.0,
-      "(See Eqn. (19) in the implementation paper.)");
+      "See Eqn. (19) in the implementation paper.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "s_phi",
       "Exponent for linear barrier function model in the switching rule.",
       1.0, true,
       2.3,
-      "(See Eqn. (19) in the implementation paper.)");
+      "See Eqn. (19) in the implementation paper.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "s_theta",
       "Exponent for current constraint violation in the switching rule.",
       1.0, true,
       1.1,
-      "(See Eqn. (19) in the implementation paper.)");
+      "See Eqn. (19) in the implementation paper.",
+      true);
    roptions->AddBoundedNumberOption(
       "gamma_phi",
       "Relaxation factor in the filter margin for the barrier function.",
       0.0, true,
       1.0, true,
       1e-8,
-      "(See Eqn. (18a) in the implementation paper.)");
+      "See Eqn. (18a) in the implementation paper.",
+      true);
    roptions->AddBoundedNumberOption(
       "gamma_theta",
       "Relaxation factor in the filter margin for the constraint violation.",
       0.0, true,
       1.0, true,
       1e-5,
-      "(See Eqn. (18b) in the implementation paper.)");
+      "See Eqn. (18b) in the implementation paper.",
+      true);
    roptions->AddBoundedNumberOption(
       "alpha_min_frac",
       "Safety factor for the minimal step size (before switching to restoration phase).",
       0.0, true,
       1.0, true,
       0.05,
-      "(This is gamma_alpha in Eqn. (20) in the implementation paper.)");
+      "This is gamma_alpha in Eqn. (23) in the implementation paper.",
+      true);
    roptions->AddLowerBoundedIntegerOption(
       "max_soc",
       "Maximum number of second order correction trial steps at each iteration.",
       0,
       4,
       "Choosing 0 disables the second order corrections. "
-      "(This is p^{max} of Step A-5.9 of Algorithm A in the implementation paper.)");
+      "This is p^{max} of Step A-5.9 of Algorithm A in the implementation paper.");
    roptions->AddLowerBoundedNumberOption(
       "kappa_soc",
       "Factor in the sufficient reduction rule for second order correction.",
@@ -117,14 +127,16 @@ void FilterLSAcceptor::RegisterOptions(SmartPtr<RegisteredOptions> roptions)
       0.99,
       "This option determines how much a second order correction step must reduce the "
       "constraint violation so that further correction steps are attempted. "
-      "(See Step A-5.9 of Algorithm A in the implementation paper.)");
+      "See Step A-5.9 of Algorithm A in the implementation paper.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "obj_max_inc",
       "Determines the upper bound on the acceptable increase of barrier objective function.",
       1.0, true,
       5.0,
       "Trial points are rejected if they lead to an increase in the "
-      "barrier objective function by more than obj_max_inc orders of magnitude.");
+      "barrier objective function by more than obj_max_inc orders of magnitude.",
+      true);
 
    roptions->AddLowerBoundedIntegerOption(
       "max_filter_resets",
@@ -134,7 +146,8 @@ void FilterLSAcceptor::RegisterOptions(SmartPtr<RegisteredOptions> roptions)
       "A positive number enables a heuristic that resets the filter, whenever "
       "in more than \"filter_reset_trigger\" successive iterations the last "
       "rejected trial steps size was rejected because of the filter. "
-      "This option determine the maximal number of resets that are allowed to take place.");
+      "This option determine the maximal number of resets that are allowed to take place.",
+      true);
    roptions->AddLowerBoundedIntegerOption(
       "filter_reset_trigger",
       "Number of iterations that trigger the filter reset.",
@@ -142,7 +155,8 @@ void FilterLSAcceptor::RegisterOptions(SmartPtr<RegisteredOptions> roptions)
       5,
       "If the filter reset heuristic is active and the number of successive "
       "iterations in which the last rejected trial step size was rejected "
-      "because of the filter, the filter is reset.");
+      "because of the filter, the filter is reset.",
+      true);
 
    roptions->AddStringOption3(
       "corrector_type",
@@ -152,28 +166,27 @@ void FilterLSAcceptor::RegisterOptions(SmartPtr<RegisteredOptions> roptions)
       "affine", "corrector step towards mu=0",
       "primal-dual", "corrector step towards current mu",
       "If \"mu_strategy\" is \"adaptive\", this option determines what kind of corrector steps should be tried. "
-      "Changing this option is experimental.");
+      "Changing this option is experimental.",
+      true);
 
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "skip_corr_if_neg_curv",
-      "Skip the corrector step in negative curvature iteration.",
-      "yes",
-      "no", "don't skip",
-      "yes", "skip",
+      "Whether to skip the corrector step in negative curvature iteration.",
+      true,
       "The corrector step is not tried if negative curvature has been "
       "encountered during the computation of the search direction in the current iteration. "
       "This option is only used if \"mu_strategy\" is \"adaptive\". "
-      "Changing this option is experimental.");
+      "Changing this option is experimental.",
+      true);
 
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "skip_corr_in_monotone_mode",
-      "Skip the corrector step during monotone barrier parameter mode.",
-      "yes",
-      "no", "don't skip",
-      "yes", "skip",
+      "Whether to skip the corrector step during monotone barrier parameter mode.",
+      true,
       "The corrector step is not tried if the algorithm is currently in the monotone mode (see also option \"barrier_strategy\"). "
       "This option is only used if \"mu_strategy\" is \"adaptive\". "
-      "Changing this option is experimental.");
+      "Changing this option is experimental.",
+      true);
 
    roptions->AddLowerBoundedNumberOption(
       "corrector_compl_avrg_red_fact",
@@ -181,14 +194,15 @@ void FilterLSAcceptor::RegisterOptions(SmartPtr<RegisteredOptions> roptions)
       0.0, true,
       1.0,
       "This option determines the factor by which complementarity is allowed to increase "
-      "for a corrector step to be accepted. Changing this option is experimental.");
+      "for a corrector step to be accepted. Changing this option is experimental.",
+      true);
 
    roptions->AddBoundedIntegerOption(
       "soc_method",
       "Ways to apply second order correction",
       0, 1,
       0,
-      "This option determins the way to apply second order correction, 0 is the method described in the implementation paper. "
+      "This option determines the way to apply second order correction, 0 is the method described in the implementation paper. "
       "1 is the modified way which adds alpha on the rhs of x and s rows.");
 }
 
@@ -252,6 +266,7 @@ void FilterLSAcceptor::InitThisLineSearch(bool in_watchdog)
       reference_barr_ = watchdog_barr_;
       reference_gradBarrTDelta_ = watchdog_gradBarrTDelta_;
    }
+   reference_initialized_ = true;
    filter_.Print(Jnlst());
 }
 
@@ -264,6 +279,7 @@ bool FilterLSAcceptor::IsFtype(Number alpha_primal_test)
                   reference_theta_, reference_gradBarrTDelta_);
    Number mach_eps = std::numeric_limits<Number>::epsilon();
    // ToDo find good value
+   // because the assert below fails (with MA27) for CUTEst instances HATFLDF, NONMSQRT, PALMER7E, PALMER5A
    if (reference_theta_ == 0. &&  reference_gradBarrTDelta_ > 0. &&
        reference_gradBarrTDelta_ < 100.*mach_eps)
    {
@@ -274,14 +290,16 @@ bool FilterLSAcceptor::IsFtype(Number alpha_primal_test)
    }
    DBG_ASSERT(reference_theta_ > 0. || reference_gradBarrTDelta_ < 0.0);
    return (reference_gradBarrTDelta_ < 0.0 &&
-           alpha_primal_test * pow(-reference_gradBarrTDelta_, s_phi_) >
-           delta_ * pow(reference_theta_, s_theta_));
+           alpha_primal_test * std::pow(-reference_gradBarrTDelta_, s_phi_) >
+           delta_ * std::pow(reference_theta_, s_theta_));
 }
 
 void FilterLSAcceptor::AugmentFilter()
 {
    DBG_START_METH("FilterLSAcceptor::AugmentFilter",
                   dbg_verbosity);
+
+   DBG_ASSERT(reference_initialized_);
 
    Number phi_add = reference_barr_ - gamma_phi_ * reference_theta_;
    Number theta_add = (1. - gamma_theta_) * reference_theta_;
@@ -290,7 +308,9 @@ void FilterLSAcceptor::AugmentFilter()
 }
 
 bool
-FilterLSAcceptor::CheckAcceptabilityOfTrialPoint(Number alpha_primal_test)
+FilterLSAcceptor::CheckAcceptabilityOfTrialPoint(
+   Number alpha_primal_test
+)
 {
    DBG_START_METH("FilterLSAcceptor::CheckAcceptabilityOfTrialPoint",
                   dbg_verbosity);
@@ -305,14 +325,14 @@ FilterLSAcceptor::CheckAcceptabilityOfTrialPoint(Number alpha_primal_test)
    if (theta_max_ < 0.0)
    {
       // ToDo should 1.0 be based on dimension? (theta is in 1 norm!!!)
-      theta_max_ = theta_max_fact_ * Max(1.0, reference_theta_);
+      theta_max_ = theta_max_fact_ * Max(Number(1.0), reference_theta_);
       Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
                      "trial_max is initialized to %e\n",
                      theta_max_);
    }
    if (theta_min_ < 0.0)
    {
-      theta_min_ = theta_min_fact_ * Max(1.0, reference_theta_);
+      theta_min_ = theta_min_fact_ * Max(Number(1.0), reference_theta_);
       Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
                      "trial_min is initialized to %e\n",
                      theta_min_);
@@ -394,7 +414,7 @@ FilterLSAcceptor::CheckAcceptabilityOfTrialPoint(Number alpha_primal_test)
             if (count_successive_filter_rejections_ >= filter_reset_trigger_)
             {
                Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                              "Resetting filter because in %d iterations last rejection was due to filter", count_successive_filter_rejections_);
+                              "Resetting filter because in %" IPOPT_INDEX_FORMAT " iterations last rejection was due to filter", count_successive_filter_rejections_);
                IpData().Append_info_string("F+");
                Reset();
             }
@@ -440,7 +460,7 @@ Number FilterLSAcceptor::CalculateAlphaMin()
       if (curr_theta <= theta_min_)
       {
          alpha_min = Min( alpha_min,
-                          delta_ * pow(curr_theta, s_theta_) / pow(-gBD, s_phi_)
+                          delta_ * std::pow(curr_theta, s_theta_) / std::pow(-gBD, s_phi_)
                         );
       }
    }
@@ -455,16 +475,16 @@ bool FilterLSAcceptor::IsAcceptableToCurrentIterate(Number trial_barr,
    DBG_START_METH("FilterLSAcceptor::IsAcceptableToCurrentIterate",
                   dbg_verbosity);
 
-   // Check if the barrier objective function is increasing to
+   // Check if the barrier objective function is increasing too
    // rapidly (according to option obj_max_inc)
    if (!called_from_restoration && trial_barr > reference_barr_)
    {
       Number basval = 1.;
-      if (fabs(reference_barr_) > 10.)
+      if (std::abs(reference_barr_) > 10.)
       {
-         basval = log10(fabs(reference_barr_));
+         basval = std::log10(std::abs(reference_barr_));
       }
-      if (log10(trial_barr - reference_barr_) > obj_max_inc_ + basval)
+      if (std::log10(trial_barr - reference_barr_) > obj_max_inc_ + basval)
       {
          Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
                         "Rejecting trial point because barrier objective function increasing too rapidly (from %27.15e to %27.15e)\n", reference_barr_, trial_barr);
@@ -542,7 +562,7 @@ FilterLSAcceptor::TrySecondOrderCorrection(
       theta_soc_old = theta_trial;
 
       Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                     "Trying second order correction number %d\n",
+                     "Trying second order correction number %" IPOPT_INDEX_FORMAT "\n",
                      count_soc + 1);
 
       // Compute SOC constraint violation
@@ -552,7 +572,6 @@ FilterLSAcceptor::TrySecondOrderCorrection(
       // Compute the SOC search direction
       SmartPtr<IteratesVector> delta_soc = actual_delta->MakeNewIteratesVector(true);
       SmartPtr<IteratesVector> rhs = actual_delta->MakeNewContainer();
-
 
       switch (soc_method_)
       {
@@ -623,7 +642,7 @@ FilterLSAcceptor::TrySecondOrderCorrection(
       if (accept)
       {
          Jnlst().Printf(J_DETAILED, J_LINE_SEARCH,
-                        "Second order correction step accepted with %d corrections.\n", count_soc + 1);
+                        "Second order correction step accepted with %" IPOPT_INDEX_FORMAT " corrections.\n", count_soc + 1);
          // Accept all SOC quantities
          alpha_primal = alpha_primal_soc;
          actual_delta = delta_soc;
@@ -849,7 +868,7 @@ FilterLSAcceptor::TryCorrector(
       if (Jnlst().ProduceOutput(J_MOREVECTOR, J_MAIN))
       {
          Jnlst().Printf(J_MOREVECTOR, J_MAIN,
-                        "*** Accepted corrector for Iteration: %d\n",
+                        "*** Accepted corrector for Iteration: %" IPOPT_INDEX_FORMAT "\n",
                         IpData().iter_count());
          delta_corr->Print(Jnlst(), J_MOREVECTOR, J_MAIN, "delta_corr");
       }
@@ -880,6 +899,5 @@ void FilterLSAcceptor::PrepareRestoPhaseStart()
 {
    AugmentFilter();
 }
-
 
 } // namespace Ipopt

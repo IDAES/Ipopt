@@ -10,11 +10,11 @@
 #include "IpoptConfig.h"
 #include "IpTypes.hpp"
 
-#ifndef COIN_IPOPT_CHECKLEVEL
-#define COIN_IPOPT_CHECKLEVEL 0
+#ifndef IPOPT_CHECKLEVEL
+#define IPOPT_CHECKLEVEL 0
 #endif
 
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
 # ifdef NDEBUG
 #  undef NDEBUG
 # endif
@@ -29,11 +29,11 @@
 # define DBG_DO(__cmd)
 #endif
 
-#ifndef COIN_IPOPT_VERBOSITY
-#define COIN_IPOPT_VERBOSITY 0
+#ifndef IPOPT_VERBOSITY
+#define IPOPT_VERBOSITY 0
 #endif
 
-#if COIN_IPOPT_VERBOSITY < 1
+#if IPOPT_VERBOSITY < 1
 # define DBG_START_FUN(__func_name, __verbose_level)
 # define DBG_START_METH(__func_name, __verbose_level)
 # define DBG_PRINT(__printf_args)
@@ -60,22 +60,22 @@ class IPOPTLIB_EXPORT DebugJournalistWrapper
 {
 public:
    /** @name Constructors/Destructors. */
-   //@{
+   ///@{
    DebugJournalistWrapper(
-      std::string func_name,
-      Index       verbose_level
+      const std::string& func_name,
+      Index              verbose_level
    );
 
    DebugJournalistWrapper(
-      std::string       func_name,
-      Index             verbose_level,
-      const void* const method_owner
+      const std::string& func_name,
+      Index              verbose_level,
+      const void* const  method_owner
    );
    ~DebugJournalistWrapper();
-   //@}
+   ///@}
 
    /** @name accessor methods */
-   //@{
+   ///@{
    Index Verbosity()
    {
       return verbose_level_;
@@ -88,25 +88,30 @@ public:
    {
       return indentation_level_;
    }
-   //@}
+   ///@}
 
    /** Printing */
+#ifdef __GNUC__
+   __attribute__((format(printf, 3, 4)))
+#endif
    void DebugPrintf(
       Index       verbosity,
       const char* pformat,
       ...
    );
 
+private:
+   friend class IpoptApplication;
    /* Method for initialization of the static GLOBAL journalist,
     * through with all debug printout is to be written.
     *
     * This needs to be set before any debug printout can be done.
+    * It is expected that this is only called by the IpoptApplication constructor.
     */
    static void SetJournalist(
       Journalist* jrnl
    );
 
-private:
    /**@name Default Compiler Generated Methods
     * (Hidden to avoid implicit creation/calling).
     *
@@ -116,7 +121,7 @@ private:
     * and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** default constructor */
    DebugJournalistWrapper();
 
@@ -129,7 +134,7 @@ private:
    DebugJournalistWrapper& operator=(
       const DebugJournalistWrapper&
    );
-   //@}
+   ///@}
 
    static Index indentation_level_;
    std::string func_name_;

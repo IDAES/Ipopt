@@ -137,6 +137,7 @@ bool TNLPReducer::get_nlp_info(
       {
          delete[] iRow;
          delete[] jCol;
+         return false;
       }
       nnz_jac_g_reduced_ = 0;
       nnz_jac_g_skipped_ = 0;
@@ -212,6 +213,7 @@ bool TNLPReducer::get_bounds_info(
             }
             if( index_x_fix_[count_x] == i )
             {
+               DBG_ASSERT(x_start != NULL);
                x_l[i] = x_start[i];
                x_u[i] = x_start[i];
                count_x++;

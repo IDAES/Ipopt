@@ -7,27 +7,79 @@
 #ifndef __IPPARDISOSOLVERINTERFACE_HPP__
 #define __IPPARDISOSOLVERINTERFACE_HPP__
 
+#include "IpoptConfig.h"
 #include "IpSparseSymLinearSolverInterface.hpp"
+#include "IpLibraryLoader.hpp"
+#include "IpTypes.h"
 
 //#define PARDISO_MATCHING_PREPROCESS
+
+/* assuming PARDISO 4.0.0 or above */
+/// @since 3.14.0
+#define IPOPT_DECL_PARDISOINIT(x) void (x)( \
+   void*          PT,     \
+   const ipindex* MTYPE,  \
+   const ipindex* SOLVER, \
+   ipindex*       IPARM,  \
+   ipnumber*      DPARM,  \
+   ipindex*       E       \
+)
+
+/// @since 3.14.0
+#define IPOPT_DECL_PARDISO(x) void (x)( \
+   void**           PT,     \
+   const ipindex*   MAXFCT, \
+   const ipindex*   MNUM,   \
+   const ipindex*   MTYPE,  \
+   const ipindex*   PHASE,  \
+   const ipindex*   N,      \
+   const ipnumber*  A,      \
+   const ipindex*   IA,     \
+   const ipindex*   JA,     \
+   const ipindex*   PERM,   \
+   const ipindex*   NRHS,   \
+   ipindex*         IPARM,  \
+   const ipindex*   MSGLVL, \
+   ipnumber*        B,      \
+   ipnumber*        X,      \
+   ipindex*         E,      \
+   ipnumber*        DPARM   \
+)
+
+/// @since 3.14.0
+#define IPOPT_DECL_SMAT_REORDERING_PARDISO_WSMP(x) void (x)( \
+   const ipindex*   N,          \
+   const ipindex*   ia,         \
+   const ipindex*   ja,         \
+   const ipnumber*  a_,         \
+   ipindex*         a2,         \
+   ipindex*         ja2,        \
+   ipnumber*        a2_,        \
+   ipindex*         perm2,      \
+   ipnumber*        scale2,     \
+   ipindex*         tmp2_,      \
+   ipindex          preprocess  \
+)
 
 namespace Ipopt
 {
 
-/** Interface to the linear solver Pardiso, derived from
+/** Interface to the linear solver Pardiso as distributed by pardiso-project.org, derived from
  *  SparseSymLinearSolverInterface.
  */
 class PardisoSolverInterface: public SparseSymLinearSolverInterface
 {
 public:
    /** @name Constructor/Destructor */
-   //@{
+   ///@{
    /** Constructor */
-   PardisoSolverInterface();
+   PardisoSolverInterface(
+      SmartPtr<LibraryLoader> pardisoloader_  ///< @since 3.14.0
+   );
 
    /** Destructor */
    virtual ~PardisoSolverInterface();
-   //@}
+   ///@}
 
    bool InitializeImpl(
       const OptionsList& options,
@@ -35,7 +87,7 @@ public:
    );
 
    /** @name Methods for requesting solution of the linear system. */
-   //@{
+   ///@{
    virtual ESymSolverStatus InitializeStructure(
       Index        dim,
       Index        nonzeros,
@@ -43,22 +95,22 @@ public:
       const Index* ja
    );
 
-   virtual double* GetValuesArrayPtr();
+   virtual Number* GetValuesArrayPtr();
 
    virtual ESymSolverStatus MultiSolve(
       bool         new_matrix,
       const Index* ia,
       const Index* ja,
       Index        nrhs,
-      double*      rhs_vals,
+      Number*      rhs_vals,
       bool         check_NegEVals,
       Index        numberOfNegEVals);
 
    virtual Index NumberOfNegEVals() const;
-   //@}
+   ///@}
 
    //* @name Options of Linear solver */
-   //@{
+   ///@{
    virtual bool IncreaseQuality();
 
    virtual bool ProvidesInertia() const
@@ -70,13 +122,27 @@ public:
    {
       return CSR_Format_1_Offset;
    }
-   //@}
+   ///@}
 
-   //@{
+   ///@{
    static void RegisterOptions(
       SmartPtr<RegisteredOptions> roptions
    );
-   //@}
+   ///@}
+
+   /// set Pardiso functions to use for every instantiation of this class
+   ///
+   /// unless PARDISO_MATCHING_PREPROCESS has been defined, @arg smat_reordering_pardiso_wsmp is ignored
+   /// @since 3.14.0
+   static void SetFunctions(
+      IPOPT_DECL_PARDISOINIT(*pardisoinit),
+      IPOPT_DECL_PARDISO(*pardiso),
+      bool isparallel,
+      IPOPT_DECL_SMAT_REORDERING_PARDISO_WSMP(*smat_reordering_pardiso_wsmp)
+#ifndef PARDISO_MATCHING_PREPROCESS
+      = NULL
+#endif
+   );
 
 private:
    /**@name Default Compiler Generated Methods
@@ -86,7 +152,7 @@ private:
     * them for us, so we declare them private
     * and do not define them. This ensures that
     * they will not be implicitly created/called. */
-   //@{
+   ///@{
    /** Copy Constructor */
    PardisoSolverInterface(
       const PardisoSolverInterface&);
@@ -94,10 +160,10 @@ private:
    /** Default Assignment Operator */
    void operator=(
       const PardisoSolverInterface&);
-   //@}
+   ///@}
 
    /** @name Information about the matrix */
-   //@{
+   ///@{
    /** Number of rows and columns of the matrix */
    Index dim_;
 
@@ -105,26 +171,26 @@ private:
    Index nonzeros_;
 
    /** Array for storing the values of the matrix. */
-   double* a_;
-   //@}
+   Number* a_;
+   ///@}
 
 #ifdef PARDISO_MATCHING_PREPROCESS
    /** Array for storing the values of a second matrix that has been already reordered. */
-   ipfint* ia2;
-   ipfint* ja2;
-   double* a2_;
-   ipfint* perm2;
-   double* scale2;
+   Index* ia2;
+   Index* ja2;
+   Number* a2_;
+   Index* perm2;
+   Number* scale2;
 #endif
 
    /** @name Information about most recent factorization/solve */
-   //@{
+   ///@{
    /** Number of negative eigenvalues */
    Index negevals_;
-   //@}
+   ///@}
 
    /** @name Solver specific options */
-   //@{
+   ///@{
    /** Type for matching strategies */
    enum PardisoMatchingStrategy
    {
@@ -153,44 +219,58 @@ private:
    bool pardiso_iterative_;
    /** Maximal number of decreases of drop tolerance during one solve. */
    Index pardiso_max_droptol_corrections_;
-   //@}
+   ///@}
 
    /** @name Initialization flags */
-   //@{
+   ///@{
    /** Flag indicating if internal data is initialized.
     *  For initialization, this object needs to have seen a matrix.
     */
    bool initialized_;
-   //@}
+   ///@}
 
    /** @name Solver specific information */
-   //@{
+   ///@{
    /** Internal data address pointers. */
    void** PT_;
    /** Maximal number of factors with identical nonzero
     *  structure. Here, we only store one factorization. Is always 1.
     */
-   ipfint MAXFCT_;
+   Index MAXFCT_;
    /** Actual matrix for the solution phase. Is always 1.*/
-   ipfint MNUM_;
+   Index MNUM_;
    /** Matrix type; real and symmetric indefinite.  Is always -2.*/
-   ipfint MTYPE_;
+   Index MTYPE_;
    /** Parameter and info array for Pardiso. */
-   ipfint* IPARM_;
+   Index* IPARM_;
    /** Parameter and info array for Pardiso. */
-   double* DPARM_;
+   Number* DPARM_;
    /** Message level. */
-   ipfint MSGLVL_;
-   //@}
+   Index MSGLVL_;
+   ///@}
 
    /**@name Some counters for debugging */
-   //@{
+   ///@{
    Index debug_last_iter_;
    Index debug_cnt_;
-   //@}
+   ///@}
+
+   /**@name PARDISO function pointers
+    * @{
+    */
+   SmartPtr<LibraryLoader> pardisoloader;
+
+   IPOPT_DECL_PARDISOINIT(*pardisoinit);
+   IPOPT_DECL_PARDISO(*pardiso);
+#ifdef PARDISO_MATCHING_PREPROCESS
+   IPOPT_DECL_SMAT_REORDERING_PARDISO_WSMP(*smat_reordering_pardiso_wsmp);
+#endif
+
+   bool pardiso_exist_parallel;
+   /**@} */
 
    /** @name Internal functions */
-   //@{
+   ///@{
    /** Call Pardiso to do the analysis phase. */
    ESymSolverStatus SymbolicFactorization(
       const Index* ia,
@@ -210,10 +290,11 @@ private:
       const Index* ia,
       const Index* ja,
       Index        nrhs,
-      double*      rhs_vals
+      Number*      rhs_vals
    );
-   //@}
+   ///@}
 };
 
 } // namespace Ipopt
-#endif
+
+#endif  /* __IPPARDISOSOLVERINTERFACE_HPP__ */

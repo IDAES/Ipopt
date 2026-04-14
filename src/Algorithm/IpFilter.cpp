@@ -10,7 +10,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -19,8 +19,8 @@ static const Index dbg_verbosity = 0;
 ///////////////////////////////////////////////////////////////////////////
 
 FilterEntry::FilterEntry(
-   std::vector<Number> vals,
-   Index               iter
+   const std::vector<Number>& vals,
+   Index                      iter
 )
    : vals_(vals),
      iter_(iter)
@@ -47,7 +47,7 @@ bool Filter::Acceptable(
    DBG_ASSERT((Index)vals.size() == dim_);
    bool acceptable = true;
    std::list<FilterEntry*>::iterator iter;
-   for( iter = filter_list_.begin(); iter != filter_list_.end(); iter++ )
+   for( iter = filter_list_.begin(); iter != filter_list_.end(); ++iter )
    {
       if( !(*iter)->Acceptable(vals) )
       {
@@ -71,15 +71,14 @@ void Filter::AddEntry(
    {
       if( (*iter)->Dominated(vals) )
       {
-         std::list<FilterEntry*>::iterator iter_to_remove = iter;
-         iter++;
+         std::list<FilterEntry*>::iterator iter_to_remove = iter++;
          FilterEntry* entry_to_remove = *iter_to_remove;
          filter_list_.erase(iter_to_remove);
          delete entry_to_remove;
       }
       else
       {
-         iter++;
+         ++iter;
       }
    }
    FilterEntry* new_entry = new FilterEntry(vals, iteration);
@@ -103,14 +102,14 @@ void Filter::Print(
 {
    DBG_START_METH("FilterLineSearch::Filter::Print", dbg_verbosity);
    jnlst.Printf(J_DETAILED, J_LINE_SEARCH,
-                "The current filter has %d entries.\n", filter_list_.size());
+                "The current filter has %zd entries.\n", filter_list_.size());
    if( !jnlst.ProduceOutput(J_VECTOR, J_LINE_SEARCH) )
    {
       return;
    }
    std::list<FilterEntry*>::iterator iter;
    Index count = 0;
-   for( iter = filter_list_.begin(); iter != filter_list_.end(); iter++ )
+   for( iter = filter_list_.begin(); iter != filter_list_.end(); ++iter )
    {
       if( count % 10 == 0 )
       {
@@ -119,14 +118,14 @@ void Filter::Print(
       }
       count++;
       jnlst.Printf(J_VECTOR, J_LINE_SEARCH,
-                   "%5d ", count);
+                   "%5" IPOPT_INDEX_FORMAT " ", count);
       for( Index i = 0; i < dim_; i++ )
       {
          jnlst.Printf(J_VECTOR, J_LINE_SEARCH,
                       "%23.16e ", (*iter)->val(i));
       }
       jnlst.Printf(J_VECTOR, J_LINE_SEARCH,
-                   "%5d\n", (*iter)->iter());
+                   "%5" IPOPT_INDEX_FORMAT "\n", (*iter)->iter());
    }
 }
 

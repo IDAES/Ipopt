@@ -11,7 +11,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -61,17 +61,17 @@ bool LowRankSSAugSystemSolver::InitializeImpl(
 
 ESymSolverStatus LowRankSSAugSystemSolver::Solve(
    const SymMatrix* W,
-   double           W_factor,
+   Number           W_factor,
    const Vector*    D_x,
-   double           delta_x,
+   Number           delta_x,
    const Vector*    D_s,
-   double           delta_s,
+   Number           delta_s,
    const Matrix*    J_c,
    const Vector*    D_c,
-   double           delta_c,
+   Number           delta_c,
    const Matrix*    J_d,
    const Vector*    D_d,
-   double           delta_d,
+   Number           delta_d,
    const Vector&    rhs_x,
    const Vector&    rhs_s,
    const Vector&    rhs_c,
@@ -85,6 +85,8 @@ ESymSolverStatus LowRankSSAugSystemSolver::Solve(
 )
 {
    DBG_START_METH("LowRankSSAugSystemSolver::Solve", dbg_verbosity);
+   DBG_ASSERT(J_c != NULL);  // since we de-ref this pointer below
+   DBG_ASSERT(J_d != NULL);  // since we de-ref this pointer below
 
    ESymSolverStatus retval;
 
@@ -137,14 +139,15 @@ ESymSolverStatus LowRankSSAugSystemSolver::Solve(
          d_s_tag_ = 0;
       }
       delta_s_ = delta_s;
-      if( J_c )
-      {
-         j_c_tag_ = J_c->GetTag();
-      }
-      else
-      {
-         j_c_tag_ = 0;
-      }
+//      if( J_c )
+//      {
+//         j_c_tag_ = J_c->GetTag();
+//      }
+//      else
+//      {
+//         j_c_tag_ = 0;
+//      }
+      j_c_tag_ = J_c->GetTag();
       if( D_c )
       {
          d_c_tag_ = D_c->GetTag();
@@ -154,14 +157,15 @@ ESymSolverStatus LowRankSSAugSystemSolver::Solve(
          d_c_tag_ = 0;
       }
       delta_c_ = delta_c;
-      if( J_d )
-      {
-         j_d_tag_ = J_d->GetTag();
-      }
-      else
-      {
-         j_d_tag_ = 0;
-      }
+//      if( J_d )
+//      {
+//         j_d_tag_ = J_d->GetTag();
+//      }
+//      else
+//      {
+//         j_d_tag_ = 0;
+//      }
+      j_d_tag_ = J_d->GetTag();
       if( D_d )
       {
          d_d_tag_ = D_d->GetTag();
@@ -204,17 +208,17 @@ ESymSolverStatus LowRankSSAugSystemSolver::Solve(
 
 ESymSolverStatus LowRankSSAugSystemSolver::UpdateExtendedData(
    const SymMatrix* W,
-   double           W_factor,
+   Number           W_factor,
    const Vector*    /*D_x*/,
-   double           /*delta_x*/,
+   Number           /*delta_x*/,
    const Vector*    /*D_s*/,
-   double           /*delta_s*/,
+   Number           /*delta_s*/,
    const Matrix&    J_c,
    const Vector*    D_c,
-   double           /*delta_c*/,
+   Number           /*delta_c*/,
    const Matrix&    /*J_d*/,
    const Vector*    /*D_d*/,
-   double           /*delta_d*/,
+   Number           /*delta_d*/,
    const Vector&    proto_rhs_x,
    const Vector&    /*proto_rhs_s*/,
    const Vector&    proto_rhs_c,
@@ -244,13 +248,13 @@ ESymSolverStatus LowRankSSAugSystemSolver::UpdateExtendedData(
          DBG_ASSERT(dynamic_cast<const ExpansionMatrix*>(GetRawPtr(P_LM)));
       }
       SmartPtr<ExpandedMultiVectorMatrixSpace> expanded_vu_space = new ExpandedMultiVectorMatrixSpace(max_rank_,
-            *LR_VecSpace, exp_matrix);
+         *LR_VecSpace, exp_matrix);
       expanded_vu_ = expanded_vu_space->MakeNewExpandedMultiVectorMatrix();
 
       // Create extended y_c quantities to include the V and U matrices
       DBG_ASSERT(IsNull(J_c_ext_));
       SmartPtr<CompoundMatrixSpace> J_c_ext_space = new CompoundMatrixSpace(2, 1, proto_rhs_c.Dim() + max_rank_,
-            proto_rhs_x.Dim());
+         proto_rhs_x.Dim());
       J_c_ext_space->SetBlockRows(0, proto_rhs_c.Dim());
       J_c_ext_space->SetBlockRows(1, max_rank_);
       J_c_ext_space->SetBlockCols(0, proto_rhs_x.Dim());
@@ -357,23 +361,23 @@ ESymSolverStatus LowRankSSAugSystemSolver::UpdateExtendedData(
 
 bool LowRankSSAugSystemSolver::AugmentedSystemRequiresChange(
    const SymMatrix* W,
-   double           W_factor,
+   Number           W_factor,
    const Vector*    D_x,
-   double           delta_x,
+   Number           delta_x,
    const Vector*    D_s,
-   double           delta_s,
+   Number           delta_s,
    const Matrix&    J_c,
    const Vector*    D_c,
-   double           delta_c,
+   Number           delta_c,
    const Matrix&    J_d,
    const Vector*    D_d,
-   double           delta_d
+   Number           delta_d
 )
 {
    DBG_START_METH("LowRankSSAugSystemSolver::AugmentedSystemRequiresChange",
                   dbg_verbosity);
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 
    bool Wtest = (W && W->GetTag() != w_tag_);
    bool iWtest = (!W && w_tag_ != 0);

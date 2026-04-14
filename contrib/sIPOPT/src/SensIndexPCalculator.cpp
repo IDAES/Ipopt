@@ -13,7 +13,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 1;
 #endif
 
@@ -79,7 +79,7 @@ bool IndexPCalculator::ComputeP()
          DBG_ASSERT(retval);
 
          /* This part is for displaying norm2(I_z*K^(-1)*I_1) */
-         DBG_PRINT((dbg_verbosity, "\ncurr_schur_row=%d, ", curr_schur_row));
+         DBG_PRINT((dbg_verbosity, "\ncurr_schur_row=%" IPOPT_INDEX_FORMAT ", ", curr_schur_row));
          DBG_PRINT((dbg_verbosity, "norm2(z)=%23.16e\n", sol_vec->x()->Nrm2()));
          /* end displaying norm2 */
 
@@ -90,7 +90,7 @@ bool IndexPCalculator::ComputeP()
          {
             comp_vec = dynamic_cast<const DenseVector*>(GetRawPtr(sol_vec->GetComp(j)));
             comp_values = comp_vec->Values();
-            IpBlasDcopy(comp_vec->Dim(), comp_values, 1, col_values + curr_dim, 1);
+            IpBlasCopy(comp_vec->Dim(), comp_values, 1, col_values + curr_dim, 1);
             curr_dim += comp_vec->Dim();
          }
          cols_[col] = new PColumn(col_values);
@@ -184,7 +184,7 @@ void IndexPCalculator::PrintImpl(
    DBG_START_METH("IndexPCalculator::PrintImpl", dbg_verbosity);
 
    const Number* col_val;
-   jnlst.PrintfIndented(level, category, indent, "%sIndexPCalculator \"%s\" with %d rows and %d columns:\n",
+   jnlst.PrintfIndented(level, category, indent, "%sIndexPCalculator \"%s\" with %" IPOPT_INDEX_FORMAT " rows and %" IPOPT_INDEX_FORMAT " columns:\n",
                         prefix.c_str(), name.c_str(), nrows_, ncols_);
    Index col_counter = 0;
    for( std::map<Index, SmartPtr<PColumn> >::const_iterator j = cols_.begin(); j != cols_.end(); ++j )
@@ -192,7 +192,7 @@ void IndexPCalculator::PrintImpl(
       col_val = j->second->Values();
       for( Index i = 0; i < nrows_; ++i )
       {
-         jnlst.PrintfIndented(level, category, indent, "%s%s[%5d,%5d]=%23.16e\n", prefix.c_str(), name.c_str(), i,
+         jnlst.PrintfIndented(level, category, indent, "%s%s[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "]=%23.16e\n", prefix.c_str(), name.c_str(), i,
                               col_counter, col_val[i]);
       }
       col_counter++;
@@ -220,7 +220,7 @@ void PColumn::GetSchurMatrixRows(
 {
    DBG_START_METH("PColumn::GetSchurMatrixRows", dbg_verbosity);
 
-   for( Index i = 0; i < (int) row_idx_B->size(); ++i )
+   for( size_t i = 0; i < row_idx_B->size(); ++i )
    {
       S_col[i] = -val_[(*row_idx_B)[i]];
    }

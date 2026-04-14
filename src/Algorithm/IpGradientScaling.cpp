@@ -30,17 +30,19 @@ void GradientScaling::RegisterOptions(
       "Target value for objective function gradient size.",
       0., false,
       0.,
-      "If a positive number is chosen, the scaling factor the objective function is computed "
+      "If a positive number is chosen, the scaling factor for the objective function is computed "
       "so that the gradient has the max norm of the given size at the starting point. "
-      "This overrides nlp_scaling_max_gradient for the objective function.");
+      "This overrides nlp_scaling_max_gradient for the objective function.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "nlp_scaling_constr_target_gradient",
       "Target value for constraint function gradient size.",
       0., false,
       0.,
-      "If a positive number is chosen, the scaling factor the constraint functions is computed "
+      "If a positive number is chosen, the scaling factors for the constraint functions are computed "
       "so that the gradient has the max norm of the given size at the starting point. "
-      "This overrides nlp_scaling_max_gradient for the constraint functions.");
+      "This overrides nlp_scaling_max_gradient for the constraint functions.",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "nlp_scaling_min_value",
       "Minimum value of gradient-based scaling values.",
@@ -99,7 +101,7 @@ void GradientScaling::DetermineScalingParametersImpl(
    SmartPtr<Vector> grad_f = x_space->MakeNew();
    if( nlp_->Eval_grad_f(*x, *grad_f) )
    {
-      double max_grad_f = grad_f->Amax();
+      Number max_grad_f = grad_f->Amax();
       df = 1.;
       if( scaling_obj_target_gradient_ == 0. )
       {
@@ -145,7 +147,7 @@ void GradientScaling::DetermineScalingParametersImpl(
       if( nlp_->Eval_jac_c(*x, *jac_c) )
       {
          dc = c_space->MakeNew();
-         const double dbl_min = std::numeric_limits<double>::min();
+         const Number dbl_min = std::numeric_limits<Number>::min();
          dc->Set(dbl_min);
          jac_c->ComputeRowAMax(*dc, false);
          Number arow_max = dc->Amax();
@@ -192,7 +194,7 @@ void GradientScaling::DetermineScalingParametersImpl(
       if( nlp_->Eval_jac_d(*x, *jac_d) )
       {
          dd = d_space->MakeNew();
-         const double dbl_min = std::numeric_limits<double>::min();
+         const Number dbl_min = std::numeric_limits<Number>::min();
          dd->Set(dbl_min);
          jac_d->ComputeRowAMax(*dd, false);
          Number arow_max = dd->Amax();

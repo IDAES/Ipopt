@@ -36,7 +36,7 @@ class BacktrackingLineSearch: public LineSearch
 {
 public:
    /**@name Constructors/Destructors */
-   //@{
+   ///@{
    /** Constructor.
     *
     *  The acceptor implements the acceptance test for
@@ -55,7 +55,7 @@ public:
 
    /** Destructor */
    virtual ~BacktrackingLineSearch();
-   //@}
+   ///@}
 
    /** InitializeImpl - overloaded from AlgorithmStrategyObject */
    virtual bool InitializeImpl(
@@ -112,12 +112,19 @@ public:
     */
    virtual bool ActivateFallbackMechanism();
 
+   /** Stop watch dog if started and restore iterate from before watchdog started.
+    *
+    *  This method is intended to be called if Ipopt is interrupted during the watchdog pahase.
+    *  @since 3.14.0
+    */
+   void StopWatchDog();
+
    /** Methods for OptionsList */
-   //@{
+   ///@{
    static void RegisterOptions(
       SmartPtr<RegisteredOptions> roptions
    );
-   //@}
+   ///@}
 
 private:
    /**@name Default Compiler Generated Methods
@@ -129,7 +136,7 @@ private:
     * and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** Copy Constructor */
    BacktrackingLineSearch(
       const BacktrackingLineSearch&
@@ -139,7 +146,7 @@ private:
    void operator=(
       const BacktrackingLineSearch&
    );
-   //@}
+   ///@}
 
    /** Method performing the backtracking line search.
     *
@@ -283,7 +290,7 @@ private:
     *
     * Names as in the paper.
     */
-   //@{
+   ///@{
    /** factor by which search direction is to be shortened if trial
     *  point is rejected. */
    Number alpha_red_factor_;
@@ -384,10 +391,13 @@ private:
     *  restoration phase.
     */
    bool start_with_resto_;
-   //@}
+
+   /** unscaled constraint violation tolerance */
+   Number constr_viol_tol_;
+   ///@}
 
    /** @name Information related to watchdog procedure */
-   //@{
+   ///@{
    /** Flag indicating if the watchdog is active */
    bool in_watchdog_;
    /** Counter for shortened iterations. */
@@ -402,14 +412,14 @@ private:
    SmartPtr<const IteratesVector> watchdog_delta_;
    /** Barrier parameter value during last line search */
    Number last_mu_;
-   //@}
+   ///@}
 
    /** @name Storage for last iterate that satisfies the acceptable
     *  level of optimality error. */
-   //@{
+   ///@{
    SmartPtr<const IteratesVector> acceptable_iterate_;
    Index acceptable_iteration_number_;
-   //@}
+   ///@}
 
    /** Flag indicating whether the algorithm has asked to immediately
     *  switch to the fallback mechanism (restoration phase)
@@ -446,11 +456,11 @@ private:
    bool tiny_step_last_iteration_;
 
    /** @name Strategy objective that are used */
-   //@{
+   ///@{
    SmartPtr<BacktrackingLSAcceptor> acceptor_;
    SmartPtr<RestorationPhase> resto_phase_;
    SmartPtr<ConvergenceCheck> conv_check_;
-   //@}
+   ///@}
 };
 
 } // namespace Ipopt

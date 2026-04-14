@@ -5,13 +5,14 @@
 // Authors:  Andreas Waechter            IBM    2007-04-17
 
 #include "IpoptConfig.h"
+#include "IpTypes.h"
 
-#ifdef COIN_HAS_HSL
+#ifdef IPOPT_HAS_HSL
 #include "CoinHslConfig.h"
 #endif
 
-// if we have MA28 in HSL or the linear solver loader, then we want to build the MA28 interface
-#if defined(COINHSL_HAS_MA28) && defined(F77_FUNC)
+// if we have MA28 in HSL and can compile Fortran code, then we want to build the MA28 interface
+#if ((defined(COINHSL_HAS_MA28) && !defined(IPOPT_SINGLE)) || (defined(COINHSL_HAS_MA28S) && defined(IPOPT_SINGLE))) && defined(F77_FUNC)
 
 #include "IpMa28TDependencyDetector.hpp"
 
@@ -20,29 +21,29 @@ extern "C"
 {
    void
    F77_FUNC(ma28part, MA28PART)(
-      ipfint* TASK,
-      ipfint* N,
-      ipfint* M,
-      ipfint* NZ,
-      double* A,
-      ipfint* IROW,
-      ipfint* ICOL,
-      double* PIVTOL,
-      ipfint* FILLFACT,
-      ipfint* IVAR,
-      ipfint* NDEGEN,
-      ipfint* IDEGEN,
-      ipfint* LIW,
-      ipfint* IW,
-      ipfint* LRW,
-      double* RW,
-      ipfint* IERR
+      ipindex* TASK,
+      ipindex* N,
+      ipindex* M,
+      ipindex* NZ,
+      ipnumber* A,
+      ipindex* IROW,
+      ipindex* ICOL,
+      ipnumber* PIVTOL,
+      ipindex* FILLFACT,
+      ipindex* IVAR,
+      ipindex* NDEGEN,
+      ipindex* IDEGEN,
+      ipindex* LIW,
+      ipindex* IW,
+      ipindex* LRW,
+      ipnumber* RW,
+      ipindex* IERR
    );
 }
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -58,8 +59,7 @@ void Ma28TDependencyDetector::RegisterOptions(
       "Pivot tolerance for linear solver MA28.",
       0.0, true,
       1., false,
-      0.01,
-      "This is used when MA28 tries to find the dependent constraints.");
+      0.01);
 }
 
 bool Ma28TDependencyDetector::InitializeImpl(
@@ -84,33 +84,31 @@ bool Ma28TDependencyDetector::DetermineDependentRows(
    DBG_START_METH("Ma28TDependencyDetector::DetermineDependentRows",
                   dbg_verbosity);
 
-   DBG_ASSERT(sizeof(ipfint) == sizeof(Index));
-
    c_deps.clear();
 
    // Now comes the interesting part:
    // Call Ma28 to get the dependencies
-   ipfint TASK = 0;
-   ipfint N = n_cols;
-   ipfint M = n_rows;
-   ipfint NZ = n_jac_nz;
-   double PIVTOL = ma28_pivtol_;
-   ipfint FILLFACT = 40;
-   ipfint* IVAR;
-   ipfint NDEGEN;
-   ipfint* IDEGEN;
-   ipfint LRW;
-   ipfint LIW;
-   double ddummy;
-   ipfint idummy;
-   ipfint IERR;
+   Index TASK = 0;
+   Index N = n_cols;
+   Index M = n_rows;
+   Index NZ = n_jac_nz;
+   Number PIVTOL = ma28_pivtol_;
+   Index FILLFACT = 40;
+   Index* IVAR;
+   Index NDEGEN;
+   Index* IDEGEN;
+   Index LRW;
+   Index LIW;
+   Number ddummy;
+   Index idummy;
+   Index IERR;
    // First determine how much work space we need to allocate
-   IVAR = new ipfint[N];
-   IDEGEN = new ipfint[M];
+   IVAR = new Index[N];
+   IDEGEN = new Index[M];
    F77_FUNC(ma28part, MA28PART)(&TASK, &N, &M, &NZ, &ddummy, jac_c_iRow, jac_c_jCol, &PIVTOL, &FILLFACT, IVAR, &NDEGEN,
                                 IDEGEN, &LIW, &idummy, &LRW, &ddummy, &IERR);
-   ipfint* IW = new ipfint[LIW];
-   double* RW = new double[LRW];
+   Index* IW = new Index[LIW];
+   Number* RW = new Number[LRW];
 
    // Now do the actual factorization and determine dependent constraints
    TASK = 1;
@@ -122,7 +120,7 @@ bool Ma28TDependencyDetector::DetermineDependentRows(
    if( IERR != 0 )
    {
       jnlst_->Printf(J_WARNING, J_INITIALIZATION,
-                     "MA28 returns IERR = %d when trying to determine dependent constraints\n", IERR);
+                     "MA28 returns IERR = %" IPOPT_INDEX_FORMAT " when trying to determine dependent constraints\n", IERR);
       delete[] IDEGEN;
       return false;
    }
@@ -139,4 +137,4 @@ bool Ma28TDependencyDetector::DetermineDependentRows(
 
 } // namespace Ipopt
 
-#endif /* COINHSL_HAS_MA28 */
+#endif /* COINHSL_HAS_MA28(s) */

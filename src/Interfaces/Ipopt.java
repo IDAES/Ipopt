@@ -92,13 +92,50 @@ public abstract class Ipopt
       double callback_hess[]
    );
 
+   /* Native function should not be used directly */
+   private native boolean GetCurrIterate(
+      long     ipopt,
+      long     ip_data,
+      long     ip_cq,
+      boolean  scaled,
+      int      n,
+      double   x[],
+      double   z_L[],
+      double   z_U[],
+      int      m,
+      double   g[],
+      double   lambda[]
+   );
+
+   /* Native function should not be used directly */
+   private native boolean GetCurrViolations(
+      long     ipopt,
+      long     ip_data,
+      long     ip_cq,
+      boolean  scaled,
+      int      n,
+      double   x_L_violation[],
+      double   x_U_violation[],
+      double   compl_x_L[],
+      double   compl_x_U[],
+      double   grad_lag_x[],
+      int      m,
+      double   nlp_constraint_violation[],
+      double   compl_g[]
+   );
+
+   /* Native function should not be used directly */
+   private native void GetVersion(
+      int version[]
+   );
+
    /** Use C index style for iRow and jCol vectors */
    public final static int C_STYLE = 0;
 
    /** Use FORTRAN index style for iRow and jCol vectors */
    public final static int FORTRAN_STYLE = 1;
 
-   /** The possible Ipopt status return codes: should be kept in sync with Ipopt return codes */
+   /* The possible Ipopt status return codes: should be kept in sync with Ipopt return codes */
    public final static int SOLVE_SUCCEEDED = 0;
    public final static int ACCEPTABLE_LEVEL = 1;
    public final static int INFEASIBLE_PROBLEM = 2;
@@ -109,6 +146,7 @@ public abstract class Ipopt
    public final static int RESTORATION_FAILED = -2;
    public final static int ERROR_IN_STEP_COMPUTATION = -3;
    public final static int CPUTIME_EXCEEDED = -4;
+   public final static int WALLTIME_EXCEEDED = -5;           ///< @since 3.14.0
    public final static int NOT_ENOUGH_DEGREES_OF_FRE = -10;
    public final static int INVALID_PROBLEM_DEFINITION = -11;
    public final static int INVALID_OPTION = -12;
@@ -117,6 +155,10 @@ public abstract class Ipopt
    public final static int NON_IPOPT_EXCEPTION = -101;
    public final static int INSUFFICIENT_MEMORY = -102;
    public final static int INTERNAL_ERROR = -199;
+
+   /* The possible algorithm modes (passed to intermediate_callback) */
+   public final static int REGULARMODE = 0;            ///< @since 3.14.0
+   public final static int RESTORATIONPHASEMODE = 1;   ///< @since 3.14.0
 
    /** Pointer to the native optimization object */
    private long ipopt;
@@ -130,7 +172,7 @@ public abstract class Ipopt
    private double x[];
 
    /** Final value of objective function */
-   private double obj_val[] = {0.0};
+   private double obj_val[] = {0};
 
    /** Values of constraint at final point */
    private double g[];
@@ -152,8 +194,6 @@ public abstract class Ipopt
     * This expects the the Ipopt DLL can somehow be found
     * and that it has the canoncial name "ipopt" (on Unix, et.al.)
     * or "ipopt-3" or "ipopt-0" (on Windows).
-    *
-    * @see #Ipopt()
     */
    public Ipopt()
    {
@@ -184,6 +224,13 @@ public abstract class Ipopt
       }
       else
       {
+         /* This loads the Ipopt library with RTLD_LOCAL, which means that symbols loaded are not made available for future dlopen() calls.
+          * This causes a problem when using MKL, which loads an additional library at runtime, e.g., libmkl_avx2, because this lib references
+          * to symbols that could be resolved in previously load MKL libraries - but are not because of RTLD_LOCAL.
+          * TODO should one add some kind of workaround to load the Ipopt lib with RTLD_GLOBAL?, e.g.,
+          *     https://stackoverflow.com/questions/5425034/java-load-shared-libraries-with-dependencies
+          *     https://github.com/victor-paltz/global-load-library
+          */
          System.loadLibrary("ipopt");
       }
    }
@@ -193,8 +240,6 @@ public abstract class Ipopt
     * The given file must be located in some library search path.
     *
     * @param DLL the name of the DLL (without the extension or any platform dependent prefix).
-    *
-    * @see #Ipopt()
     */
    public Ipopt(
       String DLL)
@@ -208,8 +253,6 @@ public abstract class Ipopt
     *
     * @param path the path where the DLL is found.
     * @param DLL the name of the DLL (without the extension or any platform dependent prefix).
-    *
-    * @see #Ipopt()
     */
    public Ipopt(
       String path,
@@ -219,7 +262,6 @@ public abstract class Ipopt
       File file = new File(path, System.mapLibraryName(DLL));
       System.load(file.getAbsolutePath());
    }
-
 
    /** Method to request bounds on the variables and constraints.
     *
@@ -378,7 +420,6 @@ public abstract class Ipopt
       int[]    jCol,
       double[] values
    );
-
 
    /** Method to request either the sparsity structure or the values of the Hessian of the Lagrangian.
     *
@@ -562,7 +603,7 @@ public abstract class Ipopt
     *
     * @return the solve status
     *
-    * @see #getStatus()
+    * @see getStatus()
     */
    public int OptimizeNLP()
    {
@@ -571,6 +612,101 @@ public abstract class Ipopt
                                       callback_grad_f, callback_jac_g, callback_hess);
 
       return this.status;
+   }
+
+   /** Get primal and dual variable values of the current iterate.
+    *
+    * This method can be used to get the values of the current iterate during intermediate_callback().
+    * The method expects the number of variables (dimension of x), number of constraints (dimension of g(x)),
+    * and allocated arrays of appropriate lengths as input.
+    *
+    * The method translates the x(), c(), d(), y_c(), y_d(), z_L(), and z_U() vectors from Ipopt::IpoptData::curr()
+    * of the internal NLP representation into the form used by the TNLP.
+    * For the correspondence between scaled and unscaled solutions, see the detailed description of Ipopt::OrigIpoptNLP.
+    * If %Ipopt is in restoration mode, it maps the current iterate of restoration %NLP (see Ipopt::RestoIpoptNLP) back to the original TNLP.
+    *
+    * If there are fixed variables and fixed_variable_treatment=make_parameter, then requesting z_L and z_U can trigger a reevaluation of
+    * the Gradient of the objective function and the Jacobian of the constraint functions.
+    *
+    * @param ip_data (in)  Ipopt Data (pass on value given to intermediate_callback)
+    * @param ip_cq   (in)  Ipopt Calculated Quantities (pass on value given to intermediate_callback)
+    * @param scaled  (in)  whether to retrieve scaled or unscaled iterate
+    * @param n       (in)  the number of variables \f$x\f$ in the problem; can be arbitrary if skipping x, z_L, and z_U
+    * @param x       (out) buffer to store value of primal variables \f$x\f$, must have length at least n; pass null to skip retrieving x
+    * @param z_L     (out) buffer to store the lower bound multipliers \f$z_L\f$, must have length at least n; pass null to skip retrieving z_L and z_U
+    * @param z_U     (out) buffer to store the upper bound multipliers \f$z_U\f$, must have length at least n; pass null to skip retrieving z_L and z_U
+    * @param m       (in)  the number of constraints \f$g(x)\f$; can be arbitrary if skipping g and lambda
+    * @param g       (out) buffer to store the constraint values \f$g(x)\f$, must have length at least m; pass null to skip retrieving g
+    * @param lambda  (out) buffer to store the constraint multipliers \f$\lambda\f$, must have length at least m; pass null to skip retrieving lambda
+    *
+    * @return Whether Ipopt has successfully filled the given arrays
+    * @since 3.14.0
+    */
+   public boolean get_curr_iterate(
+      long     ip_data,
+      long     ip_cq,
+      boolean  scaled,
+      int      n,
+      double   x[],
+      double   z_L[],
+      double   z_U[],
+      int      m,
+      double   g[],
+      double   lambda[]
+   )
+   {
+      return this.GetCurrIterate(ipopt, ip_data, ip_cq, scaled, n, x, z_L, z_U, m, g, lambda);
+   }
+
+   /** Get primal and dual infeasibility of the current iterate.
+    *
+    * This method can be used to get the violations of constraints and optimality conditions
+    * at the current iterate, e.g., during intermediate_callback().
+    * The method expects the number of variables (dimension of x), number of constraints (dimension of g(x)),
+    * and allocated arrays of appropriate lengths as input.
+    *
+    * The method makes the vectors behind (unscaled_)curr_nlp_constraint_violation(), (unscaled_)curr_dual_infeasibility(), (unscaled_)curr_complementarity()
+    * from Ipopt::IpoptCalculatedQuantities of the internal NLP representation available into the form used by the TNLP.
+    * If %Ipopt is in restoration mode, it maps the current iterate of restoration %NLP (see Ipopt::RestoIpoptNLP) back to the original TNLP.
+    *
+    * @note If in restoration phase, then requesting grad_lag_x can trigger a call to eval_grad_f().
+    *
+    * @note Ipopt by default relaxes variable bounds (option bound_relax_factor > 0.0).
+    *   x_L_violation and x_U_violation report the violation of a solution w.r.t. the original unrelaxed bounds.
+    *   However, compl_x_L and compl_x_U use the relaxed variable bounds to calculate the complementarity.
+    *
+    * @param ip_data    (in)  Ipopt Data (pass on value given to intermediate_callback)
+    * @param ip_cq      (in)  Ipopt Calculated Quantities (pass on value given to intermediate_callback)
+    * @param scaled     (in)  whether to retrieve scaled or unscaled violations
+    * @param n          (in)  the number of variables \f$x\f$ in the problem; can be arbitrary if skipping compl_x_L, compl_x_U, and grad_lag_x
+    * @param x_L_violation (out) buffer to store violation of original lower bounds on variables (max(orig_x_L-x,0)), must have length at least n; pass NULL to skip retrieving orig_x_L
+    * @param x_U_violation (out) buffer to store violation of original upper bounds on variables (max(x-orig_x_U,0)), must have length at least n; pass NULL to skip retrieving orig_x_U
+    * @param compl_x_L  (out) buffer to store violation of complementarity for lower bounds on variables (\f$(x-x_L)z_L\f$), must have length at least n; pass null to skip retrieving compl_x_L
+    * @param compl_x_U  (out) buffer to store violation of complementarity for upper bounds on variables (\f$(x_U-x)z_U\f$), must have length at least n; pass null to skip retrieving compl_x_U
+    * @param grad_lag_x (out) buffer to store gradient of Lagrangian w.r.t. variables \f$x\f$, must have length at least n; pass null to skip retrieving grad_lag_x
+    * @param m          (in)  the number of constraints \f$g(x)\f$; can be arbitrary if skipping lambda
+    * @param nlp_constraint_violation (out) buffer to store violation of constraints \f$max(g_l-g(x),g(x)-g_u,0)\f$, must have length at least m; pass null to skip retrieving constraint_violation
+    * @param compl_g    (out) buffer to store violation of complementarity of constraint (\f$(g(x)-g_l)*\lambda^+ + (g_l-g(x))*\lambda^-\f$, where \f$\lambda^+=max(0,\lambda)\f$ and \f$\lambda^-=max(0,-\lambda)\f$ (componentwise)), must have length at least m; pass null to skip retrieving compl_g
+    *
+    * @return Whether Ipopt has successfully filled the given arrays
+    * @since 3.14.0
+    */
+   public boolean get_curr_violations(
+      long     ip_data,
+      long     ip_cq,
+      boolean  scaled,
+      int      n,
+      double   x_L_violation[],
+      double   x_U_violation[],
+      double   compl_x_L[],
+      double   compl_x_U[],
+      double   grad_lag_x[],
+      int      m,
+      double   nlp_constraint_violation[],
+      double   compl_g[]
+   )
+   {
+      return this.GetCurrViolations(ipopt, ip_data, ip_cq, scaled, n, x_L_violation, x_U_violation, compl_x_L, compl_x_U, grad_lag_x, m, nlp_constraint_violation, compl_g);
    }
 
    /** Gives primal variable values at final point.
@@ -592,7 +728,7 @@ public abstract class Ipopt
    /** Gives Ipopt status of last OptimizeNLP call.
     * @return the status of the solver.
     *
-    * @see #OptimizeNLP()
+    * @see OptimizeNLP()
     */
    public int getStatus()
    {
@@ -629,6 +765,48 @@ public abstract class Ipopt
    public double[] getUpperBoundMultipliers()
    {
       return mult_x_U;
+   }
+
+   /** Intermediate Callback method for the user.
+    *
+    * This method is called once per iteration (during the convergence check),
+    * and can be used to obtain information about the optimization status while
+    * %Ipopt solves the problem, and also to request a premature termination.
+    *
+    * The information provided by the entities in the argument list correspond
+    * to what %Ipopt prints in the iteration summary (see also \ref OUTPUT),
+    * except for inf_pr, which by default corresponds to the original problem
+    * in the log but to the scaled internal problem in this callback.
+    * The value of algorithmmode is either REGULARMODE or RESTORATIONPHASEMODE.
+    *
+    * The current iterate and violations of feasibility and optimality can be
+    * accessed via the methods get_curr_iterate() and get_curr_violations().
+    * These methods translate values for the *internal representation* of
+    * the problem from `ip_data` and `ip_cq` objects.
+    *
+    * @return If this method returns false, %Ipopt will terminate with the
+    *   User_Requested_Stop status.
+    *
+    * It is not required to implement (overload) this method.
+    * The default implementation always returns true.
+    * @since 3.14.0
+    */
+   public boolean intermediate_callback(
+      int      algorithmmode,
+      int      iter,
+      double   obj_value,
+      double   inf_pr,
+      double   inf_du,
+      double   mu,
+      double   d_norm,
+      double   regularization_size,
+      double   alpha_du,
+      double   alpha_pr,
+      int      ls_trials,
+      long     ip_data,
+      long     ip_cq)
+   {
+      return true;
    }
 
    /** If you using_scaling_parameters = true, this method should be overloaded.
@@ -677,5 +855,20 @@ public abstract class Ipopt
       int[] pos_nonlin_vars)
    {
       return false;
+   }
+
+   /** Get version of Ipopt library.
+    *
+    * Gives the value of IPOPT_VERSION_MAJOR, IPOPT_VERSION_MINOR, and IPOPT_VERSION_RELEASE
+    * that were used when the Ipopt library was build.
+    *
+    * @param version int[3] to store major, minor, and release version number
+    * @since 3.14.18
+    */
+   public void getVersion(
+      int[] version
+   )
+   {
+      GetVersion(version);
    }
 }

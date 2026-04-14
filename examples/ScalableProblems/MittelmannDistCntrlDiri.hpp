@@ -351,7 +351,7 @@ protected:
       Number u
    ) const
    {
-      return pow(y, 3) - y - u;
+      return std::pow(y, 3) - y - u;
    }
 
    /** First partial derivative of forcing function w.r.t. y */
@@ -448,7 +448,7 @@ protected:
       Number u
    ) const
    {
-      return pow(y, 3) - y - u;
+      return std::pow(y, 3) - y - u;
    }
 
    /** First partial derivative of forcing function w.r.t. y */
@@ -535,7 +535,7 @@ protected:
       Number x2
    ) const
    {
-      return sin(2. * pi_ * x1) * sin(2. * pi_ * x2);
+      return std::sin(2. * pi_ * x1) * std::sin(2. * pi_ * x2);
    }
 
    /** Forcing function for the elliptic equation */
@@ -546,7 +546,7 @@ protected:
       Number u
    ) const
    {
-      return -exp(y) - u;
+      return -std::exp(y) - u;
    }
 
    /** First partial derivative of forcing function w.r.t. y */
@@ -557,7 +557,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
    /** First partial derivative of forcing function w.r.t. u */
@@ -579,7 +579,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
 private:
@@ -635,7 +635,7 @@ protected:
       Number x2
    ) const
    {
-      return sin(2. * pi_ * x1) * sin(2. * pi_ * x2);
+      return std::sin(2. * pi_ * x1) * std::sin(2. * pi_ * x2);
    }
 
    /** Forcing function for the elliptic equation */
@@ -646,7 +646,7 @@ protected:
       Number u
    ) const
    {
-      return -exp(y) - u;
+      return -std::exp(y) - u;
    }
 
    /** First partial derivative of forcing function w.r.t. y */
@@ -657,7 +657,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
    /** First partial derivative of forcing function w.r.t. u */
@@ -679,7 +679,7 @@ protected:
       Number /*u*/
    ) const
    {
-      return -exp(y);
+      return -std::exp(y);
    }
 
 private:

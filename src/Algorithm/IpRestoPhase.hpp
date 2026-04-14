@@ -16,7 +16,7 @@ namespace Ipopt
 {
 
 /** @name Exceptions */
-//@{
+///@{
 /** Exception RESTORATION_FAILED for all trouble with the
  *  restoration phase.
  */
@@ -24,8 +24,10 @@ DECLARE_STD_EXCEPTION(RESTORATION_CONVERGED_TO_FEASIBLE_POINT);
 DECLARE_STD_EXCEPTION(RESTORATION_FAILED);
 DECLARE_STD_EXCEPTION(RESTORATION_MAXITER_EXCEEDED);
 DECLARE_STD_EXCEPTION(RESTORATION_CPUTIME_EXCEEDED);
+/// @since 3.14.0
+DECLARE_STD_EXCEPTION(RESTORATION_WALLTIME_EXCEEDED);
 DECLARE_STD_EXCEPTION(RESTORATION_USER_STOP);
-//@}
+///@}
 
 /** Base class for different restoration phases.
  *
@@ -35,7 +37,7 @@ class RestorationPhase: public AlgorithmStrategyObject
 {
 public:
    /**@name Constructors/Destructors */
-   //@{
+   ///@{
    /** Default Constructor */
    RestorationPhase()
    { }
@@ -43,7 +45,7 @@ public:
    /** Destructor */
    virtual ~RestorationPhase()
    { }
-   //@}
+   ///@}
 
    virtual bool InitializeImpl(
       const OptionsList& options,
@@ -64,7 +66,7 @@ private:
     * declare them private and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** Copy Constructor */
    RestorationPhase(
       const RestorationPhase&
@@ -74,7 +76,7 @@ private:
    void operator=(
       const RestorationPhase&
    );
-   //@}
+   ///@}
 };
 
 } // namespace Ipopt

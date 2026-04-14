@@ -22,14 +22,12 @@ void OrigIterationOutput::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions
 )
 {
-   std::string prev_cat = roptions->RegisteringCategory();
+   SmartPtr<RegisteredCategory> prev_cat = roptions->RegisteringCategory();
    roptions->SetRegisteringCategory("Output");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "print_info_string",
       "Enables printing of additional info string at end of iteration output.",
-      "no",
-      "no", "don't print string",
-      "yes", "print string at end of each iteration output",
+      false,
       "This string contains some insider information about the current iteration. "
       "For details, look for \"Diagnostic Tags\" in the Ipopt documentation.");
    roptions->AddStringOption2(
@@ -84,19 +82,19 @@ void OrigIterationOutput::WriteOutput()
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n\n**************************************************\n");
    Jnlst().Printf(J_DETAILED, J_MAIN,
-                  "*** Summary of Iteration: %d:", IpData().iter_count());
+                  "*** Summary of Iteration: %" IPOPT_INDEX_FORMAT ":", IpData().iter_count());
    Jnlst().Printf(J_DETAILED, J_MAIN,
                   "\n**************************************************\n\n");
    if( IpData().info_iters_since_header() >= 10 && !IpData().info_skip_output() )
    {
       // output the header
-      Jnlst().Printf(J_ITERSUMMARY, J_MAIN,
+      Jnlst().Printf(J_ITERSUMMARY, J_MAIN, "%s",
                      header.c_str());
       IpData().Set_info_iters_since_header(0);
    }
    else
    {
-      Jnlst().Printf(J_DETAILED, J_MAIN,
+      Jnlst().Printf(J_DETAILED, J_MAIN, "%s",
                      header.c_str());
    }
    Number inf_pr = 0.0;
@@ -125,7 +123,6 @@ void OrigIterationOutput::WriteOutput()
    Number unscaled_f = IpCq().unscaled_curr_f();
 
    // Retrieve some information set in the different parts of the algorithm
-   char info_iter = ' ';
    Number alpha_primal = IpData().info_alpha_primal();
    char alpha_primal_char = IpData().info_alpha_primal_char();
    Number alpha_dual = IpData().info_alpha_dual();
@@ -139,7 +136,7 @@ void OrigIterationOutput::WriteOutput()
    }
    else
    {
-      Snprintf(regu_x_buf, 7, "%5.1f", log10(regu_x));
+      Snprintf(regu_x_buf, 7, "%5.1f", std::log10(regu_x));
       regu_x_ptr = regu_x_buf;
    }
    Index ls_count = IpData().info_ls_count();
@@ -152,7 +149,7 @@ void OrigIterationOutput::WriteOutput()
            || last_output < 0.0) )
    {
       Jnlst().Printf(J_ITERSUMMARY, J_MAIN,
-                     "%4d%c%14.7e %7.2e %7.2e %5.1f %7.2e %5s %7.2e %7.2e%c%3d", iter, info_iter, unscaled_f, inf_pr, inf_du, log10(mu), dnrm, regu_x_ptr, alpha_dual, alpha_primal, alpha_primal_char, ls_count);
+                     "%4" IPOPT_INDEX_FORMAT " %14.7e %7.2e %7.2e %5.1f %7.2e %5s %7.2e %7.2e%c%3" IPOPT_INDEX_FORMAT, iter, unscaled_f, inf_pr, inf_du, std::log10(mu), dnrm, regu_x_ptr, alpha_dual, alpha_primal, alpha_primal_char, ls_count);
       if( print_info_string_ )
       {
          Jnlst().Printf(J_ITERSUMMARY, J_MAIN,
@@ -179,7 +176,7 @@ void OrigIterationOutput::WriteOutput()
       Jnlst().Printf(J_DETAILED, J_MAIN,
                      "\n**************************************************\n");
       Jnlst().Printf(J_DETAILED, J_MAIN,
-                     "*** Beginning Iteration %d from the following point:", IpData().iter_count());
+                     "*** Beginning Iteration %" IPOPT_INDEX_FORMAT " from the following point:", IpData().iter_count());
       Jnlst().Printf(J_DETAILED, J_MAIN,
                      "\n**************************************************\n\n");
 
@@ -262,7 +259,7 @@ void OrigIterationOutput::WriteOutput()
    if( Jnlst().ProduceOutput(J_DETAILED, J_MAIN) )
    {
       Jnlst().Printf(J_DETAILED, J_MAIN,
-                     "\n\n***Current NLP Values for Iteration %d:\n", IpData().iter_count());
+                     "\n\n***Current NLP Values for Iteration %" IPOPT_INDEX_FORMAT ":\n", IpData().iter_count());
       Jnlst().Printf(J_DETAILED, J_MAIN,
                      "\n                                   (scaled)                 (unscaled)\n");
       Jnlst().Printf(J_DETAILED, J_MAIN,

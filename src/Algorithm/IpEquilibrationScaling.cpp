@@ -7,36 +7,38 @@
 #include "IpoptConfig.h"
 #include "IpEquilibrationScaling.hpp"
 #include "IpTripletHelper.hpp"
-
-#ifdef COIN_HAS_HSL
-#include "CoinHslConfig.h"
-#else
-/* if we build for the Linear Solver loader, then use normal C-naming style */
-#define HSL_FUNC(name,NAME) name
-#endif
+#include "IpTypes.h"
 
 #include <cmath>
 
-/** Prototypes for MA27's Fortran subroutines */
+#ifdef IPOPT_HAS_HSL
+#include "CoinHslConfig.h"
+#else
+#endif
+
+#if (defined(COINHSL_HAS_MC19) && !defined(IPOPT_SINGLE)) || (defined(COINHSL_HAS_MC19S) && defined(IPOPT_SINGLE))
+#ifdef IPOPT_SINGLE
+#define IPOPT_HSL_FUNCP(name,NAME) IPOPT_HSL_FUNC(name,NAME)
+#else
+#define IPOPT_HSL_FUNCP(name,NAME) IPOPT_HSL_FUNC(name ## d,NAME ## D)
+#endif
+
+/** Prototypes for MC19's Fortran subroutines */
 extern "C"
 {
-// here we assume that float corresponds to Fortran's single
-// precision
-   void HSL_FUNC(mc19ad, MC19AD)(
-      const ipfint* N,
-      const ipfint* NZ,
-      const double* A,
-      const ipfint* IRN,
-      const ipfint* ICN,
-      float*        R,
-      float*        C,
-      float*        W
-   );
+   IPOPT_DECL_MC19A(IPOPT_HSL_FUNCP(mc19a, MC19A));
 }
+#else
+#ifdef IPOPT_SINGLE
+#define HSLFUNCNAMESUFFIX ""
+#else
+#define HSLFUNCNAMESUFFIX "d"
+#endif
+#endif
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -50,6 +52,25 @@ bool EquilibrationScaling::InitializeImpl(
    const std::string& prefix
 )
 {
+   // check if user stored a MC19A in Mc19TSymScalingMethod
+#ifndef IPOPT_INT64
+   mc19a = Mc19TSymScalingMethod::GetMC19A();
+#endif
+   if( mc19a == NULL )
+   {
+#if (defined(COINHSL_HAS_MC19) && !defined(IPOPT_SINGLE)) || (defined(COINHSL_HAS_MC19S) && defined(IPOPT_SINGLE))
+      // use HSL function that should be available in linked HSL library
+      mc19a = &::IPOPT_HSL_FUNCP(mc19a, MC19A);
+#else
+      // try to load HSL function from a shared library at runtime
+      DBG_ASSERT(IsValid(hslloader));
+
+      mc19a = (IPOPT_DECL_MC19A(*))hslloader->loadSymbol("mc19a" HSLFUNCNAMESUFFIX);
+#endif
+   }
+
+   DBG_ASSERT(mc19a != NULL);
+
    options.GetNumericValue("point_perturbation_radius", point_perturbation_radius_, prefix);
    return StandardScalingBase::InitializeImpl(options, prefix);
 }
@@ -131,14 +152,14 @@ void EquilibrationScaling::DetermineScalingParametersImpl(
       {
          for( Index i = 0; i < nnz_jac_c; i++ )
          {
-            avrg_values[i] = fabs(val_buffer[i]);
+            avrg_values[i] = std::abs(val_buffer[i]);
          }
       }
       else
       {
          for( Index i = 0; i < nnz_jac_c; i++ )
          {
-            avrg_values[i] += fabs(val_buffer[i]);
+            avrg_values[i] += std::abs(val_buffer[i]);
          }
       }
       TripletHelper::FillValues(nnz_jac_d, *jac_d, val_buffer);
@@ -146,14 +167,14 @@ void EquilibrationScaling::DetermineScalingParametersImpl(
       {
          for( Index i = 0; i < nnz_jac_d; i++ )
          {
-            avrg_values[nnz_jac_c + i] = fabs(val_buffer[i]);
+            avrg_values[nnz_jac_c + i] = std::abs(val_buffer[i]);
          }
       }
       else
       {
          for( Index i = 0; i < nnz_jac_d; i++ )
          {
-            avrg_values[nnz_jac_c + i] += fabs(val_buffer[i]);
+            avrg_values[nnz_jac_c + i] += std::abs(val_buffer[i]);
          }
       }
       TripletHelper::FillValuesFromVector(nx, *grad_f, val_buffer);
@@ -161,14 +182,14 @@ void EquilibrationScaling::DetermineScalingParametersImpl(
       {
          for( Index i = 0; i < nx; i++ )
          {
-            avrg_values[nnz_jac_c + nnz_jac_d + i] = fabs(val_buffer[i]);
+            avrg_values[nnz_jac_c + nnz_jac_d + i] = std::abs(val_buffer[i]);
          }
       }
       else
       {
          for( Index i = 0; i < nx; i++ )
          {
-            avrg_values[nnz_jac_c + nnz_jac_d + i] += fabs(val_buffer[i]);
+            avrg_values[nnz_jac_c + nnz_jac_d + i] += std::abs(val_buffer[i]);
          }
       }
    }
@@ -179,17 +200,11 @@ void EquilibrationScaling::DetermineScalingParametersImpl(
    }
 
    // Get the sparsity structure
-   ipfint* AIRN = new ipfint[nnz_jac_c + nnz_jac_d + nx];
-   ipfint* AJCN = new ipfint[nnz_jac_c + nnz_jac_d + nx];
-   if( sizeof(ipfint) == sizeof(Index) )
-   {
-      TripletHelper::FillRowCol(nnz_jac_c, *jac_c, &AIRN[0], &AJCN[0]);
-      TripletHelper::FillRowCol(nnz_jac_d, *jac_d, &AIRN[nnz_jac_c], &AJCN[nnz_jac_c], nc);
-   }
-   else
-   {
-      THROW_EXCEPTION(INTERNAL_ABORT, "Need to implement missing code in EquilibriationScaling.");
-   }
+   Index* AIRN = new Index[nnz_jac_c + nnz_jac_d + nx];
+   Index* AJCN = new Index[nnz_jac_c + nnz_jac_d + nx];
+   TripletHelper::FillRowCol(nnz_jac_c, *jac_c, &AIRN[0], &AJCN[0]);
+   TripletHelper::FillRowCol(nnz_jac_d, *jac_d, &AIRN[nnz_jac_c], &AJCN[nnz_jac_c], nc);
+
    // sort out the zero entries in objective function gradient
    Index nnz_grad_f = 0;
    const Index idx = nnz_jac_c + nnz_jac_d;
@@ -205,18 +220,12 @@ void EquilibrationScaling::DetermineScalingParametersImpl(
    }
 
    // Now call MC19 to compute the scaling factors
-   const ipfint N = Max(nc + nd + 1, nx);
+   const Index N = Max(nc + nd + 1, nx);
    float* R = new float[N];
    float* C = new float[N];
    float* W = new float[5 * N];
-#if defined(COINHSL_HAS_MC19) || defined(HAVE_LINEARSOLVERLOADER)
-   const ipfint NZ = nnz_jac_c + nnz_jac_d + nnz_grad_f;
-   //HSL_FUNC(mc19ad,MC19AD)(&N, &NZ, avrg_values, AIRN, AJCN, R, C, W);
-   HSL_FUNC(mc19ad, MC19AD)(&N, &NZ, avrg_values, AJCN, AIRN, C, R, W);
-#else
-
-   THROW_EXCEPTION(OPTION_INVALID, "Currently cannot do equilibration-based NLP scaling if MC19 is not available.");
-#endif
+   const Index NZ = nnz_jac_c + nnz_jac_d + nnz_grad_f;
+   mc19a(&N, &NZ, avrg_values, AJCN, AIRN, C, R, W);
 
    delete[] W;
 
@@ -229,11 +238,11 @@ void EquilibrationScaling::DetermineScalingParametersImpl(
    Number* col_scale = new Number[nx];
    for( Index i = 0; i < nc + nd + 1; i++ )
    {
-      row_scale[i] = exp((Number) R[i]);
+      row_scale[i] = std::exp(Number(R[i]));
    }
    for( Index i = 0; i < nx; i++ )
    {
-      col_scale[i] = exp((Number) C[i]);
+      col_scale[i] = std::exp(Number(C[i]));
    }
    delete[] R;
    delete[] C;

@@ -14,7 +14,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -106,6 +106,12 @@ IpoptCalculatedQuantities::IpoptCalculatedQuantities(
      curr_primal_dual_system_error_cache_(1),
      trial_primal_dual_system_error_cache_(3),
 
+     unscaled_curr_orig_x_LU_viol_cache_(1),
+     unscaled_curr_orig_bounds_viol_cache_(1),
+     curr_orig_x_L_viol_cache_(1),
+     curr_orig_x_U_viol_cache_(1),
+     curr_orig_bounds_viol_cache_(1),
+
      primal_frac_to_the_bound_cache_(5),
      dual_frac_to_the_bound_cache_(5),
 
@@ -135,13 +141,14 @@ void IpoptCalculatedQuantities::RegisterOptions(
    SmartPtr<RegisteredOptions> roptions
 )
 {
-   roptions->SetRegisteringCategory("Convergence");
+   roptions->SetRegisteringCategory("Termination");
    roptions->AddLowerBoundedNumberOption(
       "s_max",
       "Scaling threshold for the NLP error.",
       0., true,
       100.,
-      "(See paragraph after Eqn. (6) in the implementation paper.)");
+      "See paragraph after Eqn. (6) in the implementation paper.",
+      true);
 
    roptions->SetRegisteringCategory("NLP");
    roptions->AddLowerBoundedNumberOption(
@@ -149,20 +156,21 @@ void IpoptCalculatedQuantities::RegisterOptions(
       "Weight for linear damping term (to handle one-sided bounds).",
       0., false,
       1e-5,
-      "(see Section 3.7 in implementation paper.)");
+      "See Section 3.7 in implementation paper.",
+      true);
 
    roptions->SetRegisteringCategory("Line Search");
    roptions->AddLowerBoundedNumberOption(
       "slack_move",
       "Correction size for very small slacks.",
       0.0, false,
-      pow(std::numeric_limits<double>::epsilon(), 0.75),
+      std::pow(std::numeric_limits<Number>::epsilon(), 0.75),
       "Due to numerical issues or the lack of an interior, the slack variables might become very small. "
       "If a slack becomes very small compared to machine precision, the corresponding bound is moved slightly. "
       "This parameter determines how large the move should be. "
       "Its default value is mach_eps^{3/4}. "
-      "(See also end of Section 3.5 in implementation paper - but actual implementation might be somewhat different.)");
-   roptions->SetRegisteringCategory("Line Search");
+      "See also end of Section 3.5 in implementation paper - but actual implementation might be somewhat different.",
+      true);
    roptions->AddStringOption3(
       "constraint_violation_norm_type",
       "Norm to be used for the constraint violation in the line search.",
@@ -170,7 +178,8 @@ void IpoptCalculatedQuantities::RegisterOptions(
       "1-norm", "use the 1-norm",
       "2-norm", "use the 2-norm",
       "max-norm", "use the infinity norm",
-      "Determines which norm should be used when the algorithm computes the constraint violation in the line search.");
+      "Determines which norm should be used when the algorithm computes the constraint violation in the line search.",
+      true);
 }
 
 bool IpoptCalculatedQuantities::Initialize(
@@ -179,7 +188,6 @@ bool IpoptCalculatedQuantities::Initialize(
    const std::string& prefix
 )
 {
-   std::string svalue;
    Index enum_int;
 
    options.GetNumericValue("s_max", s_max_, prefix);
@@ -340,7 +348,7 @@ SmartPtr<const Vector> IpoptCalculatedQuantities::curr_slack_s_U()
          DBG_ASSERT(num_adjusted_slack_s_U_ == 0);
          num_adjusted_slack_s_U_ = CalculateSafeSlack(result, s_bound, s, ip_data_->curr()->v_U());
          DBG_PRINT_VECTOR(2, "result", *result);
-         DBG_PRINT((1, "num_adjusted_slack_s_U = %d\n", num_adjusted_slack_s_U_));
+         DBG_PRINT((1, "num_adjusted_slack_s_U = %" IPOPT_INDEX_FORMAT "\n", num_adjusted_slack_s_U_));
       }
       curr_slack_s_U_cache_.AddCachedResult1Dep(result, *s);
    }
@@ -436,7 +444,7 @@ SmartPtr<const Vector> IpoptCalculatedQuantities::trial_slack_s_U()
          DBG_PRINT_VECTOR(2, "result", *result);
          DBG_ASSERT(num_adjusted_slack_s_U_ == 0);
          num_adjusted_slack_s_U_ = CalculateSafeSlack(result, s_bound, s, ip_data_->curr()->v_U());
-         DBG_PRINT((1, "num_adjusted_slack_s_U = %d\n", num_adjusted_slack_s_U_));
+         DBG_PRINT((1, "num_adjusted_slack_s_U = %" IPOPT_INDEX_FORMAT "\n", num_adjusted_slack_s_U_));
          DBG_PRINT_VECTOR(2, "trial_slack_s_U", *result);
       }
       trial_slack_s_U_cache_.AddCachedResult1Dep(result, *s);
@@ -458,54 +466,66 @@ Index IpoptCalculatedQuantities::CalculateSafeSlack(
    {
       Number min_slack = slack->Min();
       // TODO we need to make sure that this also works for non-monotone MUs
-      Number s_min = std::numeric_limits<Number>::epsilon() * Min(1., ip_data_->curr_mu());
-      DBG_PRINT((1, "s_min = %g, min_slack=%g\n", s_min, min_slack));
+      Number s_min = std::numeric_limits<Number>::epsilon() * Min(Number(1.), ip_data_->curr_mu());
+      // if mu = is very small, then s_min may have dropped to 0  (e.g., #212)
+      // but we want slack corrections also if (and especially if) slacks are at 0
+      // (otherwise the barrier_obj becomes inf and there are asserts that say that this shouldn't happen)
+      // so we ensure that s_min is at least positive
+      if( s_min == 0.0 )
+      {
+         s_min = std::numeric_limits<Number>::min();
+      }
+      DBG_PRINT((1, "s_min = %g, curr_mu = %g, min_slack=%g\n", s_min, ip_data_->curr_mu(), min_slack));
       if( min_slack < s_min )
       {
          // Need to correct the slacks and calculate new bounds...
          SmartPtr<Vector> t = slack->MakeNew();
          t->Copy(*slack);
          t->AddScalar(-s_min);
-         t->ElementWiseSgn();
+         t->ElementWiseSgn();  // sign(slack-s_min), so -1 if slack < s_min   (and this is a strict "<", so s_min=0 would be a problem here!)
 
          SmartPtr<Vector> zero_vec = t->MakeNew();
          zero_vec->Set(0.0);
-         t->ElementWiseMin(*zero_vec);
-         t->Scal(-1.0);
+         t->ElementWiseMin(*zero_vec);  // t = -1 if slack < s_min, otherwise 0
+         t->Scal(-1.0);                 // t =  1 if slack < s_min, otherwise 0
          retval = (Index) t->Asum();
-         DBG_PRINT((1, "Number of slack corrections = %d\n", retval));
+         DBG_PRINT((1, "Number of slack corrections = %" IPOPT_INDEX_FORMAT "\n", retval));
          DBG_PRINT_VECTOR(2, "t(sgn)", *t);
 
-         // ToDo AW: I added the follwing line b/c I found a case where
+         DBG_PRINT_VECTOR(2, "multiplier", *multiplier);
+
+         // ToDo AW: I added the following line b/c I found a case where
          // slack was negative and this correction produced 0
          slack->ElementWiseMax(*zero_vec);
 
          SmartPtr<Vector> t2 = t->MakeNew();
          t2->Set(ip_data_->curr_mu());
-         t2->ElementWiseDivide(*multiplier);
+         t2->ElementWiseDivide(*multiplier);  // t2 = mu / multiplier  (NOTE: this gives inf where multiplier is 0!)
 
          SmartPtr<Vector> s_min_vec = t2->MakeNew();
          s_min_vec->Set(s_min);
 
-         t2->ElementWiseMax(*s_min_vec);
-         t2->Axpy(-1.0, *slack);
-         DBG_PRINT_VECTOR(2, "tw(smin,mu/mult)", *t2);
+         t2->ElementWiseMax(*s_min_vec);   // t2 = max(mu/multiplier,s_min)
+         t2->Axpy(-1.0, *slack);           // t2 = max(mu/multiplier,s_min) - slack
+         DBG_PRINT_VECTOR(2, "tw(smin,mu/mult)=max(mu/multiplier,s_min)-slack", *t2);
 
-         t->ElementWiseMultiply(*t2);
-         t->Axpy(1.0, *slack);
+         // this was t->ElementWiseMultiply(*t2) before, but 0*inf=nan
+         // since entries in t are either 0 or 1, we introduced ElementWiseSelect and use that here
+         t->ElementWiseSelect(*t2);    // t = max(mu/multiplier,s_min) - slack if slack < s_min, otherwise 0
+         t->Axpy(1.0, *slack);         // t = max(mu/multiplier,s_min) if slack < s_min, otherwise slack
 
          SmartPtr<Vector> t_max = t2;
          t_max->Set(1.0);
          SmartPtr<Vector> abs_bound = bound->MakeNew();
          abs_bound->Copy(*bound);
          abs_bound->ElementWiseAbs();
-         t_max->ElementWiseMax(*abs_bound);
+         t_max->ElementWiseMax(*abs_bound);   // max(1.0,|bound|)
          DBG_PRINT_VECTOR(2, "t_max1", *t_max);
          DBG_PRINT_VECTOR(2, "slack", *slack);
-         t_max->AddOneVector(1.0, *slack, slack_move_);
-         DBG_PRINT_VECTOR(2, "t_max2", *t_max);
+         t_max->AddOneVector(1.0, *slack, slack_move_);   // t_max = slack_move*max(1.0,|bound|) + slack
+         DBG_PRINT_VECTOR(2, "t_max2=slack_move*max(1.0,|bound|)+slack", *t_max);
 
-         t->ElementWiseMin(*t_max);
+         t->ElementWiseMin(*t_max);  // t = min(max(mu/multiplier,s_min), slack_move*max(1.0,|bound|))+slack, if slack < s_min, otherwise slack
          DBG_PRINT_VECTOR(2, "new_slack", *t);
 
          slack = t;
@@ -520,9 +540,8 @@ Index IpoptCalculatedQuantities::AdjustedTrialSlacks()
 {
    DBG_START_METH("IpoptCalculatedQuantities::AdjustedTrialSlacks()",
                   dbg_verbosity);
-   Index result =
-      (num_adjusted_slack_x_L_ + num_adjusted_slack_x_U_ + num_adjusted_slack_s_L_ + num_adjusted_slack_s_U_);
-   DBG_PRINT((1, "result = %d\n", result));
+   Index result = num_adjusted_slack_x_L_ + num_adjusted_slack_x_U_ + num_adjusted_slack_s_L_ + num_adjusted_slack_s_U_;
+   DBG_PRINT((1, "result = %" IPOPT_INDEX_FORMAT "\n", result));
    return result;
 }
 
@@ -1568,6 +1587,297 @@ Number IpoptCalculatedQuantities::unscaled_curr_nlp_constraint_violation(
    return result;
 }
 
+SmartPtr<Vector> IpoptCalculatedQuantities::unscaled_orig_x_L_violation(
+   const Vector& x
+)
+{
+   DBG_START_METH("IpoptCalculatedQuantities::unscaled_orig_x_L_violation()", dbg_verbosity);
+
+   SmartPtr<const Vector> orig_x_L;
+   SmartPtr<Vector> viol_L;
+
+   OrigIpoptNLP* orignlp = dynamic_cast<OrigIpoptNLP*>(GetRawPtr(ip_nlp_));
+   if( orignlp != NULL )
+   {
+      orig_x_L = orignlp->orig_x_L();
+   }
+
+   if( !IsValid(orig_x_L) || ip_nlp_->Px_L()->NCols() == 0 )
+   {
+      // not OrigIpoptNLP, bounds not relaxed, or no lower bounds
+      viol_L = ip_nlp_->x_L()->MakeNew();
+      viol_L->Set(0.0);
+   }
+   else
+   {
+      viol_L = orig_x_L->MakeNew();
+      ip_nlp_->Px_L()->TransMultVector(-1., x, 0., *viol_L);  // get -x in x_L space
+      viol_L->Axpy(1.0, *orig_x_L);  // tmp = -x + x_L, so positive entries are violations of lower bounds
+
+      // set negative entries to 0
+      SmartPtr<Vector> zero = viol_L->MakeNew();
+      zero->Set(0.);
+      viol_L->ElementWiseMax(*zero);
+   }
+
+   return viol_L;
+}
+
+SmartPtr<Vector> IpoptCalculatedQuantities::unscaled_orig_x_U_violation(
+   const Vector& x
+)
+{
+   DBG_START_METH("IpoptCalculatedQuantities::unscaled_orig_x_U_violation()", dbg_verbosity);
+
+   SmartPtr<const Vector> orig_x_U;
+   SmartPtr<Vector> viol_U;
+
+   OrigIpoptNLP* orignlp = dynamic_cast<OrigIpoptNLP*>(GetRawPtr(ip_nlp_));
+   if( orignlp != NULL )
+   {
+      orig_x_U = orignlp->orig_x_U();
+   }
+
+   if( !IsValid(orig_x_U) || ip_nlp_->Px_U()->NCols() == 0 )
+   {
+      // not OrigIpoptNLP, bounds not relaxed, or no lower bounds
+      viol_U = ip_nlp_->x_U()->MakeNew();
+      viol_U->Set(0.0);
+   }
+   else
+   {
+      viol_U = orig_x_U->MakeNew();
+      ip_nlp_->Px_U()->TransMultVector(1., x, 0., *viol_U);   // get x in x_U space
+      viol_U->Axpy(-1.0, *orig_x_U);  // tmp = x - x_U, so positive entries are violations of upper bounds
+
+      // set negative entries to 0
+      SmartPtr<Vector> zero = viol_U->MakeNew();
+      zero->Set(0.);
+      viol_U->ElementWiseMax(*zero);
+   }
+
+   return viol_U;
+}
+
+SmartPtr<const Vector> IpoptCalculatedQuantities::unscaled_curr_orig_x_L_violation()
+{
+   DBG_START_METH("IpoptCalculatedQuantities::unscaled_curr_orig_x_L_violation()", dbg_verbosity);
+
+   // compute violation w.r.t. both lower and upper bounds so we will have to unscale x only once
+   // since usually if one wants the violation w.r.t. one bound than one also wants the other
+
+   std::pair<SmartPtr<Vector>, SmartPtr<Vector> > viol_LU;
+   SmartPtr<const Vector> x = ip_data_->curr()->x();
+   if( !unscaled_curr_orig_x_LU_viol_cache_.GetCachedResult1Dep(viol_LU, *x) )
+   {
+      SmartPtr<const Vector> un_x = ip_nlp_->NLP_scaling()->unapply_vector_scaling_x(x);
+
+      viol_LU.first = unscaled_orig_x_L_violation(*un_x);
+      viol_LU.second = unscaled_orig_x_U_violation(*un_x);
+
+      unscaled_curr_orig_x_LU_viol_cache_.AddCachedResult1Dep(viol_LU, *x);
+   }
+
+   return ConstPtr(viol_LU.first);
+}
+
+SmartPtr<const Vector> IpoptCalculatedQuantities::unscaled_curr_orig_x_U_violation()
+{
+   DBG_START_METH("IpoptCalculatedQuantities::unscaled_curr_orig_x_U_violation()", dbg_verbosity);
+
+   // update violation w.r.t. both x_L and x_U, if necessary
+   unscaled_curr_orig_x_L_violation();
+
+   SmartPtr<const Vector> x = ip_data_->curr()->x();
+   std::pair<SmartPtr<Vector>, SmartPtr<Vector> > viol_LU;
+   unscaled_curr_orig_x_LU_viol_cache_.GetCachedResult1Dep(viol_LU, *x);
+
+   return ConstPtr(viol_LU.second);
+}
+
+Number IpoptCalculatedQuantities::unscaled_curr_orig_bounds_violation(
+   ENormType NormType
+)
+{
+   DBG_START_METH("IpoptCalculatedQuantities::unscaled_curr_orig_bounds_violation()", dbg_verbosity);
+
+   SmartPtr<const Vector> x = ip_data_->curr()->x();
+
+   std::vector<const TaggedObject*> deps(1);
+   deps[0] = GetRawPtr(x);
+   std::vector<Number> sdeps(1);
+   sdeps[0] = (Number) NormType;
+
+   Number result;
+   if( !unscaled_curr_orig_bounds_viol_cache_.GetCachedResult(result, deps, sdeps) )
+   {
+      // update violation w.r.t. both x_L and x_U, if necessary
+      unscaled_curr_orig_x_L_violation();
+
+      std::pair<SmartPtr<Vector>, SmartPtr<Vector> > viol_LU;
+      unscaled_curr_orig_x_LU_viol_cache_.GetCachedResult1Dep(viol_LU, *x);
+
+      result = CalcNormOfType(NormType, *viol_LU.first, *viol_LU.second);
+
+      unscaled_curr_orig_bounds_viol_cache_.AddCachedResult(result, deps, sdeps);
+   }
+
+   return result;
+}
+
+SmartPtr<Vector> IpoptCalculatedQuantities::orig_x_L_violation(
+   const Vector& x
+)
+{
+   DBG_START_METH("IpoptCalculatedQuantities::orig_x_L_violation()", dbg_verbosity);
+
+   SmartPtr<const Vector> orig_x_L;
+   SmartPtr<Vector> viol_L;
+
+   OrigIpoptNLP* orignlp = dynamic_cast<OrigIpoptNLP*>(GetRawPtr(ip_nlp_));
+   if( orignlp != NULL )
+   {
+      orig_x_L = orignlp->orig_x_L();
+   }
+
+   if( !IsValid(orig_x_L) || ip_nlp_->Px_L()->NCols() == 0 )
+   {
+      // not OrigIpoptNLP, bounds not relaxed, or no lower bounds
+      viol_L = ip_nlp_->x_L()->MakeNew();
+      viol_L->Set(0.0);
+   }
+   else
+   {
+      // orig_x_L scaled
+      SmartPtr<const Vector> x_L = ip_nlp_->NLP_scaling()->apply_vector_scaling_x_LU(*ip_nlp_->Px_L(), orig_x_L, *Tmp_x().OwnerSpace());
+
+      viol_L = x_L->MakeNew();
+      ip_nlp_->Px_L()->TransMultVector(-1., x, 0., *viol_L);  // get -x in x_L space
+
+      viol_L->Axpy(1.0, *x_L);  // tmp = -x + x_L, so positive entries are violations of lower bounds
+
+      // set negative entries to 0
+      SmartPtr<Vector> zero = viol_L->MakeNew();
+      zero->Set(0.);
+      viol_L->ElementWiseMax(*zero);
+   }
+
+   return viol_L;
+}
+
+SmartPtr<Vector> IpoptCalculatedQuantities::orig_x_U_violation(
+   const Vector& x
+)
+{
+   DBG_START_METH("IpoptCalculatedQuantities::orig_x_U_violation()", dbg_verbosity);
+
+   SmartPtr<Vector> viol_U;
+   SmartPtr<const Vector> orig_x_U;
+
+   OrigIpoptNLP* orignlp = dynamic_cast<OrigIpoptNLP*>(GetRawPtr(ip_nlp_));
+   if( orignlp != NULL )
+   {
+      orig_x_U = orignlp->orig_x_U();
+   }
+
+   if( !IsValid(orig_x_U) || ip_nlp_->Px_U()->NCols() == 0 )
+   {
+      // not OrigIpoptNLP, bounds not relaxed, or no lower bounds
+      viol_U = ip_nlp_->x_U()->MakeNew();
+      viol_U->Set(0.0);
+   }
+   else
+   {
+      SmartPtr<const Vector> x_U = ip_nlp_->NLP_scaling()->apply_vector_scaling_x_LU(*ip_nlp_->Px_U(), orig_x_U, *Tmp_x().OwnerSpace());
+
+      viol_U = x_U->MakeNew();
+      ip_nlp_->Px_U()->TransMultVector(1., x, 0., *viol_U);   // get x in x_U space
+
+      viol_U->Axpy(-1.0, *x_U);  // tmp = x - x_U, so positive entries are violations of upper bounds
+
+      // set negative entries to 0
+      SmartPtr<Vector> zero = viol_U->MakeNew();
+      zero->Set(0.);
+      viol_U->ElementWiseMax(*zero);
+   }
+
+   return viol_U;
+}
+
+SmartPtr<const Vector> IpoptCalculatedQuantities::curr_orig_x_L_violation()
+{
+   DBG_START_METH("IpoptCalculatedQuantities::curr_orig_x_L_violation()", dbg_verbosity);
+
+   if( !ip_nlp_->NLP_scaling()->have_x_scaling() )
+   {
+      return unscaled_curr_orig_x_L_violation();
+   }
+
+   SmartPtr<Vector> viol_L;
+   SmartPtr<const Vector> x = ip_data_->curr()->x();
+   if( !curr_orig_x_L_viol_cache_.GetCachedResult1Dep(viol_L, *x) )
+   {
+      viol_L = orig_x_L_violation(*x);
+
+      curr_orig_x_L_viol_cache_.AddCachedResult1Dep(viol_L, *x);
+   }
+
+   return ConstPtr(viol_L);
+}
+
+SmartPtr<const Vector> IpoptCalculatedQuantities::curr_orig_x_U_violation()
+{
+   DBG_START_METH("IpoptCalculatedQuantities::curr_orig_x_U_violation()", dbg_verbosity);
+
+   if( !ip_nlp_->NLP_scaling()->have_x_scaling() )
+   {
+      return unscaled_curr_orig_x_U_violation();
+   }
+
+   SmartPtr<Vector> viol_U;
+   SmartPtr<const Vector> x = ip_data_->curr()->x();
+   if( !curr_orig_x_U_viol_cache_.GetCachedResult1Dep(viol_U, *x) )
+   {
+      viol_U = orig_x_U_violation(*x);
+
+      curr_orig_x_U_viol_cache_.AddCachedResult1Dep(viol_U, *x);
+   }
+
+   return ConstPtr(viol_U);
+}
+
+Number IpoptCalculatedQuantities::curr_orig_bounds_violation(
+   ENormType NormType
+)
+{
+   DBG_START_METH("IpoptCalculatedQuantities::curr_orig_bounds_violation()", dbg_verbosity);
+
+   if( !ip_nlp_->NLP_scaling()->have_x_scaling() )
+   {
+      return unscaled_curr_orig_bounds_violation(NormType);
+   }
+
+   SmartPtr<const Vector> x = ip_data_->curr()->x();
+
+   std::vector<const TaggedObject*> deps(1);
+   deps[0] = GetRawPtr(x);
+   std::vector<Number> sdeps(1);
+   sdeps[0] = (Number) NormType;
+
+   Number result;
+   if( !curr_orig_bounds_viol_cache_.GetCachedResult(result, deps, sdeps) )
+   {
+      SmartPtr<const Vector> viol_L = curr_orig_x_L_violation();
+      SmartPtr<const Vector> viol_U = curr_orig_x_U_violation();
+
+      result = CalcNormOfType(NormType, *viol_L, *viol_U);
+
+      curr_orig_bounds_viol_cache_.AddCachedResult(result, deps, sdeps);
+   }
+
+   return result;
+}
+
 Number IpoptCalculatedQuantities::unscaled_trial_nlp_constraint_violation(
    ENormType NormType
 )
@@ -2212,7 +2522,7 @@ Number IpoptCalculatedQuantities::CalcNormOfType(
       case NORM_1:
          return vec1.Asum() + vec2.Asum();
       case NORM_2:
-         return sqrt(pow(vec1.Nrm2(), 2) + pow(vec2.Nrm2(), 2));
+         return std::sqrt(std::pow(vec1.Nrm2(), 2) + std::pow(vec2.Nrm2(), 2));
       case NORM_MAX:
          return Max(vec1.Amax(), vec2.Amax());
       default:
@@ -2242,7 +2552,7 @@ Number IpoptCalculatedQuantities::CalcNormOfType(
             Number nrm = vecs[i]->Nrm2();
             result += nrm * nrm;
          }
-         result = sqrt(result);
+         result = std::sqrt(result);
          break;
       case NORM_MAX:
          for( Index i = 0; i < (Index) vecs.size(); i++ )
@@ -2639,7 +2949,7 @@ Number IpoptCalculatedQuantities::unscaled_curr_complementarity(
    ENormType NormType
 )
 {
-   return ip_nlp_->NLP_scaling()->unapply_obj_scaling(curr_complementarity(mu, NormType));
+   return std::abs(ip_nlp_->NLP_scaling()->unapply_obj_scaling(curr_complementarity(mu, NormType)));
 }
 
 Number IpoptCalculatedQuantities::CalcCentralityMeasure(
@@ -2653,7 +2963,6 @@ Number IpoptCalculatedQuantities::CalcCentralityMeasure(
                   dbg_verbosity);
 
    Number MinCompl = std::numeric_limits<Number>::max();
-   bool have_bounds = false;
 
    Index n_compl_x_L = compl_x_L.Dim();
    Index n_compl_x_U = compl_x_U.Dim();
@@ -2663,55 +2972,23 @@ Number IpoptCalculatedQuantities::CalcCentralityMeasure(
    // Compute the Minimum of all complementarities
    if( n_compl_x_L > 0 )
    {
-      if( have_bounds )
-      {
-         MinCompl = Min(MinCompl, compl_x_L.Min());
-      }
-      else
-      {
-         MinCompl = compl_x_L.Min();
-      }
-      have_bounds = true;
+      MinCompl = compl_x_L.Min();
    }
    if( n_compl_x_U > 0 )
    {
-      if( have_bounds )
-      {
-         MinCompl = Min(MinCompl, compl_x_U.Min());
-      }
-      else
-      {
-         MinCompl = compl_x_U.Min();
-      }
-      have_bounds = true;
+      MinCompl = Min(MinCompl, compl_x_U.Min());
    }
    if( n_compl_s_L > 0 )
    {
-      if( have_bounds )
-      {
-         MinCompl = Min(MinCompl, compl_s_L.Min());
-      }
-      else
-      {
-         MinCompl = compl_s_L.Min();
-      }
-      have_bounds = true;
+      MinCompl = Min(MinCompl, compl_s_L.Min());
    }
    if( n_compl_s_U > 0 )
    {
-      if( have_bounds )
-      {
-         MinCompl = Min(MinCompl, compl_s_U.Min());
-      }
-      else
-      {
-         MinCompl = compl_s_U.Min();
-      }
-      have_bounds = true;
+      MinCompl = Min(MinCompl, compl_s_U.Min());
    }
 
-   // If there are no bounds, just return 0.;
-   if( !have_bounds )
+   // If there are no bounds, just return 0
+   if( MinCompl == std::numeric_limits<Number>::max() )
    {
       return 0.;
    }
@@ -2732,7 +3009,7 @@ Number IpoptCalculatedQuantities::CalcCentralityMeasure(
    Number xi = MinCompl / avrg_compl;
    // The folloking line added for the case that avrg_compl is
    // slighly smaller than MinCompl, due to numerical roundoff
-   xi = Min(1., xi);
+   xi = Min(Number(1.), xi);
 
    return xi;
 }
@@ -2798,36 +3075,27 @@ Number IpoptCalculatedQuantities::curr_nlp_error()
 
    if( !curr_nlp_error_cache_.GetCachedResult(result, tdeps) )
    {
-      if( ip_data_->curr()->x()->Dim() == ip_data_->curr()->y_c()->Dim() )
-      {
-         // This is a square problem, we only need to consider the
-         // infeasibility
-         result = curr_nlp_constraint_violation(NORM_MAX);
-      }
-      else
-      {
-         Number s_d = 0;
-         Number s_c = 0;
-         ComputeOptimalityErrorScaling(*ip_data_->curr()->y_c(), *ip_data_->curr()->y_d(), *ip_data_->curr()->z_L(),
-                                       *ip_data_->curr()->z_U(), *ip_data_->curr()->v_L(), *ip_data_->curr()->v_U(), s_max_, s_d, s_c);
-         DBG_PRINT((1, "s_d = %lf, s_c = %lf\n", s_d, s_c));
+      Number s_d = 0;
+      Number s_c = 0;
+      ComputeOptimalityErrorScaling(*ip_data_->curr()->y_c(), *ip_data_->curr()->y_d(), *ip_data_->curr()->z_L(),
+                                    *ip_data_->curr()->z_U(), *ip_data_->curr()->v_L(), *ip_data_->curr()->v_U(), s_max_, s_d, s_c);
+      DBG_PRINT((1, "s_d = %lf, s_c = %lf\n", s_d, s_c));
 
-         // Dual infeasibility
-         DBG_PRINT((1, "curr_dual_infeasibility(NORM_MAX) = %8.2e\n",
-                    curr_dual_infeasibility(NORM_MAX)));
-         result = curr_dual_infeasibility(NORM_MAX) / s_d;
-         /*
-          // Primal infeasibility
-          DBG_PRINT((1, "curr_primal_infeasibility(NORM_MAX) = %8.2e\n",
-          curr_primal_infeasibility(NORM_MAX)));
-          result = Max(result, curr_primal_infeasibility(NORM_MAX));
-          */
-         result = Max(result, curr_nlp_constraint_violation(NORM_MAX));
-         // Complementarity
-         DBG_PRINT((1, "curr_complementarity(mu_target_, NORM_MAX) = %8.2e\n",
-                    curr_complementarity(mu_target_, NORM_MAX)));
-         result = Max(result, curr_complementarity(mu_target_, NORM_MAX) / s_c);
-      }
+      // Dual infeasibility
+      DBG_PRINT((1, "curr_dual_infeasibility(NORM_MAX) = %8.2e\n",
+                 curr_dual_infeasibility(NORM_MAX)));
+      result = curr_dual_infeasibility(NORM_MAX) / s_d;
+      /*
+       // Primal infeasibility
+       DBG_PRINT((1, "curr_primal_infeasibility(NORM_MAX) = %8.2e\n",
+       curr_primal_infeasibility(NORM_MAX)));
+       result = Max(result, curr_primal_infeasibility(NORM_MAX));
+      */
+      result = Max(result, curr_nlp_constraint_violation(NORM_MAX));
+      // Complementarity
+      DBG_PRINT((1, "curr_complementarity(mu_target_, NORM_MAX) = %8.2e\n",
+                 curr_complementarity(mu_target_, NORM_MAX)));
+      result = Max(result, curr_complementarity(mu_target_, NORM_MAX) / s_c);
 
       curr_nlp_error_cache_.AddCachedResult(result, tdeps);
    }
@@ -2868,9 +3136,7 @@ Number IpoptCalculatedQuantities::unscaled_curr_nlp_error()
       result = unscaled_curr_dual_infeasibility(NORM_MAX);
       // Constraint violation
       result = Max(result, unscaled_curr_nlp_constraint_violation(NORM_MAX));
-      // Complementarity (ToDo use unscaled?)
-      DBG_PRINT((1, "curr_complementarity(mu_target_, NORM_MAX) = %8.2e\n",
-                 curr_complementarity(mu_target_, NORM_MAX)));
+      // Complementarity
       result = Max(result, unscaled_curr_complementarity(mu_target_, NORM_MAX));
 
       unscaled_curr_nlp_error_cache_.AddCachedResult(result, tdeps);

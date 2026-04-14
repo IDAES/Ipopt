@@ -12,7 +12,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -53,8 +53,7 @@ Index TripletToCSRConverter::InitializeConverter(
    DBG_START_METH("TSymLinearSolver::InitializeStructure",
                   dbg_verbosity);
 
-   DBG_ASSERT(dim > 0);
-   DBG_ASSERT(nonzeros > 0);
+   DBG_ASSERT(hf_ == Triangular_Format || hf_ == Full_Format);
 
    delete[] ia_;
    delete[] ja_;
@@ -65,13 +64,28 @@ Index TripletToCSRConverter::InitializeConverter(
    dim_ = dim;
    nonzeros_triplet_ = nonzeros;
 
+   if( nonzeros == 0 )
+   {
+      ia_ = NULL;
+      ja_ = NULL;
+      ipos_first_ = NULL;
+      ipos_double_triplet_ = NULL;
+      ipos_double_compressed_ = NULL;
+      nonzeros_compressed_ = 0;
+      num_doubles_ = 0;
+      initialized_ = true;
+      return 0;
+   }
+
+   DBG_ASSERT(dim > 0);
+
    // Create a list with all triplet entries
    std::vector<TripletEntry> entry_list(nonzeros);
    std::vector<TripletEntry>::iterator list_iterator = entry_list.begin();
    for( Index i = 0; i < nonzeros; i++ )
    {
       list_iterator->Set(airn[i], ajcn[i], i);
-      list_iterator++;
+      ++list_iterator;
    }
    DBG_ASSERT(list_iterator == entry_list.end());
 
@@ -79,7 +93,7 @@ Index TripletToCSRConverter::InitializeConverter(
    {
       for( Index i = 0; i < nonzeros; i++ )
       {
-         DBG_PRINT((2, "airn[%5d] = %5d acjn[%5d] = %5d\n", i, airn[i], i, ajcn[i]));
+         DBG_PRINT((2, "airn[%5" IPOPT_INDEX_FORMAT "] = %5" IPOPT_INDEX_FORMAT " acjn[%5" IPOPT_INDEX_FORMAT "] = %5" IPOPT_INDEX_FORMAT "\n", i, airn[i], i, ajcn[i]));
       }
    }
 
@@ -134,7 +148,7 @@ Index TripletToCSRConverter::InitializeConverter(
       }
    }
 
-   list_iterator++;
+   ++list_iterator;
    Index idouble = 0;
    Index idouble_full = 0;
    while( list_iterator != entry_list.end() )
@@ -179,7 +193,7 @@ Index TripletToCSRConverter::InitializeConverter(
          }
       }
 
-      list_iterator++;
+      ++list_iterator;
    }
    nonzeros_compressed_++;
    for( Index i = cur_row; i <= dim_; i++ )
@@ -305,15 +319,15 @@ Index TripletToCSRConverter::InitializeConverter(
    {
       for( Index i = 0; i <= dim_; i++ )
       {
-         DBG_PRINT((2, "ia[%5d] = %5d\n", i, ia_[i]));
+         DBG_PRINT((2, "ia[%5" IPOPT_INDEX_FORMAT "] = %5" IPOPT_INDEX_FORMAT "\n", i, ia_[i]));
       }
       for( Index i = 0; i < nonzeros_compressed_; i++ )
       {
-         DBG_PRINT((2, "ja[%5d] = %5d ipos_first[%5d] = %5d\n", i, ja_[i], i, ipos_first_[i]));
+         DBG_PRINT((2, "ja[%5" IPOPT_INDEX_FORMAT "] = %5" IPOPT_INDEX_FORMAT " ipos_first[%5" IPOPT_INDEX_FORMAT "] = %5" IPOPT_INDEX_FORMAT "\n", i, ja_[i], i, ipos_first_[i]));
       }
       for( Index i = 0; i < nonzeros_triplet_ - nonzeros_compressed_; i++ )
       {
-         DBG_PRINT((2, "ipos_double_triplet[%5d] = %5d ipos_double_compressed[%5d] = %5d\n", i, ipos_double_triplet_[i], i, ipos_double_compressed_[i]));
+         DBG_PRINT((2, "ipos_double_triplet[%5" IPOPT_INDEX_FORMAT "] = %5" IPOPT_INDEX_FORMAT " ipos_double_compressed[%5" IPOPT_INDEX_FORMAT "] = %5" IPOPT_INDEX_FORMAT "\n", i, ipos_double_triplet_[i], i, ipos_double_compressed_[i]));
       }
    }
 
@@ -348,11 +362,11 @@ void TripletToCSRConverter::ConvertValues(
    {
       for( Index i = 0; i < nonzeros_triplet; i++ )
       {
-         DBG_PRINT((2, "atriplet[%5d] = %24.16e\n", i, a_triplet[i]));
+         DBG_PRINT((2, "atriplet[%5" IPOPT_INDEX_FORMAT "] = %24.16e\n", i, a_triplet[i]));
       }
       for( Index i = 0; i < nonzeros_compressed; i++ )
       {
-         DBG_PRINT((2, "acompre[%5d] = %24.16e\n", i, a_compressed[i]));
+         DBG_PRINT((2, "acompre[%5" IPOPT_INDEX_FORMAT "] = %24.16e\n", i, a_compressed[i]));
       }
    }
 }

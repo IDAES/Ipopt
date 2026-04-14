@@ -6,7 +6,7 @@
 
 import org.coinor.Ipopt;
 
-/** Java example for interfacing with IPOPT.
+/** Java example for interfacing with IPOPT (double precision).
  *
  * HS071 implements a Java example of problem 71 of the
  * Hock-Schittkowsky test suite.
@@ -29,6 +29,8 @@ public class HS071 extends Ipopt
    int count_bounds = 0;
    int dcount_start = 0;
 
+   boolean printiterate;
+
    /** Creates a new instance of HS071 */
    // [HS071]
    public HS071()
@@ -49,6 +51,9 @@ public class HS071 extends Ipopt
 
       /* Index style for the irow/jcol elements */
       int index_style = Ipopt.C_STYLE;
+
+      /* Whether to print iterate in intermediate_callback */
+      printiterate = false;
 
       /* create the IpoptProblem */
       create(n, m, nele_jac, nele_hess, index_style);
@@ -203,10 +208,10 @@ public class HS071 extends Ipopt
          values[2] = x[0] * x[1] * x[3]; /* 0,2 */
          values[3] = x[0] * x[1] * x[2]; /* 0,3 */
 
-         values[4] = 2 * x[0];           /* 1,0 */
-         values[5] = 2 * x[1];           /* 1,1 */
-         values[6] = 2 * x[2];           /* 1,2 */
-         values[7] = 2 * x[3];           /* 1,3 */
+         values[4] = 2.0 * x[0];           /* 1,0 */
+         values[5] = 2.0 * x[1];           /* 1,1 */
+         values[6] = 2.0 * x[2];           /* 1,2 */
+         values[7] = 2.0 * x[3];           /* 1,3 */
       }
 
       return true;
@@ -258,16 +263,16 @@ public class HS071 extends Ipopt
           */
 
          /* fill the objective portion */
-         values[0] = obj_factor * (2 * x[3]);               /* 0,0 */
-         values[1] = obj_factor * (x[3]);                   /* 1,0 */
-         values[2] = 0.0;                                   /* 1,1 */
-         values[3] = obj_factor * (x[3]);                   /* 2,0 */
-         values[4] = 0.0;                                   /* 2,1 */
-         values[5] = 0.0;                                   /* 2,2 */
-         values[6] = obj_factor * (2 * x[0] + x[1] + x[2]); /* 3,0 */
-         values[7] = obj_factor * (x[0]);                   /* 3,1 */
-         values[8] = obj_factor * (x[0]);                   /* 3,2 */
-         values[9] = 0.0;                                   /* 3,3 */
+         values[0] = obj_factor * (2.0 * x[3]);               /* 0,0 */
+         values[1] = obj_factor * (x[3]);                     /* 1,0 */
+         values[2] = 0.0;                                     /* 1,1 */
+         values[3] = obj_factor * (x[3]);                     /* 2,0 */
+         values[4] = 0.0;                                     /* 2,1 */
+         values[5] = 0.0;                                     /* 2,2 */
+         values[6] = obj_factor * (2.0 * x[0] + x[1] + x[2]); /* 3,0 */
+         values[7] = obj_factor * (x[0]);                     /* 3,1 */
+         values[8] = obj_factor * (x[0]);                     /* 3,2 */
+         values[9] = 0.0;                                     /* 3,3 */
 
          /* add the portion for the first constraint */
          values[1] += lambda[0] * (x[2] * x[3]);            /* 1,0 */
@@ -288,6 +293,89 @@ public class HS071 extends Ipopt
    }
    // [eval]
 
+   // [intermediate_callback]
+   public boolean intermediate_callback(
+      int      algorithmmode,
+      int      iter,
+      double   obj_value,
+      double   inf_pr,
+      double   inf_du,
+      double   mu,
+      double   d_norm,
+      double   regularization_size,
+      double   alpha_du,
+      double   alpha_pr,
+      int      ls_trials,
+      long     ip_data,
+      long     ip_cq)
+   {
+      if( !printiterate )
+      {
+         return true;
+      }
+
+      double x[] = new double[n];
+      double z_L[] = new double[n];
+      double z_U[] = new double[n];
+      double x_L_viol[] = new double[n];
+      double x_U_viol[] = new double[n];
+      double compl_x_L[] = new double[n];
+      double compl_x_U[] = new double[n];
+      double grad_lag_x[] = new double[n];
+      double g[] = new double[m];
+      double lambda[] = new double[m];
+      double constr_viol[] = new double[m];
+      double compl_g[] = new double[m];
+
+      boolean have_iter = get_curr_iterate(ip_data, ip_cq, false, n, x, z_L, z_U, m, g, lambda);
+      boolean have_viol = get_curr_violations(ip_data, ip_cq, false, n, x_L_viol, x_U_viol, compl_x_L, compl_x_U, grad_lag_x, m, constr_viol, compl_g);
+
+      System.out.println("Current iterate at iteration " + iter + ":");
+      System.out.println("  x z_L z_U bound_viol compl_x_L compl_x_U grad_lag_x");
+      for( int i = 0; i < n; ++i )
+      {
+         if( have_iter )
+         {
+            System.out.print("  " + x[i] + " " + z_L[i] + " " + z_U[i]);
+         }
+         else
+         {
+            System.out.print("  n/a n/a n/a");
+         }
+         if( have_viol )
+         {
+            System.out.println(" " + Math.max(x_L_viol[i], x_U_viol[i]) + " " + compl_x_L[i] + " " + compl_x_U[i] + " " + grad_lag_x[i]);
+         }
+         else
+         {
+            System.out.println("  n/a/ n/a n/a n/a");
+         }
+      }
+      System.out.println("  g(x) lambda constr_viol compl_g");
+      for( int i = 0; i < m; ++i )
+      {
+         if( have_iter )
+         {
+            System.out.print("  " + g[i] + " " + lambda[i]);
+         }
+         else
+         {
+            System.out.print("  n/a n/a");
+         }
+         if( have_viol )
+         {
+            System.out.println(" " + constr_viol[i] + " " + compl_g[i]);
+         }
+         else
+         {
+            System.out.println(" n/a + n/a");
+         }
+      }
+
+      return true;
+   }
+   // [intermediate_callback]
+
    private void print(
       double[] x,
       String   str)
@@ -307,6 +395,11 @@ public class HS071 extends Ipopt
       // Create the problem
       HS071 hs071 = new HS071();
 
+      // Get and print the Ipopt version
+      int version[] = new int[3];
+      hs071.getVersion(version);
+      System.out.println("Ipopt version: " + version[0] + "." + version[1] + "." + version[2]);
+
       // Set some options
       // hs071.setNumericOption("tol",1E-7);
       // hs071.setStringOption("nlp_scaling_method","user-scaling");
@@ -317,6 +410,9 @@ public class HS071 extends Ipopt
       // hs071.setNumericOption("warm_start_slack_bound_frac",1e-9);
       // hs071.setNumericOption("warm_start_slack_bound_push",1e-9);
       // hs071.setNumericOption("warm_start_mult_bound_push",1e-9);
+
+      // enable printing of current iterate in intermediate_callback
+      // hs071.printiterate = true;
 
       // Solve the problem
       int status = hs071.OptimizeNLP();

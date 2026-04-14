@@ -11,6 +11,10 @@
 #include <cstdio>
 #include <cstring>
 
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define vsnprintf _vsnprintf
+#endif
+
 namespace Ipopt
 {
 
@@ -178,7 +182,7 @@ void Journalist::VPrintf(
       if( journals_[i]->IsAccepted(category, level) )
       {
          // print the message
-#ifdef HAVE_VA_COPY
+#ifdef IPOPT_HAS_VA_COPY
          va_list apcopy;
          va_copy(apcopy, ap);
          journals_[i]->Printf(category, level, pformat, apcopy);
@@ -214,7 +218,7 @@ void Journalist::VPrintfIndented(
          }
 
          // print the message
-#ifdef HAVE_VA_COPY
+#ifdef IPOPT_HAS_VA_COPY
          va_list apcopy;
          va_copy(apcopy, ap);
          journals_[i]->Printf(category, level, pformat, apcopy);
@@ -264,14 +268,15 @@ bool Journalist::AddJournal(
 SmartPtr<Journal> Journalist::AddFileJournal(
    const std::string& journal_name,
    const std::string& fname,
-   EJournalLevel      default_level
+   EJournalLevel      default_level,
+   bool               file_append
 )
 {
    SmartPtr<FileJournal> temp = new FileJournal(journal_name, default_level);
 
    // Open the file (Note:, a fname of "stdout" is handled by the
    // Journal class to mean stdout, etc.
-   if( temp->Open(fname.c_str()) && AddJournal(GetRawPtr(temp)) )
+   if( temp->Open(fname.c_str(), file_append) && AddJournal(GetRawPtr(temp)) )
    {
       return GetRawPtr(temp);
    }
@@ -392,7 +397,10 @@ FileJournal::~FileJournal()
    file_ = NULL;
 }
 
-bool FileJournal::Open(const char* fname)
+bool FileJournal::Open(
+   const char* fname,
+   bool        fappend
+)
 {
    if( file_ && file_ != stdout && file_ != stderr )
    {
@@ -414,7 +422,14 @@ bool FileJournal::Open(const char* fname)
    else
    {
       // open the file on disk
-      file_ = fopen(fname, "w+");
+#ifdef IPOPT_HAS_FOPEN_S
+      if( fopen_s(&file_, fname, fappend ? "a+" : "w+") != 0 )
+      {
+         file_ = NULL;
+      }
+#else
+      file_ = fopen(fname, fappend ? "a+" : "w+");
+#endif
       if( file_ )
       {
          return true;
@@ -505,8 +520,23 @@ void StreamJournal::PrintfImpl(
    DBG_START_METH("StreamJournal::PrintfImpl", 0);
    if( os_ )
    {
-      vsprintf(buffer_, pformat, ap);
-      *os_ << buffer_;
+      int n = vsnprintf(buffer_, sizeof(buffer_), pformat, ap);
+
+      if( n >= (int)sizeof(buffer_) )
+      {
+         char* bigmsg = new char[n + 1];
+         vsnprintf(bigmsg, (size_t) n + 1, pformat, ap);
+         bigmsg[n] = '\0';
+         *os_ << bigmsg;
+      }
+      else
+      {
+         if( n < 0 )
+         {
+            buffer_[sizeof(buffer_) -1] = '\0';
+         }
+         *os_ << buffer_;
+      }
       DBG_EXEC(0, *os_ << std::flush);
    }
 }

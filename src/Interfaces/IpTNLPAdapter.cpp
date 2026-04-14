@@ -17,20 +17,16 @@
 #include "IpTSymDependencyDetector.hpp"
 #include "IpTripletToCSRConverter.hpp"
 
-#ifdef COIN_HAS_HSL
+#ifdef IPOPT_HAS_HSL
 #include "CoinHslConfig.h"
 #include "IpMa28TDependencyDetector.hpp"
 #endif
 
-#ifdef COIN_HAS_MUMPS
+#ifdef IPOPT_HAS_MUMPS
 # include "IpMumpsSolverInterface.hpp"
 #endif
-#ifdef HAVE_WSMP
+#ifdef IPOPT_HAS_WSMP
 # include "IpWsmpSolverInterface.hpp"
-#endif
-
-#ifdef HAVE_LINEARSOLVERLOADER
-# include "HSLLoader.h"
 #endif
 
 #include <cmath>
@@ -39,7 +35,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -101,34 +97,50 @@ void TNLPAdapter::RegisterOptions(
       "nlp_upper_bound_inf",
       "any bound greater or this value will be considered +inf (i.e. not upper bounded).",
       1e19);
-   roptions->AddStringOption3(
+   roptions->AddStringOption4(
       "fixed_variable_treatment",
       "Determines how fixed variables should be handled.",
       "make_parameter",
       "make_parameter", "Remove fixed variable from optimization variables",
+      "make_parameter_nodual", "Remove fixed variable from optimization variables and do not compute bound multipliers for fixed variables",
       "make_constraint", "Add equality constraints fixing variables",
       "relax_bounds", "Relax fixing bound constraints",
       "The main difference between those options is that the starting point in the \"make_constraint\" case still "
-      "has the fixed variables at their given values, whereas in the case \"make_parameter\" the functions are always "
+      "has the fixed variables at their given values, whereas in the case \"make_parameter(_nodual)\" the functions are always "
       "evaluated with the fixed values for those variables.  "
       "Also, for \"relax_bounds\", the fixing bound constraints are relaxed (according to\" bound_relax_factor\"). "
-      "For both \"make_constraints\" and \"relax_bounds\", bound multipliers are computed for the fixed variables.");
-   roptions->AddStringOption4(
+      "For all but \"make_parameter_nodual\", bound multipliers are computed for the fixed variables.");
+
+   std::vector<std::string> options;
+   std::vector<std::string> descrs;
+   options.push_back("none");
+   descrs.push_back("don't check; no extra work at beginning");
+#ifdef IPOPT_HAS_MUMPS
+   options.push_back("mumps");
+   descrs.push_back("use MUMPS");
+#endif
+#ifdef IPOPT_HAS_WSMP
+   options.push_back("wsmp");
+   descrs.push_back("use WSMP");
+#endif
+#if ((defined(COINHSL_HAS_MA28) && !defined(IPOPT_SINGLE)) || (defined(COINHSL_HAS_MA28S) && defined(IPOPT_SINGLE))) && defined(F77_FUNC) && !defined(IPOPT_INT64)
+   options.push_back("ma28");
+   descrs.push_back("use MA28");
+#endif
+   roptions->AddStringOption(
       "dependency_detector",
       "Indicates which linear solver should be used to detect linearly dependent equality constraints.",
       "none",
-      "none", "don't check; no extra work at beginning",
-      "mumps", "use MUMPS",
-      "wsmp", "use WSMP",
-      "ma28", "use MA28",
-      "The default and available choices depend on how Ipopt has been compiled. "
-      "This is experimental and does not work well.");
-   roptions->AddStringOption2(
+      options,
+      descrs,
+      "This is experimental and does not work well.",
+      true);
+   roptions->AddBoolOption(
       "dependency_detection_with_rhs",
-      "Indicates if the right hand sides of the constraints should be considered during dependency detection",
-      "no",
-      "no", "only look at gradients",
-      "yes", "also consider right hand side");
+      "Indicates if the right hand sides of the constraints should be considered in addition to gradients during dependency detection",
+      false,
+      "",
+      true);
    roptions->AddLowerBoundedIntegerOption(
       "num_linear_variables",
       "Number of linear variables",
@@ -136,7 +148,31 @@ void TNLPAdapter::RegisterOptions(
       0,
       "When the Hessian is approximated, it is assumed that the first num_linear_variables variables are linear. "
       "The Hessian is then not approximated in this space. "
-      "If the get_number_of_nonlinear_variables method in the TNLP is implemented, this option is ignored.");
+      "If the get_number_of_nonlinear_variables method in the TNLP is implemented, this option is ignored.",
+      true);
+   roptions->AddStringOption2(
+      "jacobian_approximation",
+      "Specifies technique to compute constraint Jacobian",
+      "exact",
+      "exact", "user-provided derivatives",
+      "finite-difference-values", "user-provided structure, values by finite differences",
+      "",
+      true);
+   roptions->AddStringOption2(
+      "gradient_approximation",
+      "Specifies technique to compute objective Gradient",
+      "exact",
+      "exact", "user-provided gradient",
+      "finite-difference-values", "values by finite differences",
+      "",
+      true);
+   roptions->AddLowerBoundedNumberOption(
+      "findiff_perturbation",
+      "Size of the finite difference perturbation for derivative approximation.",
+      0., true,
+      1e-7,
+      "This determines the relative perturbation of the variable entries.",
+      true);
 
    roptions->SetRegisteringCategory("Derivative Checker");
    roptions->AddStringOption4(
@@ -171,25 +207,11 @@ void TNLPAdapter::RegisterOptions(
       1e-4,
       "If the relative deviation of the estimated derivative from the given one is larger than this value, "
       "the corresponding derivative is marked as wrong.");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "derivative_test_print_all",
       "Indicates whether information for all estimated derivatives should be printed.",
-      "no",
-      "no", "Print only suspect derivatives",
-      "yes", "Print all derivatives",
+      false,
       "Determines verbosity of derivative checker.");
-   roptions->AddStringOption2(
-      "jacobian_approximation",
-      "Specifies technique to compute constraint Jacobian",
-      "exact",
-      "exact", "user-provided derivatives",
-      "finite-difference-values", "user-provided structure, values by finite differences");
-   roptions->AddLowerBoundedNumberOption(
-      "findiff_perturbation",
-      "Size of the finite difference perturbation for derivative approximation.",
-      0., true,
-      1e-7,
-      "This determines the relative perturbation of the variable entries.");
    roptions->AddLowerBoundedNumberOption(
       "point_perturbation_radius",
       "Maximal perturbation of an evaluation point.",
@@ -233,6 +255,8 @@ bool TNLPAdapter::ProcessOptions(
 
    options.GetEnumValue("jacobian_approximation", enum_int, prefix);
    jacobian_approximation_ = JacobianApproxEnum(enum_int);
+   options.GetEnumValue("gradient_approximation", enum_int, prefix);
+   gradient_approximation_ = GradientApproxEnum(enum_int);
    options.GetNumericValue("findiff_perturbation", findiff_perturbation_, prefix);
 
    options.GetNumericValue("point_perturbation_radius", point_perturbation_radius_, prefix);
@@ -242,55 +266,46 @@ bool TNLPAdapter::ProcessOptions(
    options.GetBoolValue("dependency_detection_with_rhs", dependency_detection_with_rhs_, prefix);
    std::string dependency_detector;
    options.GetStringValue("dependency_detector", dependency_detector, prefix);
-   if( dependency_detector != "none" )
+#ifdef IPOPT_HAS_MUMPS
+   if( dependency_detector == "mumps" )
    {
-      if( dependency_detector == "mumps" )
-      {
-#ifdef COIN_HAS_MUMPS
-         SmartPtr<SparseSymLinearSolverInterface> SolverInterface;
-         SolverInterface = new MumpsSolverInterface();
-         SmartPtr<TSymLinearSolver> ScaledSolver =
-            new TSymLinearSolver(SolverInterface, NULL);
-         dependency_detector_ = new TSymDependencyDetector(*ScaledSolver);
-#else
-
-         THROW_EXCEPTION(OPTION_INVALID,
-                         "Ipopt has not been compiled with MUMPS.  You cannot choose \"mumps\" for \"dependency_detector\".");
+      SmartPtr<SparseSymLinearSolverInterface> SolverInterface;
+      SolverInterface = new MumpsSolverInterface();
+      SmartPtr<TSymLinearSolver> ScaledSolver =
+         new TSymLinearSolver(SolverInterface, NULL);
+      dependency_detector_ = new TSymDependencyDetector(*ScaledSolver);
+   }
 #endif
 
-      }
-      else if( dependency_detector == "wsmp" )
-      {
-#ifdef HAVE_WSMP
-         SmartPtr<SparseSymLinearSolverInterface> SolverInterface;
-         SolverInterface = new WsmpSolverInterface();
-         SmartPtr<TSymLinearSolver> ScaledSolver =
-            new TSymLinearSolver(SolverInterface, NULL);
-         dependency_detector_ = new TSymDependencyDetector(*ScaledSolver);
+#ifdef IPOPT_HAS_WSMP
+   if( dependency_detector == "wsmp" )
+   {
+      SmartPtr<SparseSymLinearSolverInterface> SolverInterface;
+#ifdef PARDISO_MATCHING_PREPROCESS
+      std::string libname;
+      options.GetStringValue("pardisolib", libname, prefix);
+      SolverInterface = new WsmpSolverInterface(new LibraryLoader(libname));
 #else
-
-         THROW_EXCEPTION(OPTION_INVALID,
-                         "Ipopt has not been compiled with WSMP.  You cannot choose \"wsmp\" for \"dependency_detector\".");
+      SolverInterface = new WsmpSolverInterface();
+#endif
+      SmartPtr<TSymLinearSolver> ScaledSolver =
+         new TSymLinearSolver(SolverInterface, NULL);
+      dependency_detector_ = new TSymDependencyDetector(*ScaledSolver);
+   }
 #endif
 
-      }
-      else if( dependency_detector == "ma28" )
-      {
-#if defined(COINHSL_HAS_MA28) && defined(F77_FUNC)
-         dependency_detector_ = new Ma28TDependencyDetector();
-#else
-         THROW_EXCEPTION(OPTION_INVALID, "Ipopt has not been compiled with MA28.  You cannot choose \"ma28\" for \"dependency_detector\".");
+#if ((defined(COINHSL_HAS_MA28) && !defined(IPOPT_SINGLE)) || (defined(COINHSL_HAS_MA28S) && defined(IPOPT_SINGLE))) && defined(F77_FUNC) && !defined(IPOPT_INT64)
+   if( dependency_detector == "ma28" )
+   {
+      dependency_detector_ = new Ma28TDependencyDetector();
+   }
 #endif
-      }
-      else
-      {
-         THROW_EXCEPTION(OPTION_INVALID, "Something internally wrong for \"dependency_detector\".");
-      }
+
+   if( IsValid(dependency_detector_) )
       if( !dependency_detector_->ReducedInitialize(*jnlst_, options, prefix) )
       {
          return false;
       }
-   }
 
    return true;
 }
@@ -354,12 +369,24 @@ bool TNLPAdapter::GetSpaces(
       h_idx_map_ = NULL;
       delete[] x_fixed_map_;
       x_fixed_map_ = NULL;
+      jac_fixed_idx_map_.clear();
+      jac_fixed_iRow_.clear();
+      jac_fixed_jCol_.clear();
+#if __cplusplus >= 201103L
+      jac_fixed_idx_map_.shrink_to_fit();
+      jac_fixed_iRow_.shrink_to_fit();
+      jac_fixed_jCol_.shrink_to_fit();
+#endif
    }
 
    // Get the full dimensions of the problem
    Index n_full_x, n_full_g, nz_full_jac_g, nz_full_h;
    bool retval = tnlp_->get_nlp_info(n_full_x, n_full_g, nz_full_jac_g, nz_full_h, index_style_);
    ASSERT_EXCEPTION(retval, INVALID_TNLP, "get_nlp_info returned false");
+   ASSERT_EXCEPTION(n_full_x >= 0, INVALID_TNLP, "number of variables negative");
+   ASSERT_EXCEPTION(n_full_g >= 0, INVALID_TNLP, "number of constraints negative");
+   ASSERT_EXCEPTION(nz_full_jac_g >= 0, INVALID_TNLP, "number of nonzeros in Jacobian negative");
+   ASSERT_EXCEPTION(nz_full_h >= 0, INVALID_TNLP, "number of nonzeros in Hessian negative");
    ASSERT_EXCEPTION(
       !warm_start_same_structure_
       || (n_full_x == n_full_x_ && n_full_g == n_full_g_ && nz_full_jac_g == nz_full_jac_g_
@@ -407,7 +434,7 @@ bool TNLPAdapter::GetSpaces(
       Number* x_u = new Number[n_full_x_];
       Number* g_l = new Number[n_full_g_];
       Number* g_u = new Number[n_full_g_];
-      bool retval = tnlp_->get_bounds_info(n_full_x_, x_l, x_u, n_full_g_, g_l, g_u);
+      retval = tnlp_->get_bounds_info(n_full_x_, x_l, x_u, n_full_g_, g_l, g_u);
       ASSERT_EXCEPTION(retval, INVALID_TNLP, "get_bounds_info returned false in GetSpaces");
 
       //*********************************************************
@@ -432,7 +459,7 @@ bool TNLPAdapter::GetSpaces(
 
       bool done = false;
       // We might have to do the following twice: If we detect that we
-      // don't have enought degrees of freedom, we simply redo
+      // don't have enough degrees of freedom, we simply redo
       // everything with fixed_variable_treatment to set RELAX_BOUNDS
       while( !done )
       {
@@ -451,6 +478,7 @@ bool TNLPAdapter::GetSpaces(
                switch( fixed_variable_treatment_ )
                {
                   case MAKE_PARAMETER:
+                  case MAKE_PARAMETER_NODUAL:
                      // Variable is fixed, remove it from the problem
                      full_x_[i] = lower_bound;
                      x_fixed_map_tmp[n_x_fixed_] = i;
@@ -478,7 +506,7 @@ bool TNLPAdapter::GetSpaces(
             {
                char string[128];
                Snprintf(string, 127,
-                        "There are inconsistent bounds on variable %d: lower = %25.16e and upper = %25.16e.", i, lower_bound,
+                        "There are inconsistent bounds on variable %" IPOPT_INDEX_FORMAT ": lower = %25.16e and upper = %25.16e.", i, lower_bound,
                         upper_bound);
                delete[] x_l;
                delete[] x_u;
@@ -570,7 +598,7 @@ bool TNLPAdapter::GetSpaces(
                delete[] d_u_map;
                char string[128];
                Snprintf(string, 127,
-                        "There are inconsistent bounds on constraint function %d: lower = %25.16e and upper = %25.16e.", i,
+                        "There are inconsistent bounds on constraint function %" IPOPT_INDEX_FORMAT ": lower = %25.16e and upper = %25.16e.", i,
                         lower_bound, upper_bound);
                THROW_EXCEPTION(INCONSISTENT_BOUNDS, string);
             }
@@ -600,92 +628,10 @@ bool TNLPAdapter::GetSpaces(
          {
             fixed_variable_treatment_ = RELAX_BOUNDS;
             jnlst_->Printf(J_WARNING, J_INITIALIZATION,
-                           "Too few degrees of freedom (n_x = %d, n_c = %d).\n  Trying fixed_variable_treatment = RELAX_BOUNDS\n\n",
+                           "Too few degrees of freedom (n_x = %" IPOPT_INDEX_FORMAT ", n_c = %" IPOPT_INDEX_FORMAT ").\n  Trying fixed_variable_treatment = RELAX_BOUNDS\n\n",
                            n_x_var, n_c);
          }
       } // while (!done)
-
-      if( n_x_var == 0 )
-      {
-         // Check of all constraints are satisfied:
-         for( Index i = 0; i < n_full_x_; i++ )
-         {
-            DBG_ASSERT(x_l[i] == x_u[i]);
-            full_x_[i] = x_l[i];
-         }
-         bool retval = tnlp_->eval_g(n_full_x_, full_x_, true, n_full_g_, full_g_);
-         ASSERT_EXCEPTION(retval, IpoptNLP::Eval_Error,
-                          "All variables are fixed, but constraints cannot be evaluated at fixed point.");
-         Number max_viol = 0.;
-         for( Index i = 0; i < n_full_g_; i++ )
-         {
-            //printf("%d %23.16e %23.16e %23.16e\n",i,full_g_[i], g_l[i], g_u[i]);
-            max_viol = Max(max_viol, full_g_[i] - g_u[i], g_l[i] - full_g_[i]);
-         }
-
-         SolverReturn status;
-         if( max_viol <= tol_ )   //ToDo: base also on (acceptable) (constraint violation) tolerance
-         {
-            status = SUCCESS;
-         }
-         else
-         {
-            status = LOCAL_INFEASIBILITY;
-         }
-
-         Number obj_value;
-         retval = tnlp_->eval_f(n_full_x_, full_x_, false, obj_value);
-         ASSERT_EXCEPTION(retval, IpoptNLP::Eval_Error,
-                          "All variables are fixed, but objective cannot be evaluated at fixed point.");
-         // Call finalize_solution so that user has required information
-         Number* full_z_L = new Number[n_full_x_];
-         Number* full_z_U = new Number[n_full_x_];
-         Number* full_lambda = new Number[n_full_g_];
-         // For now, we return zeros as multipliers... (ToDo?)
-         const Number zero = 0.;
-         IpBlasDcopy(n_full_x_, &zero, 0, full_z_L, 1);
-         IpBlasDcopy(n_full_x_, &zero, 0, full_z_U, 1);
-         IpBlasDcopy(n_full_g_, &zero, 0, full_lambda, 1);
-         tnlp_->finalize_solution(status, n_full_x_, full_x_, full_z_L, full_z_U, n_full_g_, full_g_, full_lambda,
-                                  obj_value, NULL, NULL);
-         delete[] full_z_L;
-         delete[] full_z_U;
-         delete[] full_lambda;
-
-         // Free memory
-         delete[] x_not_fixed_map;
-         delete[] x_l_map;
-         delete[] x_u_map;
-         delete[] c_map;
-         delete[] d_map;
-         delete[] d_l_map;
-         delete[] d_u_map;
-         delete[] x_l;
-         delete[] x_u;
-         delete[] g_l;
-         delete[] g_u;
-
-         // NOTE: we have passed the primal solution to the user, but not to Ipopt
-         // that is, Ipopt's data object still holds none or another solution
-         // However, since IpoptApplication will not call finalize_solution with this point if
-         // it gets a NO_FREE_VARIABLES_* exception, this should be good enough.
-         char string[128];
-         Snprintf(string, 127, "All variables are fixed, and constraint violation is %e", max_viol);
-         if( status == SUCCESS )
-         {
-            jnlst_->Printf(J_WARNING, J_INITIALIZATION,
-                           "All variables are fixed and constraint violation %e\n   is below tolerance %e. Declaring success.\n",
-                           max_viol, tol_);
-            THROW_EXCEPTION(NO_FREE_VARIABLES_BUT_FEASIBLE, string);
-         }
-         else
-         {
-            jnlst_->Printf(J_WARNING, J_INITIALIZATION,
-                           "All variables are fixed and constraint violation %e\n  is above tolerance %e. Declaring that problem is infeasible.\n",
-                           max_viol, tol_);
-            THROW_EXCEPTION(NO_FREE_VARIABLES_AND_INFEASIBLE, string);
-         }
-      }
 
       // If requested, check if there are linearly dependent equality
       // constraints
@@ -698,10 +644,10 @@ bool TNLPAdapter::GetSpaces(
                            "Dependent constraint detector had a problem, assume full rank.\n");
          }
          c_deps.sort();
-         if( c_deps.size() > 0 )
+         if( !c_deps.empty() )
          {
             jnlst_->Printf(J_WARNING, J_INITIALIZATION,
-                           "\nDetected %d linearly dependent equality constraints; taking those out.\n\n", c_deps.size());
+                           "\nDetected %zd linearly dependent equality constraints; taking those out.\n\n", c_deps.size());
          }
          else
          {
@@ -710,14 +656,14 @@ bool TNLPAdapter::GetSpaces(
          if( jnlst_->ProduceOutput(J_DETAILED, J_INITIALIZATION) )
          {
             jnlst_->Printf(J_DETAILED, J_INITIALIZATION, "\nList of indices of dependent constraints:\n");
-            int count = 0;
-            for( std::list<Index>::iterator i = c_deps.begin(); i != c_deps.end(); i++ )
+            Index count = 0;
+            for( std::list<Index>::iterator i = c_deps.begin(); i != c_deps.end(); ++i )
             {
-               jnlst_->Printf(J_DETAILED, J_INITIALIZATION, "c_dep[%d] = %d\n", count++, *i);
+               jnlst_->Printf(J_DETAILED, J_INITIALIZATION, "c_dep[%" IPOPT_INDEX_FORMAT "] = %" IPOPT_INDEX_FORMAT "\n", count++, *i);
             }
             jnlst_->Printf(J_DETAILED, J_INITIALIZATION, "\n");
          }
-         if( c_deps.size() > 0 )
+         if( !c_deps.empty() )
          {
             // Take the dependent constraints out.
             // We assume that the list in c_dep is sorted
@@ -727,7 +673,7 @@ bool TNLPAdapter::GetSpaces(
             {
                if( i == *idep )
                {
-                  idep++;
+                  ++idep;
                }
                else
                {
@@ -749,7 +695,7 @@ bool TNLPAdapter::GetSpaces(
             // to zero (could do only for dependent ones... was too lazy
             // right now)
             const Number zero = 0.;
-            IpBlasDcopy(n_full_g_, &zero, 0, full_lambda_, 1);
+            IpBlasCopy(n_full_g_, &zero, 0, full_lambda_, 1);
          }
       }
       delete[] x_l;
@@ -765,7 +711,7 @@ bool TNLPAdapter::GetSpaces(
       SmartPtr<DenseVectorSpace> dv_x_u_space = new DenseVectorSpace(n_x_u);
       x_u_space_ = GetRawPtr(dv_x_u_space);
 
-      if( n_x_fixed_ > 0 && fixed_variable_treatment_ == MAKE_PARAMETER )
+      if( n_x_fixed_ > 0 && (fixed_variable_treatment_ == MAKE_PARAMETER || fixed_variable_treatment_ == MAKE_PARAMETER_NODUAL) )
       {
          P_x_full_x_space_ = new ExpansionMatrixSpace(n_full_x_, n_x_var, x_not_fixed_map);
          P_x_full_x_ = P_x_full_x_space_->MakeNewExpansionMatrix();
@@ -786,8 +732,7 @@ bool TNLPAdapter::GetSpaces(
       // setup the variable meta data if present
       if( var_string_md.size() > 0 )
       {
-         StringMetaDataMapType::iterator iter;
-         for( iter = var_string_md.begin(); iter != var_string_md.end(); iter++ )
+         for( StringMetaDataMapType::iterator iter = var_string_md.begin(); iter != var_string_md.end(); ++iter )
          {
             std::vector<std::string> string_md(n_x_var);
             const Index* pos_idx = NULL;
@@ -810,19 +755,33 @@ bool TNLPAdapter::GetSpaces(
 
             string_md.clear();
             string_md.resize(n_x_l);
-            pos_idx = P_x_x_L_space_->ExpandedPosIndices();
+            const Index* pos_idxL = P_x_x_L_space_->ExpandedPosIndices();
             for( Index i = 0; i < n_x_l; i++ )
             {
-               string_md[i] = iter->second[pos_idx[i]];
+               if( pos_idx != NULL )
+               {
+                  string_md[i] = iter->second[pos_idx[pos_idxL[i]]];
+               }
+               else
+               {
+                  string_md[i] = iter->second[pos_idxL[i]];
+               }
             }
             dv_x_l_space->SetStringMetaData(iter->first, string_md);
 
             string_md.clear();
             string_md.resize(n_x_u);
-            pos_idx = P_x_x_U_space_->ExpandedPosIndices();
+            const Index* pos_idxU = P_x_x_U_space_->ExpandedPosIndices();
             for( Index i = 0; i < n_x_u; i++ )
             {
-               string_md[i] = iter->second[pos_idx[i]];
+               if( pos_idx != NULL )
+               {
+                  string_md[i] = iter->second[pos_idx[pos_idxU[i]]];
+               }
+               else
+               {
+                  string_md[i] = iter->second[pos_idxU[i]];
+               }
             }
             dv_x_u_space->SetStringMetaData(iter->first, string_md);
          }
@@ -830,8 +789,7 @@ bool TNLPAdapter::GetSpaces(
 
       if( var_integer_md.size() > 0 )
       {
-         IntegerMetaDataMapType::iterator iter;
-         for( iter = var_integer_md.begin(); iter != var_integer_md.end(); iter++ )
+         for( IntegerMetaDataMapType::iterator iter = var_integer_md.begin(); iter != var_integer_md.end(); ++iter )
          {
             std::vector<Index> integer_md(n_x_var);
             const Index* pos_idx = NULL;
@@ -854,19 +812,33 @@ bool TNLPAdapter::GetSpaces(
 
             integer_md.clear();
             integer_md.resize(n_x_l);
-            pos_idx = P_x_x_L_space_->ExpandedPosIndices();
+            const Index* pos_idxL = P_x_x_L_space_->ExpandedPosIndices();
             for( Index i = 0; i < n_x_l; i++ )
             {
-               integer_md[i] = iter->second[pos_idx[i]];
+               if( pos_idx != NULL )
+               {
+                  integer_md[i] = iter->second[pos_idx[pos_idxL[i]]];
+               }
+               else
+               {
+                  integer_md[i] = iter->second[pos_idxL[i]];
+               }
             }
             dv_x_l_space->SetIntegerMetaData(iter->first, integer_md);
 
             integer_md.clear();
             integer_md.resize(n_x_u);
-            pos_idx = P_x_x_U_space_->ExpandedPosIndices();
+            const Index* pos_idxU = P_x_x_U_space_->ExpandedPosIndices();
             for( Index i = 0; i < n_x_u; i++ )
             {
-               integer_md[i] = iter->second[pos_idx[i]];
+               if( pos_idx != NULL )
+               {
+                  integer_md[i] = iter->second[pos_idx[pos_idxU[i]]];
+               }
+               else
+               {
+                  integer_md[i] = iter->second[pos_idxU[i]];
+               }
             }
             dv_x_u_space->SetIntegerMetaData(iter->first, integer_md);
          }
@@ -874,8 +846,7 @@ bool TNLPAdapter::GetSpaces(
 
       if( var_numeric_md.size() > 0 )
       {
-         NumericMetaDataMapType::iterator iter;
-         for( iter = var_numeric_md.begin(); iter != var_numeric_md.end(); iter++ )
+         for( NumericMetaDataMapType::iterator iter = var_numeric_md.begin(); iter != var_numeric_md.end(); ++iter )
          {
             std::vector<Number> numeric_md(n_x_var);
             const Index* pos_idx = NULL;
@@ -898,19 +869,33 @@ bool TNLPAdapter::GetSpaces(
 
             numeric_md.clear();
             numeric_md.resize(n_x_l);
-            pos_idx = P_x_x_L_space_->ExpandedPosIndices();
+            const Index* pos_idxL = P_x_x_L_space_->ExpandedPosIndices();
             for( Index i = 0; i < n_x_l; i++ )
             {
-               numeric_md[i] = iter->second[pos_idx[i]];
+               if( pos_idx != NULL )
+               {
+                  numeric_md[i] = iter->second[pos_idx[pos_idxL[i]]];
+               }
+               else
+               {
+                  numeric_md[i] = iter->second[pos_idxL[i]];
+               }
             }
             dv_x_l_space->SetNumericMetaData(iter->first, numeric_md);
 
             numeric_md.clear();
             numeric_md.resize(n_x_u);
-            pos_idx = P_x_x_U_space_->ExpandedPosIndices();
+            const Index* pos_idxU = P_x_x_U_space_->ExpandedPosIndices();
             for( Index i = 0; i < n_x_u; i++ )
             {
-               numeric_md[i] = iter->second[pos_idx[i]];
+               if( pos_idx != NULL )
+               {
+                  numeric_md[i] = iter->second[pos_idx[pos_idxU[i]]];
+               }
+               else
+               {
+                  numeric_md[i] = iter->second[pos_idxU[i]];
+               }
             }
             dv_x_u_space->SetNumericMetaData(iter->first, numeric_md);
          }
@@ -926,7 +911,7 @@ bool TNLPAdapter::GetSpaces(
       // create the required c_space
 
       SmartPtr<DenseVectorSpace> dc_space;
-      if( n_x_fixed_ == 0 || fixed_variable_treatment_ == MAKE_PARAMETER )
+      if( n_x_fixed_ == 0 || fixed_variable_treatment_ == MAKE_PARAMETER || fixed_variable_treatment_ == MAKE_PARAMETER_NODUAL )
       {
          dc_space = new DenseVectorSpace(n_c);
       }
@@ -978,8 +963,7 @@ bool TNLPAdapter::GetSpaces(
       // set the constraint meta data if present
       if( con_string_md.size() > 0 )
       {
-         StringMetaDataMapType::iterator iter;
-         for( iter = con_string_md.begin(); iter != con_string_md.end(); iter++ )
+         for( StringMetaDataMapType::iterator iter = con_string_md.begin(); iter != con_string_md.end(); ++iter )
          {
             std::vector<std::string> string_md(n_c);
             const Index* pos_idx = P_c_g_space_->ExpandedPosIndices();
@@ -1000,19 +984,19 @@ bool TNLPAdapter::GetSpaces(
 
             string_md.clear();
             string_md.resize(n_d_l);
-            pos_idx = P_d_l_space->ExpandedPosIndices();
+            const Index* d_pos_idx = P_d_l_space->ExpandedPosIndices();
             for( Index i = 0; i < n_d_l; i++ )
             {
-               string_md[i] = iter->second[pos_idx[i]];
+               string_md[i] = iter->second[pos_idx[d_pos_idx[i]]];
             }
             dv_d_l_space->SetStringMetaData(iter->first, string_md);
 
             string_md.clear();
             string_md.resize(n_d_u);
-            pos_idx = P_d_u_space->ExpandedPosIndices();
+            d_pos_idx = P_d_u_space->ExpandedPosIndices();
             for( Index i = 0; i < n_d_u; i++ )
             {
-               string_md[i] = iter->second[pos_idx[i]];
+               string_md[i] = iter->second[pos_idx[d_pos_idx[i]]];
             }
             dv_d_u_space->SetStringMetaData(iter->first, string_md);
          }
@@ -1020,8 +1004,7 @@ bool TNLPAdapter::GetSpaces(
 
       if( con_integer_md.size() > 0 )
       {
-         IntegerMetaDataMapType::iterator iter;
-         for( iter = con_integer_md.begin(); iter != con_integer_md.end(); iter++ )
+         for( IntegerMetaDataMapType::iterator iter = con_integer_md.begin(); iter != con_integer_md.end(); ++iter )
          {
             std::vector<Index> integer_md(n_c);
             const Index* pos_idx = P_c_g_space_->ExpandedPosIndices();
@@ -1042,19 +1025,19 @@ bool TNLPAdapter::GetSpaces(
 
             integer_md.clear();
             integer_md.resize(n_d_l);
-            pos_idx = P_d_l_space->ExpandedPosIndices();
+            const Index* d_pos_idx = P_d_l_space->ExpandedPosIndices();
             for( Index i = 0; i < n_d_l; i++ )
             {
-               integer_md[i] = iter->second[pos_idx[i]];
+               integer_md[i] = iter->second[pos_idx[d_pos_idx[i]]];
             }
             dv_d_l_space->SetIntegerMetaData(iter->first, integer_md);
 
             integer_md.clear();
             integer_md.resize(n_d_u);
-            pos_idx = P_d_u_space->ExpandedPosIndices();
+            d_pos_idx = P_d_u_space->ExpandedPosIndices();
             for( Index i = 0; i < n_d_u; i++ )
             {
-               integer_md[i] = iter->second[pos_idx[i]];
+               integer_md[i] = iter->second[pos_idx[d_pos_idx[i]]];
             }
             dv_d_u_space->SetIntegerMetaData(iter->first, integer_md);
          }
@@ -1062,8 +1045,7 @@ bool TNLPAdapter::GetSpaces(
 
       if( con_numeric_md.size() > 0 )
       {
-         NumericMetaDataMapType::iterator iter;
-         for( iter = con_numeric_md.begin(); iter != con_numeric_md.end(); iter++ )
+         for( NumericMetaDataMapType::iterator iter = con_numeric_md.begin(); iter != con_numeric_md.end(); ++iter )
          {
             std::vector<Number> numeric_md(n_c);
             const Index* pos_idx = P_c_g_space_->ExpandedPosIndices();
@@ -1084,19 +1066,19 @@ bool TNLPAdapter::GetSpaces(
 
             numeric_md.clear();
             numeric_md.resize(n_d_l);
-            pos_idx = P_d_l_space->ExpandedPosIndices();
+            const Index* d_pos_idx = P_d_l_space->ExpandedPosIndices();
             for( Index i = 0; i < n_d_l; i++ )
             {
-               numeric_md[i] = iter->second[pos_idx[i]];
+               numeric_md[i] = iter->second[pos_idx[d_pos_idx[i]]];
             }
             dv_d_l_space->SetNumericMetaData(iter->first, numeric_md);
 
             numeric_md.clear();
             numeric_md.resize(n_d_u);
-            pos_idx = P_d_u_space->ExpandedPosIndices();
+            d_pos_idx = P_d_u_space->ExpandedPosIndices();
             for( Index i = 0; i < n_d_u; i++ )
             {
-               numeric_md[i] = iter->second[pos_idx[i]];
+               numeric_md[i] = iter->second[pos_idx[d_pos_idx[i]]];
             }
             dv_d_u_space->SetNumericMetaData(iter->first, numeric_md);
          }
@@ -1107,7 +1089,16 @@ bool TNLPAdapter::GetSpaces(
       // Get the non zero structure
       Index* g_iRow = new Index[nz_full_jac_g_];
       Index* g_jCol = new Index[nz_full_jac_g_];
-      tnlp_->eval_jac_g(n_full_x_, NULL, false, n_full_g_, nz_full_jac_g_, g_iRow, g_jCol, NULL);
+
+      bool retval = tnlp_->eval_jac_g(n_full_x_, NULL, false, n_full_g_, nz_full_jac_g_, g_iRow, g_jCol, NULL);
+
+      if( !retval )
+      {
+         delete[] g_iRow;
+         delete[] g_jCol;
+
+         THROW_EXCEPTION(INVALID_TNLP, "eval_jac_g returned false in GetSpaces");
+      }
 
       if( index_style_ != TNLP::FORTRAN_STYLE )
       {
@@ -1121,7 +1112,7 @@ bool TNLPAdapter::GetSpaces(
             g_jCol[i] += 1;
          }
       }
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
       else
       {
          for( Index i = 0; i < nz_full_jac_g_; i++ )
@@ -1134,7 +1125,7 @@ bool TNLPAdapter::GetSpaces(
       }
 #endif
 
-      if( nz_full_jac_g_ > 0 && jacobian_approximation_ == JAC_FINDIFF_VALUES )
+      if( jacobian_approximation_ == JAC_FINDIFF_VALUES )
       {
          initialize_findiff_jac(g_iRow, g_jCol);
       }
@@ -1143,7 +1134,7 @@ bool TNLPAdapter::GetSpaces(
       // ... (the permutation from rows in jac_g to jac_c is
       // ...  the same as P_c_g_)
       Index nz_jac_all;
-      if( fixed_variable_treatment_ == MAKE_PARAMETER )
+      if( fixed_variable_treatment_ == MAKE_PARAMETER || fixed_variable_treatment_ == MAKE_PARAMETER_NODUAL )
       {
          nz_jac_all = nz_full_jac_g_;
       }
@@ -1155,6 +1146,7 @@ bool TNLPAdapter::GetSpaces(
       Index* jac_c_iRow = new Index[nz_jac_all];
       Index* jac_c_jCol = new Index[nz_jac_all];
       Index current_nz = 0;
+
       const Index* c_row_pos = P_c_g_->CompressedPosIndices();
       if( IsValid(P_x_full_x_) )
       {
@@ -1170,6 +1162,14 @@ bool TNLPAdapter::GetSpaces(
                jac_c_iRow[current_nz] = c_row + 1;
                jac_c_jCol[current_nz] = c_col + 1;
                current_nz++;
+            }
+            else if( c_col == -1 && fixed_variable_treatment_ == MAKE_PARAMETER )
+            {
+               // c_col == -1 should mean a fixed variables
+               // c_row == -1 should mean a row in d(x)  (but the distinction into c(x) and d(x) isn't relevant for us here)
+               jac_fixed_idx_map_.push_back(i);
+               jac_fixed_iRow_.push_back(g_iRow[i]);
+               jac_fixed_jCol_.push_back(g_jCol[i]);
             }
          }
       }
@@ -1190,7 +1190,7 @@ bool TNLPAdapter::GetSpaces(
       }
       nz_jac_c_no_extra_ = current_nz;
       Index n_added_constr;
-      if( fixed_variable_treatment_ == MAKE_PARAMETER )
+      if( fixed_variable_treatment_ == MAKE_PARAMETER || fixed_variable_treatment_ == MAKE_PARAMETER_NODUAL )
       {
          nz_jac_c_ = nz_jac_c_no_extra_;
          n_added_constr = 0;
@@ -1214,7 +1214,7 @@ bool TNLPAdapter::GetSpaces(
       jac_c_jCol = NULL;
 
       // ... build the nonzero structure for jac_d
-      // ... (the permuation from rows in jac_g to jac_c is the
+      // ... (the permutation from rows in jac_g to jac_c is the
       // ...  the same as P_d_g_)
       Index* jac_d_iRow = new Index[nz_full_jac_g_];
       Index* jac_d_jCol = new Index[nz_full_jac_g_];
@@ -1270,8 +1270,8 @@ bool TNLPAdapter::GetSpaces(
          Index* full_h_jCol = new Index[nz_full_h_];
          Index* h_iRow = new Index[nz_full_h_];
          Index* h_jCol = new Index[nz_full_h_];
-         bool retval = tnlp_->eval_h(n_full_x_, NULL, false, 0, n_full_g_,
-                                     NULL, false, nz_full_h_, full_h_iRow, full_h_jCol, NULL);
+         retval = tnlp_->eval_h(n_full_x_, NULL, false, 0, n_full_g_,
+                                NULL, false, nz_full_h_, full_h_iRow, full_h_jCol, NULL);
          if( !retval )
          {
             delete[] full_h_iRow;
@@ -1295,7 +1295,7 @@ bool TNLPAdapter::GetSpaces(
                full_h_jCol[i] += 1;
             }
          }
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
          else
          {
             for( Index i = 0; i < nz_full_h_; i++ )
@@ -1375,11 +1375,11 @@ bool TNLPAdapter::GetSpaces(
 
    if( IsValid(jnlst_) )
    {
-      jnlst_->Printf(J_ITERSUMMARY, J_STATISTICS, "Number of nonzeros in equality constraint Jacobian...:%9d\n",
+      jnlst_->Printf(J_ITERSUMMARY, J_STATISTICS, "Number of nonzeros in equality constraint Jacobian...:%9" IPOPT_INDEX_FORMAT "\n",
                      nz_jac_c_);
-      jnlst_->Printf(J_ITERSUMMARY, J_STATISTICS, "Number of nonzeros in inequality constraint Jacobian.:%9d\n",
+      jnlst_->Printf(J_ITERSUMMARY, J_STATISTICS, "Number of nonzeros in inequality constraint Jacobian.:%9" IPOPT_INDEX_FORMAT "\n",
                      nz_jac_d_);
-      jnlst_->Printf(J_ITERSUMMARY, J_STATISTICS, "Number of nonzeros in Lagrangian Hessian.............:%9d\n\n",
+      jnlst_->Printf(J_ITERSUMMARY, J_STATISTICS, "Number of nonzeros in Lagrangian Hessian.............:%9" IPOPT_INDEX_FORMAT "\n\n",
                      nz_h_);
    }
 
@@ -1408,7 +1408,7 @@ bool TNLPAdapter::GetBoundsInformation(
    bool retval = tnlp_->get_bounds_info(n_full_x_, x_l, x_u, n_full_g_, g_l, g_u);
    ASSERT_EXCEPTION(retval, INVALID_TNLP, "get_bounds_info returned false in GetBoundsInformation");
 
-   if( fixed_variable_treatment_ == MAKE_PARAMETER )
+   if( fixed_variable_treatment_ == MAKE_PARAMETER || fixed_variable_treatment_ == MAKE_PARAMETER_NODUAL )
    {
       // Set the values of fixed variables
       for( Index i = 0; i < n_x_fixed_; i++ )
@@ -1420,13 +1420,13 @@ bool TNLPAdapter::GetBoundsInformation(
    else if( fixed_variable_treatment_ == RELAX_BOUNDS )
    {
       // Relax the bounds for fixed variables
-      const Number bound_relax = Max(1e-8, bound_relax_factor_);
+      const Number bound_relax = Max(Number(1e-8), bound_relax_factor_);
       for( Index i = 0; i < n_x_fixed_; i++ )
       {
          if( x_l[i] == x_u[i] )
          {
-            x_l[i] -= bound_relax * Max(1., fabs(x_l[i]));
-            x_u[i] += bound_relax * Max(1., fabs(x_u[i]));
+            x_l[i] -= bound_relax * Max(Number(1.), std::abs(x_l[i]));
+            x_u[i] += bound_relax * Max(Number(1.), std::abs(x_u[i]));
          }
       }
    }
@@ -1530,7 +1530,7 @@ bool TNLPAdapter::GetBoundsInformation(
    }
 
    // In case we are doing finite differences, keep a copy of the bounds
-   if( jacobian_approximation_ != JAC_EXACT )
+   if( jacobian_approximation_ != JAC_EXACT || gradient_approximation_ != OBJGRAD_EXACT )
    {
       delete[] findiff_x_l_;
       delete[] findiff_x_u_;
@@ -1570,7 +1570,7 @@ bool TNLPAdapter::GetStartingPoint(
    Number* full_z_u = new Number[n_full_x_];
    Number* full_lambda = new Number[n_full_g_];
    bool init_x = need_x;
-   bool init_z = need_z_L || need_z_U;
+   bool init_z = need_z_L || need_z_U || (fixed_variable_treatment_ == MAKE_CONSTRAINT && n_x_fixed_ > 0 && need_y_c);
    bool init_lambda = need_y_c || need_y_d;
 
    bool retvalue = tnlp_->get_starting_point(n_full_x_, init_x, full_x, init_z, full_z_l, full_z_u, n_full_g_,
@@ -1601,7 +1601,7 @@ bool TNLPAdapter::GetStartingPoint(
       }
       else
       {
-         IpBlasDcopy(n_x_var, full_x, 1, values, 1);
+         IpBlasCopy(n_x_var, full_x, 1, values, 1);
       }
    }
 
@@ -1617,9 +1617,10 @@ bool TNLPAdapter::GetStartingPoint(
       }
       if( fixed_variable_treatment_ == MAKE_CONSTRAINT )
       {
-         // ToDo maybe use info from z_L and Z_U here?
-         const Number zero = 0.;
-         IpBlasDcopy(n_x_fixed_, &zero, 0, &values[P_c_g_->NCols()], 1);
+         for( Index i = 0; i < n_x_fixed_; i++ )
+         {
+            values[P_c_g_->NCols() + i] = full_z_u[x_fixed_map_[i]] - full_z_l[x_fixed_map_[i]];
+         }
       }
    }
 
@@ -1735,23 +1736,73 @@ bool TNLPAdapter::Eval_grad_f(
    DenseVector* dg_f = static_cast<DenseVector*>(&g_f);
    DBG_ASSERT(dynamic_cast<DenseVector*>(&g_f));
    Number* values = dg_f->Values();
-   if( IsValid(P_x_full_x_) )
+
+   if( gradient_approximation_ == OBJGRAD_EXACT )
    {
-      Number* full_grad_f = new Number[n_full_x_];
-      if( tnlp_->eval_grad_f(n_full_x_, full_x_, new_x, full_grad_f) )
+      if( IsValid(P_x_full_x_) )
       {
-         const Index* x_pos = P_x_full_x_->ExpandedPosIndices();
-         for( Index i = 0; i < g_f.Dim(); i++ )
+         Number* full_grad_f = new Number[n_full_x_];
+         if( tnlp_->eval_grad_f(n_full_x_, full_x_, new_x, full_grad_f) )
          {
-            values[i] = full_grad_f[x_pos[i]];
+            const Index* x_pos = P_x_full_x_->ExpandedPosIndices();
+            for( Index i = 0; i < g_f.Dim(); i++ )
+            {
+               values[i] = full_grad_f[x_pos[i]];
+            }
+            retvalue = true;
          }
-         retvalue = true;
+         delete[] full_grad_f;
       }
-      delete[] full_grad_f;
+      else
+      {
+         retvalue = tnlp_->eval_grad_f(n_full_x_, full_x_, new_x, values);
+      }
    }
    else
    {
-      retvalue = tnlp_->eval_grad_f(n_full_x_, full_x_, new_x, values);
+      // make sure we have the value of the objective at the point
+      Number f;
+      retvalue = tnlp_->eval_f(n_full_x_, full_x_, new_x, f);
+      if( retvalue )
+      {
+         Number* full_x_pert = new Number[n_full_x_];
+         IpBlasCopy(n_full_x_, full_x_, 1, full_x_pert, 1);
+         const Index* x_pos = NULL;
+         if( IsValid(P_x_full_x_) )
+         {
+            x_pos = P_x_full_x_->ExpandedPosIndices();
+         }
+
+         // Compute the finite difference objective
+         for( Index i = 0; i < g_f.Dim(); i++ )
+         {
+            Index ivar = x_pos != NULL ? x_pos[i] : i;
+            if( findiff_x_l_[ivar] < findiff_x_u_[ivar] )
+            {
+               const Number xorig = full_x_pert[ivar];
+               Number this_perturbation = findiff_perturbation_ * Max(Number(1.), std::abs(full_x_[ivar]));
+               full_x_pert[ivar] += this_perturbation;
+               if( full_x_pert[ivar] > findiff_x_u_[ivar] )
+               {
+                  // if at upper bound, then change direction towards lower bound
+                  this_perturbation = -this_perturbation;
+                  full_x_pert[ivar] = xorig + this_perturbation;
+               }
+               Number f_pert;
+               retvalue = tnlp_->eval_f(n_full_x_, full_x_pert, true, f_pert);
+               if( !retvalue )
+               {
+                  break;
+               }
+
+               values[i] = (f_pert - f) / this_perturbation;
+
+               full_x_pert[ivar] = xorig;
+            }
+         }
+
+         delete[] full_x_pert;
+      }
    }
 
    return retvalue;
@@ -1818,7 +1869,7 @@ bool TNLPAdapter::Eval_jac_c(
       if( fixed_variable_treatment_ == MAKE_CONSTRAINT )
       {
          const Number one = 1.;
-         IpBlasDcopy(n_x_fixed_, &one, 0, &values[nz_jac_c_no_extra_], 1);
+         IpBlasCopy(n_x_fixed_, &one, 0, &values[nz_jac_c_no_extra_], 1);
       }
       return true;
    }
@@ -1956,7 +2007,7 @@ void TNLPAdapter::GetScalingParameters(
    x_scaling = x_space->MakeNew();
    c_scaling = c_space->MakeNew();
    d_scaling = d_space->MakeNew();
-   DBG_ASSERT((c_scaling->Dim() + d_scaling->Dim()) == n_full_g_);
+   DBG_ASSERT(c_scaling->Dim() + d_scaling->Dim() == n_full_g_ + (fixed_variable_treatment_ == MAKE_CONSTRAINT ? n_x_fixed_ : 0));
 
    DenseVector* dx = static_cast<DenseVector*>(GetRawPtr(x_scaling));
    DBG_ASSERT(dynamic_cast<DenseVector*>(GetRawPtr(x_scaling)));
@@ -2022,7 +2073,7 @@ void TNLPAdapter::GetScalingParameters(
       if( fixed_variable_treatment_ == MAKE_CONSTRAINT )
       {
          const Number one = 1.;
-         IpBlasDcopy(n_x_fixed_, &one, 0, &dc_values[P_c_g_->NCols()], 1);
+         IpBlasCopy(n_x_fixed_, &one, 0, &dc_values[P_c_g_->NCols()], 1);
       }
 
       const Index* d_pos = P_d_g_->ExpandedPosIndices();
@@ -2119,21 +2170,35 @@ void TNLPAdapter::FinalizeSolution(
    if( c.Dim() + d.Dim() < n_full_g_ )
    {
       const Number zero = 0.;
-      IpBlasDcopy(n_full_g_, &zero, 0, full_g, 1);
+      IpBlasCopy(n_full_g_, &zero, 0, full_g, 1);
    }
-   ResortG(c, d, full_g);
-   // To Ipopt, the equality constraints are presented with right
-   // hand side zero, so we correct for the original right hand side.
-   const Index* c_pos = P_c_g_->ExpandedPosIndices();
-   Index n_c_no_fixed = P_c_g_->NCols();
-   for( Index i = 0; i < n_c_no_fixed; i++ )
-   {
-      full_g[c_pos[i]] += c_rhs_[i];
-   }
+   ResortG(c, d, full_g, true);
 
    Number* full_z_L = new Number[n_full_x_];
    Number* full_z_U = new Number[n_full_x_];
-   ResortBnds(z_L, full_z_L, z_U, full_z_U);
+   switch( status )
+   {
+      case SUCCESS:
+      case MAXITER_EXCEEDED:
+      case STOP_AT_TINY_STEP:
+      case STOP_AT_ACCEPTABLE_POINT:
+      case LOCAL_INFEASIBILITY:
+      case USER_REQUESTED_STOP:
+      case FEASIBLE_POINT_FOUND:
+      case DIVERGING_ITERATES:
+      case RESTORATION_FAILURE:
+      case ERROR_IN_STEP_COMPUTATION:
+         // only for these status codes, IpoptApplication calls without all vectors 0
+         if( !ResortBoundMultipliers(x, y_c, y_d, z_L, full_z_L, z_U, full_z_U) )
+         {
+            jnlst_->Printf(J_WARNING, J_INITIALIZATION, "Failed to evaluate gradient of objective or constraints when computing bound multipliers for fixed variables.\n");
+         }
+         break;
+      default:
+         // if IpoptApplication doesn't provide an actual solution, do not bother to setup good multipliers for fixed variables
+         ResortBounds(z_L, full_z_L, z_U, full_z_U);
+         break;
+   }
 
    SmartPtr<const DenseVectorSpace> z_L_space = dynamic_cast<const DenseVectorSpace*>(GetRawPtr(z_L.OwnerSpace()));
    SmartPtr<const DenseVectorSpace> z_U_space = dynamic_cast<const DenseVectorSpace*>(GetRawPtr(z_U.OwnerSpace()));
@@ -2157,40 +2222,13 @@ void TNLPAdapter::FinalizeSolution(
             }
             std::vector<Number> new_z_L_meta_data(n_full_x_, 0.0);
             std::vector<Number> new_z_U_meta_data(n_full_x_, 0.0);
-            ResortBnds(*z_L_meta_vector, &new_z_L_meta_data[0], *z_U_meta_vector, &new_z_U_meta_data[0], false);
+            ResortBounds(*z_L_meta_vector, &new_z_L_meta_data[0], *z_U_meta_vector, &new_z_U_meta_data[0]);
             std::string z_L_meta_data_tag = z_L_meta_iter->first;
             std::string z_U_meta_data_tag = z_L_meta_iter->first;
             z_L_meta_data_tag += "_z_L";
             z_U_meta_data_tag += "_z_U";
             var_numeric_md[z_L_meta_data_tag] = new_z_L_meta_data;
             var_numeric_md[z_U_meta_data_tag] = new_z_U_meta_data;
-         }
-      }
-   }
-
-   // Hopefully the following is correct to recover the bound
-   // multipliers for fixed variables (sign ok?)
-   if( fixed_variable_treatment_ == MAKE_CONSTRAINT && n_x_fixed_ > 0 )
-   {
-      const DenseVector* dy_c = static_cast<const DenseVector*>(&y_c);
-      DBG_ASSERT(dynamic_cast<const DenseVector*>(&y_c));
-      Index n_c_no_fixed = y_c.Dim() - n_x_fixed_;
-      if( !dy_c->IsHomogeneous() )
-      {
-         const Number* values = dy_c->Values();
-         for( Index i = 0; i < n_x_fixed_; i++ )
-         {
-            full_z_L[x_fixed_map_[i]] = Max(0., -values[n_c_no_fixed + i]);
-            full_z_U[x_fixed_map_[i]] = Max(0., values[n_c_no_fixed + i]);
-         }
-      }
-      else
-      {
-         double value = dy_c->Scalar();
-         for( Index i = 0; i < n_x_fixed_; i++ )
-         {
-            full_z_L[x_fixed_map_[i]] = Max(0., -value);
-            full_z_U[x_fixed_map_[i]] = Max(0., value);
          }
       }
    }
@@ -2297,7 +2335,7 @@ void TNLPAdapter::GetQuasiNewtonApproximationSpaces(
             pos_nonlin_vars[i]--;
          }
       }
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
       else
       {
          for( Index i = 0; i < num_nonlin_vars; i++ )
@@ -2349,7 +2387,7 @@ void TNLPAdapter::GetQuasiNewtonApproximationSpaces(
       else
       {
          SmartPtr<ExpansionMatrixSpace> ex_sp = new ExpansionMatrixSpace(n_x_free, nonfixed_nonlin_vars,
-               nonfixed_pos_nonlin_vars);
+            nonfixed_pos_nonlin_vars);
          P_approx = ex_sp->MakeNew();
          approx_space = new DenseVectorSpace(nonfixed_nonlin_vars);
       }
@@ -2361,7 +2399,8 @@ void TNLPAdapter::GetQuasiNewtonApproximationSpaces(
 
 void TNLPAdapter::ResortX(
    const Vector& x,
-   Number*       x_orig
+   Number*       x_orig,
+   bool          usefixedvals
 )
 {
    const DenseVector* dx = static_cast<const DenseVector*>(&x);
@@ -2381,9 +2420,13 @@ void TNLPAdapter::ResortX(
             {
                x_orig[i] = scalar;
             }
-            else
+            else if( usefixedvals )
             {
                x_orig[i] = full_x_[i];
+            }
+            else
+            {
+               x_orig[i] = 0.0;
             }
          }
       }
@@ -2397,9 +2440,13 @@ void TNLPAdapter::ResortX(
             {
                x_orig[i] = x_values[idx];
             }
-            else
+            else if( usefixedvals )
             {
                x_orig[i] = full_x_[i];
+            }
+            else
+            {
+               x_orig[i] = 0.0;
             }
          }
       }
@@ -2409,11 +2456,11 @@ void TNLPAdapter::ResortX(
       if( dx->IsHomogeneous() )
       {
          const Number& scalar = dx->Scalar();
-         IpBlasDcopy(n_full_x_, &scalar, 0, x_orig, 1);
+         IpBlasCopy(n_full_x_, &scalar, 0, x_orig, 1);
       }
       else
       {
-         IpBlasDcopy(n_full_x_, dx->Values(), 1, x_orig, 1);
+         IpBlasCopy(n_full_x_, dx->Values(), 1, x_orig, 1);
       }
    }
 }
@@ -2421,7 +2468,8 @@ void TNLPAdapter::ResortX(
 void TNLPAdapter::ResortG(
    const Vector& c,
    const Vector& d,
-   Number*       g_orig
+   Number*       g_orig,
+   bool          correctrhs
 )
 {
    const DenseVector* dc = static_cast<const DenseVector*>(&c);
@@ -2434,6 +2482,10 @@ void TNLPAdapter::ResortG(
       for( Index i = 0; i < P_c_g_->NCols(); i++ )
       {
          g_orig[c_pos[i]] = scalar;
+         if( correctrhs )
+         {
+            g_orig[c_pos[i]] += c_rhs_[i];
+         }
       }
    }
    else
@@ -2442,6 +2494,10 @@ void TNLPAdapter::ResortG(
       for( Index i = 0; i < P_c_g_->NCols(); i++ )
       {
          g_orig[c_pos[i]] = c_values[i];
+         if( correctrhs )
+         {
+            g_orig[c_pos[i]] += c_rhs_[i];
+         }
       }
    }
 
@@ -2467,24 +2523,25 @@ void TNLPAdapter::ResortG(
    }
 }
 
-void TNLPAdapter::ResortBnds(
+void TNLPAdapter::ResortBounds(
    const Vector& x_L,
    Number*       x_L_orig,
    const Vector& x_U,
-   Number*       x_U_orig,
-   bool          clearorig
+   Number*       x_U_orig
 )
 {
    if( x_L_orig )
    {
-      if( clearorig )
-         memset(x_L_orig, 0, n_full_x_*sizeof(Number));
-
       const DenseVector* dx_L = static_cast<const DenseVector*>(&x_L);
       DBG_ASSERT(dynamic_cast<const DenseVector*>(&x_L));
 
       const Index* bnds_pos_not_fixed = P_x_x_L_->ExpandedPosIndices();
       const Index& n_xL = x_L.Dim();
+
+      if( n_xL < n_full_x_ )
+      {
+         memset(x_L_orig, 0, n_full_x_ * sizeof(Number));
+      }
 
       if( IsValid(P_x_full_x_) )
       {
@@ -2494,7 +2551,7 @@ void TNLPAdapter::ResortBnds(
             Number scalar = dx_L->Scalar();
             for( Index i = 0; i < n_xL; i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                idx = bnds_pos_full[idx];
                x_L_orig[idx] = scalar;
             }
@@ -2504,7 +2561,7 @@ void TNLPAdapter::ResortBnds(
             const Number* x_L_values = dx_L->Values();
             for( Index i = 0; i < n_xL; i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                idx = bnds_pos_full[idx];
                x_L_orig[idx] = x_L_values[i];
             }
@@ -2517,7 +2574,7 @@ void TNLPAdapter::ResortBnds(
             Number scalar = dx_L->Scalar();
             for( Index i = 0; i < n_xL; i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                x_L_orig[idx] = scalar;
             }
          }
@@ -2526,7 +2583,7 @@ void TNLPAdapter::ResortBnds(
             const Number* x_L_values = dx_L->Values();
             for( Index i = 0; i < n_xL; i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                x_L_orig[idx] = x_L_values[i];
             }
          }
@@ -2535,11 +2592,13 @@ void TNLPAdapter::ResortBnds(
 
    if( x_U_orig )
    {
-      if( clearorig )
-         memset(x_U_orig, 0, n_full_x_*sizeof(Number));
-
       const DenseVector* dx_U = static_cast<const DenseVector*>(&x_U);
       DBG_ASSERT(dynamic_cast<const DenseVector*>(&x_U));
+
+      if( x_U.Dim() < n_full_x_ )
+      {
+         memset(x_U_orig, 0, n_full_x_ * sizeof(Number));
+      }
 
       const Index* bnds_pos_not_fixed = P_x_x_U_->ExpandedPosIndices();
 
@@ -2551,7 +2610,7 @@ void TNLPAdapter::ResortBnds(
             Number scalar = dx_U->Scalar();
             for( Index i = 0; i < x_U.Dim(); i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                idx = bnds_pos_full[idx];
                x_U_orig[idx] = scalar;
             }
@@ -2561,7 +2620,7 @@ void TNLPAdapter::ResortBnds(
             const Number* x_U_values = dx_U->Values();
             for( Index i = 0; i < x_U.Dim(); i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                idx = bnds_pos_full[idx];
                x_U_orig[idx] = x_U_values[i];
             }
@@ -2574,7 +2633,7 @@ void TNLPAdapter::ResortBnds(
             Number scalar = dx_U->Scalar();
             for( Index i = 0; i < x_U.Dim(); i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                x_U_orig[idx] = scalar;
             }
          }
@@ -2583,12 +2642,157 @@ void TNLPAdapter::ResortBnds(
             const Number* x_U_values = dx_U->Values();
             for( Index i = 0; i < x_U.Dim(); i++ )
             {
-               int idx = bnds_pos_not_fixed[i];
+               Index idx = bnds_pos_not_fixed[i];
                x_U_orig[idx] = x_U_values[i];
             }
          }
       }
    }
+}
+
+bool TNLPAdapter::ResortBoundMultipliers(
+   const Vector& x,
+   const Vector& y_c,
+   const Vector& y_d,
+   const Vector& z_L,
+   Number*       z_L_orig,
+   const Vector& z_U,
+   Number*       z_U_orig
+)
+{
+   ResortBounds(z_L, z_L_orig, z_U, z_U_orig);
+
+   if( n_x_fixed_ == 0 )
+   {
+      return true;
+   }
+
+   // recover the bound multipliers for fixed variables
+   if( fixed_variable_treatment_ == MAKE_CONSTRAINT )
+   {
+      const DenseVector* dy_c = static_cast<const DenseVector*>(&y_c);
+      DBG_ASSERT(dynamic_cast<const DenseVector*>(&y_c));
+      Index n_c_no_fixed = y_c.Dim() - n_x_fixed_;
+      if( !dy_c->IsHomogeneous() )
+      {
+         const Number* values = dy_c->Values();
+         for( Index i = 0; i < n_x_fixed_; i++ )
+         {
+            if( z_L_orig != NULL )
+            {
+               z_L_orig[x_fixed_map_[i]] = Max(Number(0.), -values[n_c_no_fixed + i]);
+            }
+            if( z_U_orig != NULL )
+            {
+               z_U_orig[x_fixed_map_[i]] = Max(Number(0.), values[n_c_no_fixed + i]);
+            }
+         }
+      }
+      else
+      {
+         Number value = dy_c->Scalar();
+         for( Index i = 0; i < n_x_fixed_; i++ )
+         {
+            if( z_L_orig != NULL )
+            {
+               z_L_orig[x_fixed_map_[i]] = Max(Number(0.), -value);
+            }
+            if( z_U_orig != NULL )
+            {
+               z_U_orig[x_fixed_map_[i]] = Max(Number(0.), value);
+            }
+         }
+      }
+   }
+
+   if( fixed_variable_treatment_ == MAKE_PARAMETER )
+   {
+      // Lagrangian should be grad_f + lambda jac - z_L + z_U  == 0
+      // so fixed variables get z_L - z_U = grad_f + lambda_jac
+      Number* mult = new Number[n_full_x_];
+      memset(mult, 0, sizeof(Number) * n_full_x_);
+
+      bool new_x = update_local_x(x);
+      if( !tnlp_->eval_grad_f(n_full_x_, full_x_, new_x, mult) )
+      {
+         delete[] mult;
+         return false;
+      }
+
+      if( !jac_fixed_idx_map_.empty() )
+      {
+         if( !internal_eval_jac_g(false) )
+         {
+            delete[] mult;
+            return false;
+         }
+         DBG_ASSERT(dynamic_cast<const DenseVector*>(&y_c));
+         DBG_ASSERT(dynamic_cast<const DenseVector*>(&y_d));
+         const DenseVector* dy_c = static_cast<const DenseVector*>(&y_c);
+         const DenseVector* dy_d = static_cast<const DenseVector*>(&y_d);
+         // mappings from full g() indices to index in c() and d()
+         const Index* c_row_pos = P_c_g_->CompressedPosIndices();
+         const Index* d_row_pos = P_d_g_->CompressedPosIndices();
+         for( size_t i = 0; i < jac_fixed_idx_map_.size(); i++ )
+         {
+            // Assume the same structure as initially given
+            // correct for 1-based indexing in jac_fixed_iRow_ and jac_fixed_jCol_
+            Index row = jac_fixed_iRow_[i] - 1;
+            Index col = jac_fixed_jCol_[i] - 1;
+            Number val = jac_g_[jac_fixed_idx_map_[i]];
+            DBG_ASSERT(row >= 0);
+            DBG_ASSERT(row < n_full_g_);
+            DBG_ASSERT(col >= 0);
+            DBG_ASSERT(col < n_full_x_);
+
+            Number lambda = 0.0;
+            if( c_row_pos[row] != -1 )
+            {
+               if( dy_c->IsHomogeneous() )
+               {
+                  lambda = dy_c->Scalar();
+               }
+               else
+               {
+                  lambda = dy_c->Values()[c_row_pos[row]];
+               }
+            }
+            else if( d_row_pos[row] != -1 )
+            {
+               if( dy_d->IsHomogeneous() )
+               {
+                  lambda = dy_d->Scalar();
+               }
+               else
+               {
+                  lambda = dy_d->Values()[d_row_pos[row]];
+               }
+            }
+            // else: a constraint that is neither in c() nor d(), so assuming lambda=0 seems ok
+
+            // add lambda*jac part
+            mult[col] += lambda * val;
+         }
+      }
+
+      // set z_L = max(0,mult), z_U = max(0,-mult)
+      for( Index i = 0; i < n_x_fixed_; ++i )
+      {
+         Index xidx = x_fixed_map_[i];
+         if( z_L_orig != NULL )
+         {
+            z_L_orig[xidx] = Max(Number(0.0),  mult[xidx]);
+         }
+         if( z_U_orig != NULL )
+         {
+            z_U_orig[xidx] = Max(Number(0.0), -mult[xidx]);
+         }
+      }
+
+      delete[] mult;
+   }
+
+   return true;
 }
 
 bool TNLPAdapter::update_local_x(
@@ -2672,14 +2876,14 @@ bool TNLPAdapter::internal_eval_jac_g(
       {
          Number* full_g_pert = new Number[n_full_g_];
          Number* full_x_pert = new Number[n_full_x_];
-         IpBlasDcopy(n_full_x_, full_x_, 1, full_x_pert, 1);
+         IpBlasCopy(n_full_x_, full_x_, 1, full_x_pert, 1);
          // Compute the finite difference Jacobian
          for( Index ivar = 0; ivar < n_full_x_; ivar++ )
          {
             if( findiff_x_l_[ivar] < findiff_x_u_[ivar] )
             {
                const Number xorig = full_x_pert[ivar];
-               Number this_perturbation = findiff_perturbation_ * Max(1., fabs(full_x_[ivar]));
+               Number this_perturbation = findiff_perturbation_ * Max(Number(1.), std::abs(full_x_[ivar]));
                full_x_pert[ivar] += this_perturbation;
                if( full_x_pert[ivar] > findiff_x_u_[ivar] )
                {
@@ -2752,9 +2956,16 @@ void TNLPAdapter::initialize_findiff_jac(
    findiff_jac_ja_ = new Index[findiff_jac_nnz_];
    findiff_jac_postriplet_ = new Index[findiff_jac_nnz_];
    const Index* ia = findiff_jac_converter->IA();
-   for( Index i = 0; i < n_full_x_ + 1; i++ )
+   if( ia != NULL )
    {
-      findiff_jac_ia_[i] = ia[i];
+      for( Index i = 0; i < n_full_x_ + 1; i++ )
+      {
+         findiff_jac_ia_[i] = ia[i];
+      }
+   }
+   else
+   {
+      memset(findiff_jac_ia_, 0, n_full_x_ * sizeof(Index));
    }
    const Index* ja = findiff_jac_converter->JA();
    for( Index i = 0; i < findiff_jac_nnz_; i++ )
@@ -2797,6 +3008,10 @@ bool TNLPAdapter::CheckDerivatives(
    TNLP::IndexStyleEnum index_style;
    retval = tnlp_->get_nlp_info(nx, ng, nz_jac_g, nz_hess_lag, index_style);
    ASSERT_EXCEPTION(retval, INVALID_TNLP, "get_nlp_info returned false for derivative checker");
+   ASSERT_EXCEPTION(nx >= 0, INVALID_TNLP, "number of variables negative");
+   ASSERT_EXCEPTION(ng >= 0, INVALID_TNLP, "number of constraints negative");
+   ASSERT_EXCEPTION(nz_jac_g >= 0, INVALID_TNLP, "number of nonzeros in Jacobian negative");
+   ASSERT_EXCEPTION(nz_hess_lag >= 0, INVALID_TNLP, "number of nonzeros in Hessian negative");
 
    // Obtain starting point as reference point at which derivative
    // test should be performed
@@ -2844,7 +3059,7 @@ bool TNLPAdapter::CheckDerivatives(
                        "In TNLP derivative test: g could not be evaluated at reference point.");
    }
 
-   // Obtain gradient of objective function at reference pont
+   // Obtain gradient of objective function at reference point
    Number* grad_f = new Number[nx];
    retval = tnlp_->eval_grad_f(nx, xref, true, grad_f);
    ASSERT_EXCEPTION(retval, ERROR_IN_TNLP_DERIVATIVE_TEST,
@@ -2874,7 +3089,7 @@ bool TNLPAdapter::CheckDerivatives(
             g_jCol[i] -= 1;
          }
       }
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
       else
       {
          for( Index i = 0; i < nz_jac_g; i++ )
@@ -2886,7 +3101,7 @@ bool TNLPAdapter::CheckDerivatives(
          }
       }
 #endif
-      // Obtain values at reference pont
+      // Obtain values at reference point
       jac_g = new Number[nz_jac_g];
       retval = tnlp_->eval_jac_g(nx, xref, new_x, ng, nz_jac_g, NULL, NULL, jac_g);
       ASSERT_EXCEPTION(retval, ERROR_IN_TNLP_DERIVATIVE_TEST,
@@ -2895,7 +3110,7 @@ bool TNLPAdapter::CheckDerivatives(
 
    // Space for the perturbed point
    Number* xpert = new Number[nx];
-   IpBlasDcopy(nx, xref, 1, xpert, 1);
+   IpBlasCopy(nx, xref, 1, xpert, 1);
 
    // Space for constraints at perturbed point
    Number* gpert = NULL;
@@ -2915,10 +3130,10 @@ bool TNLPAdapter::CheckDerivatives(
       jnlst_->Printf(J_SUMMARY, J_NLP, "Starting derivative checker for first derivatives.\n\n");
 
       // Now go through all variables and check the partial derivatives
-      const Index ivar_first = Max(0, deriv_test_start_index);
+      const Index ivar_first = Max(Index(0), deriv_test_start_index);
       for( Index ivar = ivar_first; ivar < nx; ivar++ )
       {
-         Number this_perturbation = derivative_test_perturbation_ * Max(1., fabs(xref[ivar]));
+         Number this_perturbation = derivative_test_perturbation_ * Max(Number(1.), std::abs(xref[ivar]));
          xpert[ivar] = xref[ivar] + this_perturbation;
 
          Number fpert;
@@ -2930,7 +3145,7 @@ bool TNLPAdapter::CheckDerivatives(
 
          Number deriv_approx = (fpert - fref) / this_perturbation;
          Number deriv_exact = grad_f[ivar];
-         Number rel_error = fabs(deriv_approx - deriv_exact) / Max(fabs(deriv_approx), 1.);
+         Number rel_error = std::abs(deriv_approx - deriv_exact) / Max(std::abs(deriv_approx), derivative_test_tol_);
          char cflag = ' ';
          if( rel_error >= derivative_test_tol_ )
          {
@@ -2939,7 +3154,7 @@ bool TNLPAdapter::CheckDerivatives(
          }
          if( cflag != ' ' || derivative_test_print_all_ )
          {
-            jnlst_->Printf(J_WARNING, J_NLP, "%c grad_f[      %5d] = %23.16e    ~ %23.16e  [%10.3e]\n", cflag,
+            jnlst_->Printf(J_WARNING, J_NLP, "%c grad_f[      %5" IPOPT_INDEX_FORMAT "] = %23.16e    ~ %23.16e  [%10.3e]\n", cflag,
                            ivar + index_correction, deriv_exact, deriv_approx, rel_error);
          }
 
@@ -2961,8 +3176,7 @@ bool TNLPAdapter::CheckDerivatives(
                      deriv_exact += jac_g[i];
                   }
                }
-
-               rel_error = fabs(deriv_approx - deriv_exact) / Max(fabs(deriv_approx), 1.);
+               rel_error = std::abs(deriv_approx - deriv_exact) / Max(std::abs(deriv_approx), derivative_test_tol_);
                cflag = ' ';
                if( rel_error >= derivative_test_tol_ )
                {
@@ -2976,7 +3190,7 @@ bool TNLPAdapter::CheckDerivatives(
                }
                if( cflag != ' ' || derivative_test_print_all_ )
                {
-                  jnlst_->Printf(J_WARNING, J_NLP, "%c jac_g [%5d,%5d] = %23.16e %c  ~ %23.16e  [%10.3e]\n", cflag,
+                  jnlst_->Printf(J_WARNING, J_NLP, "%c jac_g [%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "] = %23.16e %c  ~ %23.16e  [%10.3e]\n", cflag,
                                  icon + index_correction, ivar + index_correction, deriv_exact, sflag, deriv_approx, rel_error);
                }
             }
@@ -2989,7 +3203,7 @@ bool TNLPAdapter::CheckDerivatives(
    const Number zero = 0.;
    if( deriv_test == SECOND_ORDER_TEST || deriv_test == ONLY_SECOND_ORDER_TEST )
    {
-      jnlst_->Printf(J_SUMMARY, J_NLP, "Starting derivative checker for second derivatives.\n\n");
+      jnlst_->Printf(J_SUMMARY, J_NLP, "Starting derivative checker for second derivatives with obj_factor or lambda[i] set to 1.5.\n\n");
 
       // Get sparsity structure of Hessian
       Index* h_iRow = new Index[nz_hess_lag];
@@ -3010,7 +3224,7 @@ bool TNLPAdapter::CheckDerivatives(
             h_jCol[i] -= 1;
          }
       }
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
       else
       {
          for( Index i = 0; i < nz_hess_lag; i++ )
@@ -3028,26 +3242,27 @@ bool TNLPAdapter::CheckDerivatives(
       if( ng > 0 )
       {
          lambda = new Number[ng];
-         IpBlasDcopy(ng, &zero, 0, lambda, 1);
+         IpBlasCopy(ng, &zero, 0, lambda, 1);
       }
       Number* gradref = new Number[nx]; // gradient of objective or constraint at reference point
       Number* gradpert = new Number[nx]; // gradient of objective or constraint at perturbed point
       Number* jacpert = new Number[nz_jac_g];
 
       // Check all Hessians
-      const Index icon_first = Max(-1, deriv_test_start_index);
+      const Index icon_first = Max(Index(-1), deriv_test_start_index);
       for( Index icon = icon_first; icon < ng; icon++ )
       {
          Number objfact = 0.;
          if( icon == -1 )
          {
-            objfact = 1.;
-            IpBlasDcopy(nx, grad_f, 1, gradref, 1);
+            objfact = 1.5;
+            IpBlasCopy(nx, grad_f, 1, gradref, 1);
          }
          else
          {
-            lambda[icon] = 1.;
-            IpBlasDcopy(nx, &zero, 0, gradref, 1);
+            DBG_ASSERT(lambda != NULL);
+            lambda[icon] = 1.5;
+            IpBlasCopy(nx, &zero, 0, gradref, 1);
             for( Index i = 0; i < nz_jac_g; i++ )
             {
                if( g_iRow[i] == icon )
@@ -3060,14 +3275,12 @@ bool TNLPAdapter::CheckDerivatives(
          new_x = true;
          bool new_y = true;
          retval = tnlp_->eval_h(nx, xref, new_x, objfact, ng, lambda, new_y, nz_hess_lag, NULL, NULL, h_values);
-         new_x = false;
-         new_y = false;
          ASSERT_EXCEPTION(retval, ERROR_IN_TNLP_DERIVATIVE_TEST,
                           "In TNLP derivative test: Hessian could not be evaluated at reference point.");
 
          for( Index ivar = 0; ivar < nx; ivar++ )
          {
-            Number this_perturbation = derivative_test_perturbation_ * Max(1., fabs(xref[ivar]));
+            Number this_perturbation = derivative_test_perturbation_ * Max(Number(1.), std::abs(xref[ivar]));
             xpert[ivar] = xref[ivar] + this_perturbation;
 
             new_x = true;
@@ -3085,8 +3298,8 @@ bool TNLPAdapter::CheckDerivatives(
                ASSERT_EXCEPTION(retval, ERROR_IN_TNLP_DERIVATIVE_TEST,
                                 "In TNLP derivative test: Jacobian values could not be evaluated at reference point.");
                // ok, now we need to filter the gradient of the icon-th constraint
-               IpBlasDcopy(nx, &zero, 0, gradpert, 1);
-               IpBlasDcopy(nx, &zero, 0, gradref, 1);
+               IpBlasCopy(nx, &zero, 0, gradpert, 1);
+               IpBlasCopy(nx, &zero, 0, gradref, 1);
                for( Index i = 0; i < nz_jac_g; i++ )
                {
                   if( g_iRow[i] == icon )
@@ -3096,11 +3309,10 @@ bool TNLPAdapter::CheckDerivatives(
                   }
                }
             }
-            new_x = false;
 
             for( Index ivar2 = 0; ivar2 < nx; ivar2++ )
             {
-               Number deriv_approx = (gradpert[ivar2] - gradref[ivar2]) / this_perturbation;
+               Number deriv_approx = 1.5 * (gradpert[ivar2] - gradref[ivar2]) / this_perturbation;
                Number deriv_exact = 0.;
                bool found = false;
                for( Index i = 0; i < nz_hess_lag; i++ )
@@ -3111,7 +3323,7 @@ bool TNLPAdapter::CheckDerivatives(
                      found = true;
                   }
                }
-               Number rel_error = fabs(deriv_approx - deriv_exact) / Max(fabs(deriv_approx), 1.);
+               Number rel_error = std::abs(deriv_approx - deriv_exact) / Max(std::abs(deriv_approx), derivative_test_tol_);
                char cflag = ' ';
                if( rel_error >= derivative_test_tol_ )
                {
@@ -3128,13 +3340,13 @@ bool TNLPAdapter::CheckDerivatives(
                   if( icon == -1 )
                   {
                      jnlst_->Printf(J_WARNING, J_NLP,
-                                    "%c             obj_hess[%5d,%5d] = %23.16e %c  ~ %23.16e  [%10.3e]\n", cflag,
+                                    "%c             obj_hess[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "] = %23.16e %c  ~ %23.16e  [%10.3e]\n", cflag,
                                     ivar + index_correction, ivar2 + index_correction, deriv_exact, sflag, deriv_approx, rel_error);
                   }
                   else
                   {
                      jnlst_->Printf(J_WARNING, J_NLP,
-                                    "%c %5d-th constr_hess[%5d,%5d] = %23.16e %c  ~ %23.16e  [%10.3e]\n", cflag,
+                                    "%c %5" IPOPT_INDEX_FORMAT "-th constr_hess[%5" IPOPT_INDEX_FORMAT ",%5" IPOPT_INDEX_FORMAT "] = %23.16e %c  ~ %23.16e  [%10.3e]\n", cflag,
                                     icon + index_correction, ivar + index_correction, ivar2 + index_correction, deriv_exact, sflag,
                                     deriv_approx, rel_error);
                   }
@@ -3175,7 +3387,7 @@ bool TNLPAdapter::CheckDerivatives(
    }
    else
    {
-      jnlst_->Printf(J_WARNING, J_NLP, "\nDerivative checker detected %d error(s).\n\n", nerrors);
+      jnlst_->Printf(J_WARNING, J_NLP, "\nDerivative checker detected %" IPOPT_INDEX_FORMAT " error(s).\n\n", nerrors);
    }
 
    return retval;
@@ -3220,7 +3432,7 @@ bool TNLPAdapter::DetermineDependentConstraints(
          g_jCol[i] -= 1;
       }
    }
-#if COIN_IPOPT_CHECKLEVEL > 0
+#if IPOPT_CHECKLEVEL > 0
    else
    {
       for( Index i = 0; i < nz_full_jac_g_; i++ )
@@ -3236,8 +3448,8 @@ bool TNLPAdapter::DetermineDependentConstraints(
    // fixed_variable_treatment_==MAKE_PARAMETER correctly (yet?)
    // Include space for the RHS
    Index* jac_c_map = new Index[nz_full_jac_g_];
-   ipfint* jac_c_iRow = new ipfint[nz_full_jac_g_ + n_c];
-   ipfint* jac_c_jCol = new ipfint[nz_full_jac_g_ + n_c];
+   Index* jac_c_iRow = new Index[nz_full_jac_g_ + n_c];
+   Index* jac_c_jCol = new Index[nz_full_jac_g_ + n_c];
    Index nz_jac_c = 0;
    const Index* c_row_pos = P_c_g->CompressedPosIndices();
    Index n_fixed = n_full_x_ - n_x_var;
@@ -3329,7 +3541,7 @@ bool TNLPAdapter::DetermineDependentConstraints(
    }
 
    // Get the equality constraint Jacobian out
-   double* jac_c_vals = new double[nz_jac_c + n_c];
+   Number* jac_c_vals = new Number[nz_jac_c + n_c];
    for( Index i = 0; i < nz_jac_c; i++ )
    {
       jac_c_vals[i] = jac_g_[jac_c_map[i]];

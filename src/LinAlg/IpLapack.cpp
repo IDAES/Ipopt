@@ -6,96 +6,95 @@
 
 #include "IpoptConfig.h"
 #include "IpLapack.hpp"
+#include "IpTypes.h"
 
-#ifdef FUNNY_LAPACK_FINT
-# define ipfint long
-# define ipfintarray int
+#ifdef IPOPT_SINGLE
+#define IPOPT_LAPACK_FUNCP(name,NAME) IPOPT_LAPACK_FUNC(s ## name,S ## NAME)
 #else
-# define ipfintarray ipfint
+#define IPOPT_LAPACK_FUNCP(name,NAME) IPOPT_LAPACK_FUNC(d ## name,D ## NAME)
 #endif
 
-#ifdef COIN_HAS_LAPACK
+#ifdef IPOPT_HAS_LAPACK
 // Prototypes for the LAPACK routines
 extern "C"
 {
-   /** LAPACK Fortran subroutine DPOTRS. */
-   void COIN_LAPACK_FUNC(dpotrs, DPOTRS)(
-      char*         uplo,
-      ipfint*       n,
-      ipfint*       nrhs,
-      const double* A,
-      ipfint*       ldA,
-      double*       B,
-      ipfint*       ldB,
-      ipfint*       info,
-      int           uplo_len
+   /** LAPACK Fortran subroutine XPOTRS. */
+   void IPOPT_LAPACK_FUNCP(potrs, POTRS)(
+      char*           uplo,
+      ipindex*        n,
+      ipindex*        nrhs,
+      const ipnumber* A,
+      ipindex*        ldA,
+      ipnumber*       B,
+      ipindex*        ldB,
+      ipindex*        info,
+      int             uplo_len
    );
 
-   /** LAPACK Fortran subroutine DPOTRF. */
-   void COIN_LAPACK_FUNC(dpotrf, DPOTRF)(
-      char*   uplo,
-      ipfint* n,
-      double* A,
-      ipfint* ldA,
-      ipfint* info,
-      int     uplo_len
+   /** LAPACK Fortran subroutine XPOTRF. */
+   void IPOPT_LAPACK_FUNCP(potrf, POTRF)(
+      char*     uplo,
+      ipindex*  n,
+      ipnumber* A,
+      ipindex*  ldA,
+      ipindex*  info,
+      int       uplo_len
    );
 
-   /** LAPACK Fortran subroutine DSYEV */
-   void COIN_LAPACK_FUNC(dsyev, DSYEV)(
-      char*   jobz,
-      char*   uplo,
-      ipfint* n,
-      double* A,
-      ipfint* ldA,
-      double* W,
-      double* WORK,
-      ipfint* LWORK,
-      ipfint* info,
-      int     jobz_len,
-      int     uplo_len
+   /** LAPACK Fortran subroutine XSYEV */
+   void IPOPT_LAPACK_FUNCP(syev, SYEV)(
+      char*     jobz,
+      char*     uplo,
+      ipindex*  n,
+      ipnumber* A,
+      ipindex*  ldA,
+      ipnumber* W,
+      ipnumber* WORK,
+      ipindex*  LWORK,
+      ipindex*  info,
+      int       jobz_len,
+      int       uplo_len
    );
 
-   /** LAPACK Fortran subroutine DGETRF. */
-   void COIN_LAPACK_FUNC(dgetrf, DGETRF)(
-      ipfint*      m,
-      ipfint*      n,
-      double*      A,
-      ipfint*      ldA,
-      ipfintarray* IPIV,
-      ipfint*      info
+   /** LAPACK Fortran subroutine XGETRF. */
+   void IPOPT_LAPACK_FUNCP(getrf, GETRF)(
+      ipindex*      m,
+      ipindex*      n,
+      ipnumber*     A,
+      ipindex*      ldA,
+      ipindex*      IPIV,
+      ipindex*      info
    );
 
-   /** LAPACK Fortran subroutine DGETRS. */
-   void COIN_LAPACK_FUNC(dgetrs, DGETRS)(
-      char*         trans,
-      ipfint*       n,
-      ipfint*       nrhs,
-      const double* A,
-      ipfint*       ldA,
-      ipfintarray*  IPIV,
-      double*       B,
-      ipfint*       ldB,
-      ipfint*       info,
-      int           trans_len
+   /** LAPACK Fortran subroutine XGETRS. */
+   void IPOPT_LAPACK_FUNCP(getrs, GETRS)(
+      char*           trans,
+      ipindex*        n,
+      ipindex*        nrhs,
+      const ipnumber* A,
+      ipindex*        ldA,
+      ipindex*        IPIV,
+      ipnumber*       B,
+      ipindex*        ldB,
+      ipindex*        info,
+      int             trans_len
    );
 
-   /** LAPACK Fortran subroutine DPPSV. */
-   void COIN_LAPACK_FUNC(dppsv, DPPSV)(
-      char*         uplo,
-      ipfint*       n,
-      ipfint*       nrhs,
-      const double* A,
-      double*       B,
-      ipfint*       ldB,
-      ipfint*       info
+   /** LAPACK Fortran subroutine XPPSV. */
+   void IPOPT_LAPACK_FUNCP(ppsv, PPSV)(
+      char*           uplo,
+      ipindex*        n,
+      ipindex*        nrhs,
+      const ipnumber* A,
+      ipnumber*       B,
+      ipindex*        ldB,
+      ipindex*        info
    );
 }
-#endif
 
 namespace Ipopt
 {
-void IpLapackDpotrs(
+void IpLapackPotrs(
    Index         ndim,
    Index         nrhs,
    const Number* a,
@@ -104,11 +103,11 @@ void IpLapackDpotrs(
    Index         ldb
 )
 {
-#ifdef COIN_HAS_LAPACK
-   ipfint N = ndim, NRHS = nrhs, LDA = lda, LDB = ldb, INFO;
+#ifdef IPOPT_HAS_LAPACK
+   ipindex N = ndim, NRHS = nrhs, LDA = lda, LDB = ldb, INFO;
    char uplo = 'L';
 
-   COIN_LAPACK_FUNC(dpotrs, DPOTRS)(&uplo, &N, &NRHS, a, &LDA, b, &LDB, &INFO, 1);
+   IPOPT_LAPACK_FUNCP(potrs, POTRS)(&uplo, &N, &NRHS, a, &LDA, b, &LDB, &INFO, 1);
    DBG_ASSERT(INFO == 0);
 #else
 
@@ -118,19 +117,19 @@ void IpLapackDpotrs(
 #endif
 }
 
-void IpLapackDpotrf(
+void IpLapackPotrf(
    Index   ndim,
    Number* a,
    Index   lda,
    Index&  info
 )
 {
-#ifdef COIN_HAS_LAPACK
-   ipfint N = ndim, LDA = lda, INFO;
+#ifdef IPOPT_HAS_LAPACK
+   ipindex N = ndim, LDA = lda, INFO;
 
    char UPLO = 'L';
 
-   COIN_LAPACK_FUNC(dpotrf, DPOTRF)(&UPLO, &N, a, &LDA, &INFO, 1);
+   IPOPT_LAPACK_FUNCP(potrf, POTRF)(&UPLO, &N, a, &LDA, &INFO, 1);
 
    info = INFO;
 #else
@@ -142,7 +141,7 @@ void IpLapackDpotrf(
 
 }
 
-void IpLapackDsyev(
+void IpLapackSyev(
    bool    compute_eigenvectors,
    Index   ndim,
    Number* a,
@@ -151,8 +150,8 @@ void IpLapackDsyev(
    Index&  info
 )
 {
-#ifdef COIN_HAS_LAPACK
-   ipfint N = ndim, LDA = lda, INFO;
+#ifdef IPOPT_HAS_LAPACK
+   ipindex N = ndim, LDA = lda, INFO;
 
    char JOBZ;
    if (compute_eigenvectors)
@@ -166,21 +165,21 @@ void IpLapackDsyev(
    char UPLO = 'L';
 
    // First we find out how large LWORK should be
-   ipfint LWORK = -1;
-   double WORK_PROBE;
-   COIN_LAPACK_FUNC(dsyev, DSYEV)(&JOBZ, &UPLO, &N, a, &LDA, w,
+   ipindex LWORK = -1;
+   Number WORK_PROBE;
+   IPOPT_LAPACK_FUNCP(syev, SYEV)(&JOBZ, &UPLO, &N, a, &LDA, w,
                                   &WORK_PROBE, &LWORK, &INFO, 1, 1);
    DBG_ASSERT(INFO == 0);
 
-   LWORK = (ipfint) WORK_PROBE;
+   LWORK = (ipindex) WORK_PROBE;
    DBG_ASSERT(LWORK > 0);
 
-   double* WORK = new double[LWORK];
+   Number* WORK = new Number[LWORK];
    for (Index i = 0; i < LWORK; i++)
    {
       WORK[i] = i;
    }
-   COIN_LAPACK_FUNC(dsyev, DSYEV)(&JOBZ, &UPLO, &N, a, &LDA, w,
+   IPOPT_LAPACK_FUNCP(syev, SYEV)(&JOBZ, &UPLO, &N, a, &LDA, w,
                                   WORK, &LWORK, &INFO, 1, 1);
 
    DBG_ASSERT(INFO >= 0);
@@ -196,7 +195,7 @@ void IpLapackDsyev(
 
 }
 
-void IpLapackDgetrf(
+void IpLapackGetrf(
    Index   ndim,
    Number* a,
    Index*  ipiv,
@@ -204,22 +203,22 @@ void IpLapackDgetrf(
    Index&  info
 )
 {
-#ifdef COIN_HAS_LAPACK
-   ipfint M = ndim, N = ndim, LDA = lda, INFO;
+#ifdef IPOPT_HAS_LAPACK
+   ipindex M = ndim, N = ndim, LDA = lda, INFO;
 
-   COIN_LAPACK_FUNC(dgetrf, DGETRF)(&M, &N, a, &LDA, ipiv, &INFO);
+   IPOPT_LAPACK_FUNCP(getrf, GETRF)(&M, &N, a, &LDA, ipiv, &INFO);
 
    info = INFO;
 #else
 
    std::string msg =
-      "Ipopt has been compiled without LAPACK routine DPOTRF, but options are chosen that require this dependency.  Abort.";
+      "Ipopt has been compiled without LAPACK routine DGETRF, but options are chosen that require this dependency.  Abort.";
    THROW_EXCEPTION(LAPACK_NOT_INCLUDED, msg);
 #endif
 
 }
 
-void IpLapackDgetrs(
+void IpLapackGetrs(
    Index         ndim,
    Index         nrhs,
    const Number* a,
@@ -229,23 +228,24 @@ void IpLapackDgetrs(
    Index         ldb
 )
 {
-#ifdef COIN_HAS_LAPACK
-   ipfint N = ndim, NRHS = nrhs, LDA = lda, LDB = ldb, INFO;
+#ifdef IPOPT_HAS_LAPACK
+   ipindex N = ndim, NRHS = nrhs, LDA = lda, LDB = ldb, INFO;
    char trans = 'N';
 
-   COIN_LAPACK_FUNC(dgetrs, DGETRS)(&trans, &N, &NRHS, a, &LDA, ipiv, b, &LDB,
+   IPOPT_LAPACK_FUNCP(getrs, GETRS)(&trans, &N, &NRHS, a, &LDA, ipiv, b, &LDB,
                                     &INFO, 1);
+
    DBG_ASSERT(INFO == 0);
 #else
 
    std::string msg =
-      "Ipopt has been compiled without LAPACK routine DPOTRS, but options are chosen that require this dependency.  Abort.";
+      "Ipopt has been compiled without LAPACK routine DGETRS, but options are chosen that require this dependency.  Abort.";
    THROW_EXCEPTION(LAPACK_NOT_INCLUDED, msg);
 #endif
 
 }
 
-void IpLapackDppsv(
+void IpLapackPpsv(
    Index         ndim,
    Index         nrhs,
    const Number* a,
@@ -254,11 +254,11 @@ void IpLapackDppsv(
    Index&        info
 )
 {
-#ifdef COIN_HAS_LAPACK
-   ipfint N = ndim, NRHS = nrhs, LDB = ldb, INFO;
+#ifdef IPOPT_HAS_LAPACK
+   ipindex N = ndim, NRHS = nrhs, LDB = ldb, INFO;
    char uplo = 'U';
 
-   COIN_LAPACK_FUNC(dppsv, DPPSV)(&uplo, &N, &NRHS, a, b, &LDB, &INFO);
+   IPOPT_LAPACK_FUNCP(ppsv, PPSV)(&uplo, &N, &NRHS, a, b, &LDB, &INFO);
 
    info = INFO;
 #else
@@ -270,3 +270,4 @@ void IpLapackDppsv(
 }
 
 } // namespace Ipopt
+#endif  /* ifdef IPOPT_HAS_LAPACK */

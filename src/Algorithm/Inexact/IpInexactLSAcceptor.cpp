@@ -13,7 +13,7 @@
 namespace Ipopt
 {
 
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -37,12 +37,10 @@ void InexactLSAcceptor::RegisterOptions(
       "nu_update_inf_skip_tol",
       "Lower bound on infeasibility to perform penalty parameter update.", 0.0, true, 1e-9,
       "If the current infeasibility is less than this value, the penalty parameter update is skipped");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "flexible_penalty_function",
       "Switch to use Curtis/Nocedal flexible penalty function",
-      "yes",
-      "no", "do not use the flexible penalty function procedure",
-      "yes", "use the flexible penalty function procedure",
+      true,
       "This determines if the flexible penalty function procedure by Curtis/Nocedal should be used in the line search. "
       "For now, this only is implemented for the inexact algorithm.");
    roptions->AddLowerBoundedNumberOption(
@@ -51,7 +49,7 @@ void InexactLSAcceptor::RegisterOptions(
       0.0, true,
       1e-6,
       "This is the initial value for the lower penalty parameter in the Curtis/Nocedal flexible penalty function line search procedure. "
-      "This must be smaller or equal to the intial value of the upper penalty parameter, see option \"nu_init\".");
+      "This must be smaller or equal to the initial value of the upper penalty parameter, see option \"nu_init\".");
    roptions->AddLowerBoundedNumberOption(
       "nu_low_fact",
       "Factor in update rule for nu_low in flexible penalty function.",
@@ -144,16 +142,16 @@ void InexactLSAcceptor::InitThisLineSearch(
       bool compute_normal = InexData().compute_normal();
 
       Number Upsilon = -1.;
-      Number Nu = -1.;
       if( !compute_normal )
       {
+         Number Nu;
 #if 0
 // Compute Nu = ||A*u||^2/||A||^2
          SmartPtr<const Vector> curr_Au_c = IpCq().curr_jac_c_times_vec(*tangential_x);
          SmartPtr<Vector> curr_Au_d = delta_s->MakeNew();
          curr_Au_d->AddTwoVectors(1., *IpCq().curr_jac_d_times_vec(*tangential_x), -1., *tangential_s, 0.);
          Number Nu = IpCq().CalcNormOfType(NORM_2, *curr_Au_c, *curr_Au_d);
-         Nu = pow(Nu, 2);
+         Nu = std::pow(Nu, 2);
          Jnlst().Printf(J_MOREDETAILED, J_LINEAR_ALGEBRA,
                         "nu update: ||A*u||^2 = %23.16e\n", Nu);
          Number A_norm2 = InexCq().curr_scaled_A_norm2();
@@ -201,7 +199,7 @@ void InexactLSAcceptor::InitThisLineSearch(
          else
          {
             DBG_PRINT((1, "uWu=%e scaled_tangential_norm=%e\n", uWu, scaled_tangential_norm ));
-            numerator = (gradBarrTDelta + Max(0.5 * uWu, tcc_theta_ * pow(scaled_tangential_norm, 2)));
+            numerator = (gradBarrTDelta + Max(0.5 * uWu, tcc_theta_ * std::pow(scaled_tangential_norm, 2)));
             denominator = (1 - rho_) * (reference_theta_ - norm_cplusAd);
          }
          const Number nu_trial = numerator / denominator;
@@ -216,8 +214,8 @@ void InexactLSAcceptor::InitThisLineSearch(
          else
          {
             Jnlst().Printf(J_MOREDETAILED, J_LINE_SEARCH,
-                           "In penalty parameter update formula:\n  gradBarrTDelta = %e 0.5*uWu = %e tcc_theta_*pow(scaled_tangential_norm,2) = %e numerator = %e\n  reference_theta_ = %e norm_cplusAd + %e denominator = %e nu_trial = %e\n",
-                           gradBarrTDelta, 0.5 * uWu, tcc_theta_ * pow(scaled_tangential_norm, 2), numerator, reference_theta_,
+                           "In penalty parameter update formula:\n  gradBarrTDelta = %e 0.5*uWu = %e tcc_theta_*std::pow(scaled_tangential_norm,2) = %e numerator = %e\n  reference_theta_ = %e norm_cplusAd + %e denominator = %e nu_trial = %e\n",
+                           gradBarrTDelta, 0.5 * uWu, tcc_theta_ * std::pow(scaled_tangential_norm, 2), numerator, reference_theta_,
                            norm_cplusAd, denominator, nu_trial);
          }
 
@@ -429,9 +427,9 @@ void InexactLSAcceptor::Reset()
 }
 
 bool InexactLSAcceptor::TrySecondOrderCorrection(
-   Number                    alpha_primal_test,
-   Number&                   alpha_primal,
-   SmartPtr<IteratesVector>& actual_delta
+   Number                    /*alpha_primal_test*/,
+   Number&                   /*alpha_primal*/,
+   SmartPtr<IteratesVector>& /*actual_delta*/
 )
 {
    DBG_START_METH("InexactLSAcceptor::TrySecondOrderCorrection",
@@ -440,9 +438,9 @@ bool InexactLSAcceptor::TrySecondOrderCorrection(
 }
 
 bool InexactLSAcceptor::TryCorrector(
-   Number                    alpha_primal_test,
-   Number&                   alpha_primal,
-   SmartPtr<IteratesVector>& actual_delta
+   Number                    /*alpha_primal_test*/,
+   Number&                   /*alpha_primal*/,
+   SmartPtr<IteratesVector>& /*actual_delta*/
 )
 {
    return false;
@@ -475,15 +473,11 @@ char InexactLSAcceptor::UpdateForNextIteration(
    if( last_nu_ != nu_ )
    {
       info_alpha_primal_char = 'n';
-      char snu[40];
-      sprintf(snu, " nu=%8.2e", nu_);
-      IpData().Append_info_string(snu);
+      IpData().Append_info_string(" nu", nu_);
    }
    if( flexible_penalty_function_ && last_nu_low_ != nu_low_ )
    {
-      char snu[40];
-      sprintf(snu, " nl=%8.2e", nu_low_);
-      IpData().Append_info_string(snu);
+      IpData().Append_info_string(" nl", nu_low_);
       if( info_alpha_primal_char == 'k' )
       {
          info_alpha_primal_char = 'l';
@@ -515,14 +509,15 @@ void InexactLSAcceptor::PrepareRestoPhaseStart()
 }
 
 bool InexactLSAcceptor::IsAcceptableToCurrentIterate(
-   Number trial_barr,
-   Number trial_theta,
-   bool   called_from_restoration /*=false*/
+   Number /*trial_barr*/,
+   Number /*trial_theta*/,
+   bool   /*called_from_restoration*/ /*=false*/
 ) const
 {
    DBG_START_METH("InexactLSAcceptor::IsAcceptableToCurrentIterate",
                   dbg_verbosity);
    THROW_EXCEPTION(INTERNAL_ABORT, "InexactLSAcceptor::IsAcceptableToCurrentIterate called");
+#if 0
    ASSERT_EXCEPTION(resto_pred_ <= 0., INTERNAL_ABORT, "resto_pred_ not set for check from restoration phase.");
 
    Number ared = reference_barr_ + nu_ * (reference_theta_) - (trial_barr + nu_ * trial_theta);
@@ -543,11 +538,12 @@ bool InexactLSAcceptor::IsAcceptableToCurrentIterate(
       accept = false;
    }
    return accept;
+#endif
 }
 
 Number InexactLSAcceptor::ComputeAlphaForY(
    Number                    alpha_primal,
-   Number                    alpha_dual,
+   Number                    /*alpha_dual*/,
    SmartPtr<IteratesVector>& delta
 )
 {
@@ -577,9 +573,9 @@ Number InexactLSAcceptor::ComputeAlphaForY(
    Sdy->ElementWiseMultiply(*curr_scaling_slacks);
 
    // using the magic formula in my notebook
-   Number a = pow(Jxy->Nrm2(), 2) + pow(Sdy->Nrm2(), 2);
+   Number a = std::pow(Jxy->Nrm2(), 2) + std::pow(Sdy->Nrm2(), 2);
    Number b = 2 * (gx->Dot(*Jxy) - gs->Dot(*Sdy));
-   Number c = pow(gx->Nrm2(), 2) + pow(gs->Nrm2(), 2);
+   Number c = std::pow(gx->Nrm2(), 2) + std::pow(gs->Nrm2(), 2);
 
    // First we check if the primal step size is good enough:
    Number val_ap = alpha_primal * alpha_primal * a + alpha_primal * b + c;

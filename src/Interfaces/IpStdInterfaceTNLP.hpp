@@ -29,7 +29,7 @@ class StdInterfaceTNLP : public TNLP
 {
 public:
    /**@name Constructors/Destructors */
-   //@{
+   ///@{
    /** Constructor, given dimensions of problem, function pointers
     *  for evaluation callback functions, and starting points.
     *
@@ -70,13 +70,13 @@ public:
 
    /** Default destructor */
    virtual ~StdInterfaceTNLP();
-   //@}
+   ///@}
 
    /**@name Methods to gather information about the NLP.
     *
     * These methods are overloaded from TNLP. See TNLP for their more detailed documentation.
     */
-   //@{
+   ///@{
    virtual bool get_nlp_info(
       Index&          n,
       Index&          m,
@@ -178,10 +178,10 @@ public:
       const IpoptData*           ip_data,
       IpoptCalculatedQuantities* ip_cq
    );
-   //@}
+   ///@}
 
    /** @name Solution Methods */
-   //@{
+   ///@{
    virtual void finalize_solution(
       SolverReturn               status,
       Index                      n,
@@ -195,14 +195,48 @@ public:
       const IpoptData*           ip_data,
       IpoptCalculatedQuantities* ip_cq
    );
-   //@}
+   ///@}
+
+   /// get_curr_iterate() to be called by GetIpoptCurrentIterate()
+   /// @since 3.14.0
+   bool get_curr_iterate(
+      Bool                       scaled,
+      Index                      n,
+      Number*                    x,
+      Number*                    z_L,
+      Number*                    z_U,
+      Index                      m,
+      Number*                    g,
+      Number*                    lambda
+   ) const
+   {
+      return TNLP::get_curr_iterate(ip_data_, ip_cq_, scaled, n, x, z_L, z_U, m, g, lambda);
+   }
+
+   /// get_curr_violations() to be called by GetIpoptCurrentViolations()
+   /// @since 3.14.0
+   bool get_curr_violations(
+      bool                       scaled,
+      Index                      n,
+      Number*                    x_L_violation,
+      Number*                    x_U_violation,
+      Number*                    compl_x_L,
+      Number*                    compl_x_U,
+      Number*                    grad_lag_x,
+      Index                      m,
+      Number*                    nlp_constraint_violation,
+      Number*                    compl_g
+   ) const
+   {
+      return TNLP::get_curr_violations(ip_data_, ip_cq_, scaled, n, x_L_violation, x_U_violation, compl_x_L, compl_x_U, grad_lag_x, m, nlp_constraint_violation, compl_g);
+   }
 
 private:
    /** Journalist */
    SmartPtr<const Journalist> jnlst_;
 
    /** @name Information about the problem */
-   //@{
+   ///@{
    /** Number of variables */
    const Index n_var_;
    /** Number of constraints */
@@ -249,20 +283,27 @@ private:
    const Number* x_scaling_;
    /** Scaling factors for constraints (if not NULL) */
    const Number* g_scaling_;
-   //@}
+   ///@}
 
    /** A non-const copy of x - this is kept up-to-date in apply_new_x */
    Number* non_const_x_;
 
    /** @name Pointers to the user provided vectors for solution */
-   //@{
+   ///@{
    Number* x_sol_;
    Number* z_L_sol_;
    Number* z_U_sol_;
    Number* g_sol_;
    Number* lambda_sol_;
    Number* obj_sol_;
-   //@}
+   ///@}
+
+   /** @name Temporary pointers to IpoptData and IpoptCalculatedQuantities
+    *
+    * For implementation of GetIpoptCurrentIterate() and GetIpoptCurrentViolations() (without API change).
+    */
+   const IpoptData*           ip_data_;
+   IpoptCalculatedQuantities* ip_cq_;
 
    /** Update the internal state if the x value changes */
    void apply_new_x(
@@ -278,7 +319,7 @@ private:
     * them for us, so we declare them private
     * and do not define them. This ensures that
     * they will not be implicitly created/called. */
-   //@{
+   ///@{
    /** Default Constructor */
    StdInterfaceTNLP();
 
@@ -291,7 +332,7 @@ private:
    void operator=(
       const StdInterfaceTNLP&
    );
-   //@}
+   ///@}
 
 };
 

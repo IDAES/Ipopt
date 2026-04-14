@@ -11,6 +11,18 @@
 #include "IpSparseSymLinearSolverInterface.hpp"
 #include "IpInexactCq.hpp"
 #include "IpIterativeSolverTerminationTester.hpp"
+#include "IpPardisoSolverInterface.hpp"  // for IPOPT_DECL_... macros
+#include "IpTypes.h"
+
+#define IPOPT_DECL_SETIPOPTCALLBACKFUNCTION(x) void (x)( \
+   int (*IpoptFunction)( \
+      int       n,  \
+      ipnumber* xx, \
+      ipnumber* r,  \
+      int       k,  \
+      ipnumber  b   \
+   ) \
+)
 
 namespace Ipopt
 {
@@ -22,16 +34,17 @@ class IterativePardisoSolverInterface: public SparseSymLinearSolverInterface
 {
 public:
    /** @name Constructor/Destructor */
-   //@{
+   ///@{
    /** Constructor */
    IterativePardisoSolverInterface(
       IterativeSolverTerminationTester& normal_tester,
-      IterativeSolverTerminationTester& pd_tester
+      IterativeSolverTerminationTester& pd_tester,
+      SmartPtr<LibraryLoader> pardisoloader_
    );
 
    /** Destructor */
    virtual ~IterativePardisoSolverInterface();
-   //@}
+   ///@}
 
    bool InitializeImpl(
       const OptionsList& options,
@@ -39,7 +52,7 @@ public:
    );
 
    /** @name Methods for requesting solution of the linear system. */
-   //@{
+   ///@{
    /** Method for initializing internal structures. */
    virtual ESymSolverStatus InitializeStructure(
       Index        dim,
@@ -51,7 +64,7 @@ public:
    /** Method returning an internal array into which the nonzero
     *  elements are to be stored.
     */
-   virtual double* GetValuesArrayPtr();
+   virtual Number* GetValuesArrayPtr();
 
    /** Solve operation for multiple right hand sides. */
    virtual ESymSolverStatus MultiSolve(
@@ -59,7 +72,7 @@ public:
       const Index* ia,
       const Index* ja,
       Index        nrhs,
-      double*      rhs_vals,
+      Number*      rhs_vals,
       bool         check_NegEVals,
       Index        numberOfNegEVals
    );
@@ -68,10 +81,10 @@ public:
     *  factorization.
     */
    virtual Index NumberOfNegEVals() const;
-   //@}
+   ///@}
 
    //* @name Options of Linear solver */
-   //@{
+   ///@{
    /** Request to increase quality of solution for next solve.
     */
    virtual bool IncreaseQuality();
@@ -92,7 +105,7 @@ public:
    {
       return CSR_Format_1_Offset;
    }
-   //@}
+   ///@}
 
    static void RegisterOptions(
       SmartPtr<RegisteredOptions> roptions
@@ -108,7 +121,7 @@ private:
     * and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** Default Constructor */
    IterativePardisoSolverInterface();
 
@@ -121,10 +134,10 @@ private:
    void operator=(
       const IterativePardisoSolverInterface&
    );
-   //@}
+   ///@}
 
    /** @name Information about the matrix */
-   //@{
+   ///@{
    /** Number of rows and columns of the matrix */
    Index dim_;
 
@@ -132,17 +145,17 @@ private:
    Index nonzeros_;
 
    /** Array for storing the values of the matrix. */
-   double* a_;
-   //@}
+   Number* a_;
+   ///@}
 
    /** @name Information about most recent factorization/solve */
-   //@{
+   ///@{
    /** Number of negative eigenvalues */
    Index negevals_;
-   //@}
+   ///@}
 
    /** @name Solver specific options */
-   //@{
+   ///@{
    /** Type for matching strategies */
    enum PardisoMatchingStrategy
    {
@@ -169,10 +182,10 @@ private:
    bool skip_inertia_check_;
    /** Maximal number of decreases of drop tolerance during one solve. */
    Index pardiso_max_droptol_corrections_;
-   //@}
+   ///@}
 
    /** Options for the preconditioner */
-   //@{
+   ///@{
    Index pardiso_max_iter_;
    Number pardiso_iter_relative_tol_;
    Index pardiso_iter_coarse_size_;
@@ -190,57 +203,69 @@ private:
    Number normal_pardiso_iter_dropping_schur_;
    Index normal_pardiso_iter_max_row_fill_;
    Number normal_pardiso_iter_inverse_norm_factor_;
-   //@}
+   ///@}
 
    /** Decrease factor for dropping tolerances */
    Number decr_factor_;
 
    /** Actually used dropping tolerances */
-   //@{
+   ///@{
    Number pardiso_iter_dropping_factor_used_;
    Number pardiso_iter_dropping_schur_used_;
    Number normal_pardiso_iter_dropping_factor_used_;
    Number normal_pardiso_iter_dropping_schur_used_;
-   //@}
+   ///@}
 
    /** @name Initialization flags */
-   //@{
+   ///@{
    /** Flag indicating if internal data is initialized.
     *
     *  For initialization, this object needs to have seen a matrix.
     */
    bool initialized_;
-   //@}
+   ///@}
 
    /** @name Solver specific information */
-   //@{
+   ///@{
    /** Internal data address pointers. */
    void** PT_;
    /** Maximal number of factors with identical nonzero structure.
     *
     * Here, we only store one factorization. Is always 1.
     */
-   ipfint MAXFCT_;
+   Index MAXFCT_;
    /** Actual matrix for the solution phase. Is always 1. */
-   ipfint MNUM_;
+   Index MNUM_;
    /** Matrix type; real and symmetric indefinite.  Is always -2. */
-   ipfint MTYPE_;
+   Index MTYPE_;
    /** Parameter and info array for Pardiso. */
-   ipfint* IPARM_;
+   Index* IPARM_;
    /** Parameter and info array for Pardiso. */
-   double* DPARM_;
+   Number* DPARM_;
    /** Message level. */
-   ipfint MSGLVL_;
-   //@}
+   Index MSGLVL_;
+   ///@}
 
    /**@name Some counters for debugging */
-   //@{
+   ///@{
    Index debug_last_iter_;
    Index debug_cnt_;
-   //@}
+   ///@}
+
+   /**@name PARDISO function pointers
+    * @{
+    */
+   SmartPtr<LibraryLoader> pardisoloader;
+
+   IPOPT_DECL_PARDISOINIT(*pardisoinit);
+   IPOPT_DECL_PARDISO(*pardiso);
+   IPOPT_DECL_SETIPOPTCALLBACKFUNCTION(*SetIpoptCallbackFunction);
+
+   bool pardiso_exist_parallel;
+   /**@} */
 
    /** @name Internal functions */
-   //@{
+   ///@{
    /** Call Pardiso to do the analysis phase. */
    ESymSolverStatus SymbolicFactorization(
       const Index* ia,
@@ -261,9 +286,9 @@ private:
       const Index* ia,
       const Index* ja,
       Index        nrhs,
-      double*      rhs_vals
+      Number*      rhs_vals
    );
-   //@}
+   ///@}
 
    /** Method to easily access Inexact data */
    InexactData& InexData()

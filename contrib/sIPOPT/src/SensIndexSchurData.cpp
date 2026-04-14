@@ -12,7 +12,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 1;
 #endif
 
@@ -115,7 +115,7 @@ Index IndexSchurData::SetData_Index(
 
    Index w;
    (v > 0) ? w = 1 : w = -1;
-   DBG_PRINT((dbg_verbosity, "Schurdata::w=%d\n", w));
+   DBG_PRINT((dbg_verbosity, "Schurdata::w=%" IPOPT_INDEX_FORMAT "\n", w));
    Index n_ind = AsIndexMax(dim, index, 1);
    std::vector<Index> sortvec(n_ind, -1);
    // fill up sortlist
@@ -226,7 +226,7 @@ void IndexSchurData::Multiply(
    Index* v_lens = GetVectorLengths(v);
 
    Index v_row, vec_idx;
-   for( unsigned int i = 0; i < idx_.size(); ++i )
+   for( size_t i = 0; i < idx_.size(); ++i )
    {
       v_row = idx_[i];
 
@@ -282,7 +282,7 @@ void IndexSchurData::TransMultiply(
    // perform v_vals <- A^T*u
    Index row, col;
    Number val;
-   for( unsigned int i = 0; i < idx_.size(); ++i )
+   for( size_t i = 0; i < idx_.size(); ++i )
    {
       row = i;
       col = idx_[i];
@@ -298,7 +298,7 @@ void IndexSchurData::TransMultiply(
    {
       curr_dim = v.GetCompNonConst(i)->Dim();
       curr_val = dynamic_cast<DenseVector*>(GetRawPtr(v.GetCompNonConst(i)))->Values();
-      IpBlasDcopy(curr_dim, v_vals + v_idx, 1, curr_val, 1);
+      IpBlasCopy(curr_dim, v_vals + v_idx, 1, curr_val, 1);
 
       v_idx += curr_dim;
    }
@@ -335,13 +335,13 @@ void IndexSchurData::PrintImpl(
 {
    DBG_START_METH("IndexSchurData::PrintImpl", dbg_verbosity);
 
-   jnlst.PrintfIndented(level, category, indent, "%sIndexSchurData \"%s\" with %d rows:\n", prefix.c_str(),
+   jnlst.PrintfIndented(level, category, indent, "%sIndexSchurData \"%s\" with %" IPOPT_INDEX_FORMAT " rows:\n", prefix.c_str(),
                         name.c_str(), GetNRowsAdded());
    if( Is_Initialized() )
    {
-      for( unsigned int i = 0; i < idx_.size(); i++ )
+      for( size_t i = 0; i < idx_.size(); i++ )
       {
-         jnlst.PrintfIndented(level, category, indent, "%s%s[%5d,%5d]=%d\n", prefix.c_str(), name.c_str(), i, idx_[i],
+         jnlst.PrintfIndented(level, category, indent, "%s%s[%5zd,%5" IPOPT_INDEX_FORMAT "]=%" IPOPT_INDEX_FORMAT "\n", prefix.c_str(), name.c_str(), i, idx_[i],
                               val_[i]);
       }
    }
@@ -367,7 +367,7 @@ void IndexSchurData::AddData_Flag(
       if( flags[i] )
       {
          oldindex = false;
-         for( unsigned int j = 0; j < idx_.size(); ++j )
+         for( size_t j = 0; j < idx_.size(); ++j )
          {
             if( i == idx_[j] )
             {
@@ -398,10 +398,10 @@ void IndexSchurData::AddData_List(
 
    new_du_size = (Index) idx_.size();
    bool oldindex;
-   for( unsigned int i = 0; i < cols.size(); ++i )
+   for( size_t i = 0; i < cols.size(); ++i )
    {
       oldindex = false;
-      for( unsigned int j = 0; j < idx_.size(); ++j )
+      for( size_t j = 0; j < idx_.size(); ++j )
       {
          if( cols[i] == idx_[j] )
          {

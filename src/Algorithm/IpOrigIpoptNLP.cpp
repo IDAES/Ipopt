@@ -11,17 +11,19 @@
 
 #include <cstdio>
 #include <cassert>
+#include <cmath>
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
 OrigIpoptNLP::OrigIpoptNLP(
    const SmartPtr<const Journalist>& jnlst,
    const SmartPtr<NLP>&              nlp,
-   const SmartPtr<NLPScalingObject>& nlp_scaling
+   const SmartPtr<NLPScalingObject>& nlp_scaling,
+   TimingStatistics&                 timing_statistics
 )
    : IpoptNLP(nlp_scaling),
      jnlst_(jnlst),
@@ -35,7 +37,8 @@ OrigIpoptNLP::OrigIpoptNLP(
      jac_d_cache_(1),
      h_cache_(1),
      unscaled_x_cache_(1),
-     initialized_(false)
+     initialized_(false),
+     timing_statistics_(timing_statistics)
 {
 }
 
@@ -54,62 +57,60 @@ void OrigIpoptNLP::RegisterOptions(
       1e-8,
       "Before start of the optimization, the bounds given by the user are relaxed. "
       "This option sets the factor for this relaxation. "
+      "Additional, the constraint violation tolerance constr_viol_tol is used to bound the relaxation by an absolute value. "
       "If it is set to zero, then then bounds relaxation is disabled. "
-      "(See Eqn.(35) in implementation paper.) "
+      "See Eqn.(35) in implementation paper. "
       "Note that the constraint violation reported by Ipopt at the end of the solution process "
-      "does not include violations of the original (non-relaxed) variable bounds.");
-   roptions->AddStringOption2(
+      "does not include violations of the original (non-relaxed) variable bounds. See also option honor_original_bounds.");
+   roptions->AddBoolOption(
       "honor_original_bounds",
       "Indicates whether final points should be projected into original bounds.",
-      "yes",
-      "no", "Leave final point unchanged",
-      "yes", "Project final point back into original bounds",
+      false,
       "Ipopt might relax the bounds during the optimization (see, e.g., option \"bound_relax_factor\"). "
-      "This option determines whether the final point should be projected back into the user-provide original bounds after the optimization.");
+      "This option determines whether the final point should be projected back into the user-provide original bounds after the optimization. "
+      "Note that violations of constraints and complementarity reported by Ipopt at the end of the solution process "
+      "are for the non-projected point.");
    roptions->SetRegisteringCategory("Warm Start");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "warm_start_same_structure",
       "Indicates whether a problem with a structure identical to the previous one is to be solved.",
-      "no",
-      "no", "Assume this is a new problem.",
-      "yes", "Assume this is problem has known structure",
-      "If \"yes\" is chosen, then the algorithm assumes that an NLP is now to be solved, "
-      "whose structure is identical to one that already was considered (with the same NLP object).");
+      false,
+      "If enabled, then the algorithm assumes that an NLP is now to be solved "
+      "whose structure is identical to one that already was considered (with the same NLP object).",
+      true);
    roptions->SetRegisteringCategory("NLP");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "check_derivatives_for_naninf",
       "Indicates whether it is desired to check for Nan/Inf in derivative matrices",
-      "no",
-      "no", "Don't check (faster).",
-      "yes", "Check Jacobians and Hessian for Nan and Inf.",
+      false,
       "Activating this option will cause an error if an invalid number is detected "
       "in the constraint Jacobians or the Lagrangian Hessian. "
       "If this is not activated, the test is skipped, and the algorithm might proceed with invalid numbers and fail. "
       "If test is activated and an invalid number is detected, "
-      "the matrix is written to output with print_level corresponding to J_MORE_DETAILED; "
+      "the matrix is written to output with print_level corresponding to J_MOREDETAILED (7); "
       "so beware of large output!");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
+      "grad_f_constant",
+      "Indicates whether to assume that the objective function is linear",
+      false,
+      "Activating this option will cause Ipopt to ask for the Gradient of the objective function "
+      "only once from the NLP and reuse this information later.");
+   roptions->AddBoolOption(
       "jac_c_constant",
-      "Indicates whether all equality constraints are linear",
-      "no",
-      "no", "Don't assume that all equality constraints are linear",
-      "yes", "Assume that equality constraints Jacobian are constant",
+      "Indicates whether to assume that all equality constraints are linear",
+      false,
       "Activating this option will cause Ipopt to ask for the Jacobian of the equality constraints "
       "only once from the NLP and reuse this information later.");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "jac_d_constant",
-      "Indicates whether all inequality constraints are linear",
-      "no",
-      "no", "Don't assume that all inequality constraints are linear",
-      "yes", "Assume that equality constraints Jacobian are constant",
+      "Indicates whether to assume that all inequality constraints are linear",
+      false,
       "Activating this option will cause Ipopt to ask for the Jacobian of the inequality constraints "
       "only once from the NLP and reuse this information later.");
-   roptions->AddStringOption2(
+   roptions->AddBoolOption(
       "hessian_constant",
-      "Indicates whether the problem is a quadratic problem",
-      "no",
-      "no", "Assume that Hessian changes",
-      "yes", "Assume that Hessian is constant",
+      "Indicates whether to assume the problem is a QP (quadratic objective, linear constraints)",
+      false,
       "Activating this option will cause Ipopt to ask for the Hessian of the Lagrangian function "
       "only once from the NLP and reuse this information later.");
    roptions->SetRegisteringCategory("Hessian Approximation");
@@ -125,7 +126,9 @@ void OrigIpoptNLP::RegisterOptions(
       "Indicates in which subspace the Hessian information is to be approximated.",
       "nonlinear-variables",
       "nonlinear-variables", "only in space of nonlinear variables.",
-      "all-variables", "in space of all variables (without slacks)");
+      "all-variables", "in space of all variables (without slacks)",
+      "",
+      true);
 }
 
 bool OrigIpoptNLP::Initialize(
@@ -135,6 +138,7 @@ bool OrigIpoptNLP::Initialize(
 )
 {
    options.GetNumericValue("bound_relax_factor", bound_relax_factor_, prefix);
+   options.GetNumericValue("constr_viol_tol", constr_viol_tol_, prefix);
    options.GetBoolValue("honor_original_bounds", honor_original_bounds_, prefix);
    options.GetBoolValue("warm_start_same_structure", warm_start_same_structure_, prefix);
    options.GetBoolValue("check_derivatives_for_naninf", check_derivatives_for_naninf_, prefix);
@@ -144,6 +148,7 @@ bool OrigIpoptNLP::Initialize(
    options.GetEnumValue("hessian_approximation_space", enum_int, prefix);
    hessian_approximation_space_ = HessianApproximationSpace(enum_int);
 
+   options.GetBoolValue("grad_f_constant", grad_f_constant_, prefix);
    options.GetBoolValue("jac_c_constant", jac_c_constant_, prefix);
    options.GetBoolValue("jac_d_constant", jac_d_constant_, prefix);
    options.GetBoolValue("hessian_constant", hessian_constant_, prefix);
@@ -181,15 +186,17 @@ bool OrigIpoptNLP::Initialize(
    // Reset the cache entries belonging to a dummy dependency.  This
    // is required for repeated solve, since the cache is not updated
    // if a dimension is zero.  It is also required if we choose
-   // jac_[cd]_constant and hessian_constant differently between
-   // runs
+   // jac_[cd]_constant, grad_f_constant, or hessian_constant differently between
+   // runs or when the values of these derivatives changes due to a problem change.
    std::vector<const TaggedObject*> deps(1);
    deps[0] = NULL;
    std::vector<Number> sdeps(0);
+   grad_f_cache_.InvalidateResult(deps, sdeps);
    c_cache_.InvalidateResult(deps, sdeps);
    d_cache_.InvalidateResult(deps, sdeps);
    jac_c_cache_.InvalidateResult(deps, sdeps);
    jac_d_cache_.InvalidateResult(deps, sdeps);
+   deps.resize(3, NULL);
    h_cache_.InvalidateResult(deps, sdeps);
 
    if( !nlp_->ProcessOptions(options, prefix) )
@@ -256,9 +263,9 @@ bool OrigIpoptNLP::InitializeStructures(
          {
             DBG_ASSERT(IsValid(P_approx));
             h_space_ = new LowRankUpdateSymMatrixSpace(x_space_->Dim(), ConstPtr(P_approx), ConstPtr(approx_vecspace),
-                  true);
+               true);
             jnlst_->Printf(J_DETAILED, J_INITIALIZATION,
-                           "Hessian approximation will be done in smaller space of dimension %d (instead of %d)\n\n",
+                           "Hessian approximation will be done in smaller space of dimension %" IPOPT_INDEX_FORMAT " (instead of %" IPOPT_INDEX_FORMAT ")\n\n",
                            P_approx->NCols(), P_approx->NRows());
          }
          else
@@ -266,7 +273,7 @@ bool OrigIpoptNLP::InitializeStructures(
             DBG_ASSERT(IsNull(P_approx));
             h_space_ = new LowRankUpdateSymMatrixSpace(x_space_->Dim(), ConstPtr(P_approx), ConstPtr(x_space_), true);
             jnlst_->Printf(J_DETAILED, J_INITIALIZATION,
-                           "Hessian approximation will be done in the space of all %d x variables.\n\n", x_space_->Dim());
+                           "Hessian approximation will be done in the space of all %" IPOPT_INDEX_FORMAT " x variables.\n\n", x_space_->Dim());
          }
       }
 
@@ -289,25 +296,23 @@ bool OrigIpoptNLP::InitializeStructures(
       NLP_scaling()->DetermineScaling(x_space_, c_space_, d_space_, jac_c_space_, jac_d_space_, h_space_,
                                       scaled_jac_c_space_, scaled_jac_d_space_, scaled_h_space_, *Px_L, *x_L, *Px_U, *x_U);
 
-      if( x_space_->Dim() < c_space_->Dim() )
+      if( x_space_->Dim() < c_space_->Dim() && x_space_->Dim() > 0 )
       {
          char msg[128];
-         Snprintf(msg, 127, "Too few degrees of freedom: %d equality constriants but only %d variables",
+         Snprintf(msg, 127, "Too few degrees of freedom: %" IPOPT_INDEX_FORMAT " equality constraints but only %" IPOPT_INDEX_FORMAT " variables",
                   c_space_->Dim(), x_space_->Dim());
          THROW_EXCEPTION(TOO_FEW_DOF, msg);
       }
-      ASSERT_EXCEPTION(x_space_->Dim() > 0, TOO_FEW_DOF, "Too few degrees of freedom (no free variables)!");
 
       // cannot have any null pointers, want zero length vectors
       // instead of null - this will later need to be changed for _h;
-      retValue = (IsValid(x_space_) && IsValid(c_space_) && IsValid(d_space_) && IsValid(x_l_space_)
-                  && IsValid(px_l_space_) && IsValid(x_u_space_) && IsValid(px_u_space_) && IsValid(d_u_space_)
-                  && IsValid(pd_u_space_) && IsValid(d_l_space_) && IsValid(pd_l_space_) && IsValid(jac_c_space_)
-                  && IsValid(jac_d_space_) && IsValid(h_space_) && IsValid(scaled_jac_c_space_) && IsValid(scaled_jac_d_space_)
-                  && IsValid(scaled_h_space_));
+      DBG_DO(retValue = IsValid(x_space_) && IsValid(c_space_) && IsValid(d_space_) && IsValid(x_l_space_)
+                        && IsValid(px_l_space_) && IsValid(x_u_space_) && IsValid(px_u_space_) && IsValid(d_u_space_)
+                        && IsValid(pd_u_space_) && IsValid(d_l_space_) && IsValid(pd_l_space_) && IsValid(jac_c_space_)
+                        && IsValid(jac_d_space_) && IsValid(h_space_) && IsValid(scaled_jac_c_space_) && IsValid(scaled_jac_d_space_)
+                        && IsValid(scaled_h_space_));
 
-      DBG_ASSERT(retValue && "Model cannot return null vector or matrix prototypes or spaces,"
-                 " please return zero length vectors instead");
+      DBG_ASSERT(retValue && "Model cannot return null vector or matrix prototypes or spaces, please return zero length vectors instead");
    }
    else
    {
@@ -335,19 +340,23 @@ bool OrigIpoptNLP::InitializeStructures(
    d_L->Print(*jnlst_, J_MOREVECTOR, J_INITIALIZATION, "original d_L unscaled");
    d_U->Print(*jnlst_, J_MOREVECTOR, J_INITIALIZATION, "original d_U unscaled");
 
-   if( honor_original_bounds_ )
+   if( bound_relax_factor_ > 0.0 )
    {
       SmartPtr<Vector> tmp;
       tmp = x_L->MakeNewCopy();
       orig_x_L_ = ConstPtr(tmp);
       tmp = x_U->MakeNewCopy();
       orig_x_U_ = ConstPtr(tmp);
-   }
+      tmp = d_L->MakeNewCopy();
+      orig_d_L_ = ConstPtr(tmp);
+      tmp = d_U->MakeNewCopy();
+      orig_d_U_ = ConstPtr(tmp);
 
-   relax_bounds(-bound_relax_factor_, *x_L);
-   relax_bounds(bound_relax_factor_, *x_U);
-   relax_bounds(-bound_relax_factor_, *d_L);
-   relax_bounds(bound_relax_factor_, *d_U);
+      relax_bounds(-bound_relax_factor_, *x_L);
+      relax_bounds(bound_relax_factor_, *x_U);
+      relax_bounds(-bound_relax_factor_, *d_L);
+      relax_bounds(bound_relax_factor_, *d_U);
+   }
 
    x_L_ = ConstPtr(x_L);
    Px_L_ = ConstPtr(Px_L);
@@ -453,20 +462,22 @@ void OrigIpoptNLP::relax_bounds(
 )
 {
    DBG_START_METH("OrigIpoptNLP::relax_bounds", dbg_verbosity);
-   if( bound_relax_factor != 0. )
-   {
-      SmartPtr<Vector> tmp = bounds.MakeNew();
-      tmp->Copy(bounds);
-      tmp->ElementWiseAbs();
-      SmartPtr<Vector> ones = bounds.MakeNew();
-      ones->Set(1.);
-      tmp->ElementWiseMax(*ones);
-      DBG_PRINT((1, "bound_relax_factor = %e", bound_relax_factor));
-      DBG_PRINT_VECTOR(2, "tmp", *tmp);
-      DBG_PRINT_VECTOR(2, "bounds before", bounds);
-      bounds.Axpy(bound_relax_factor, *tmp);
-      DBG_PRINT_VECTOR(2, "bounds after", bounds);
-   }
+   DBG_ASSERT(bound_relax_factor != 0.);  // checked in caller
+
+   SmartPtr<Vector> tmp = bounds.MakeNew();
+   tmp->Copy(bounds);
+   tmp->ElementWiseAbs();
+   tmp->Scal(std::abs(bound_relax_factor)); // |relaxfactor|*|bounds|
+   SmartPtr<Vector> ones = bounds.MakeNew();
+   ones->Set(std::abs(bound_relax_factor));
+   tmp->ElementWiseMax(*ones);    // |relaxfactor|*max(|bounds|,1)
+   ones->Set(constr_viol_tol_);
+   tmp->ElementWiseMin(*ones);    // min(constr_viol_tol_,|relaxfactor|*max(|bounds|,1))
+   DBG_PRINT((1, "bound_relax_factor = %e constr_viol_tol = %e", bound_relax_factor, constr_viol_tol_));
+   DBG_PRINT_VECTOR(2, "tmp", *tmp);
+   DBG_PRINT_VECTOR(2, "bounds before", bounds);
+   bounds.Axpy(bound_relax_factor < 0.0 ? -1.0 : 1.0, *tmp);
+   DBG_PRINT_VECTOR(2, "bounds after", bounds);
 }
 
 Number OrigIpoptNLP::f(
@@ -480,9 +491,9 @@ Number OrigIpoptNLP::f(
    {
       f_evals_++;
       SmartPtr<const Vector> unscaled_x = get_unscaled_x(x);
-      f_eval_time_.Start();
+      timing_statistics_.f_eval_time().Start();
       bool success = nlp_->Eval_f(*unscaled_x, ret);
-      f_eval_time_.End();
+      timing_statistics_.f_eval_time().End();
       DBG_PRINT((1, "success = %d ret = %e\n", success, ret));
       ASSERT_EXCEPTION(success && IsFiniteNumber(ret), Eval_Error, "Error evaluating the objective function");
       ret = NLP_scaling()->apply_obj_scaling(ret);
@@ -507,19 +518,24 @@ SmartPtr<const Vector> OrigIpoptNLP::grad_f(
 {
    SmartPtr<Vector> unscaled_grad_f;
    SmartPtr<const Vector> retValue;
-   if( !grad_f_cache_.GetCachedResult1Dep(retValue, &x) )
+   const Vector* dep = NULL;
+   if( !grad_f_constant_ )
+   {
+      dep = &x;
+   }
+   if( !grad_f_cache_.GetCachedResult1Dep(retValue, dep) )
    {
       grad_f_evals_++;
       unscaled_grad_f = x_space_->MakeNew();
 
       SmartPtr<const Vector> unscaled_x = get_unscaled_x(x);
-      grad_f_eval_time_.Start();
+      timing_statistics_.grad_f_eval_time().Start();
       bool success = nlp_->Eval_grad_f(*unscaled_x, *unscaled_grad_f);
-      grad_f_eval_time_.End();
+      timing_statistics_.grad_f_eval_time().End();
       ASSERT_EXCEPTION(success && IsFiniteNumber(unscaled_grad_f->Nrm2()), Eval_Error,
                        "Error evaluating the gradient of the objective function");
       retValue = NLP_scaling()->apply_grad_obj_scaling(ConstPtr(unscaled_grad_f));
-      grad_f_cache_.AddCachedResult1Dep(retValue, &x);
+      grad_f_cache_.AddCachedResult1Dep(retValue, dep);
    }
 
    return retValue;
@@ -558,9 +574,9 @@ SmartPtr<const Vector> OrigIpoptNLP::c(
          SmartPtr<Vector> unscaled_c = c_space_->MakeNew();
          c_evals_++;
          SmartPtr<const Vector> unscaled_x = get_unscaled_x(x);
-         c_eval_time_.Start();
+         timing_statistics_.c_eval_time().Start();
          bool success = nlp_->Eval_c(*unscaled_x, *unscaled_c);
-         c_eval_time_.End();
+         timing_statistics_.c_eval_time().End();
          if( !success || !IsFiniteNumber(unscaled_c->Nrm2()) )
          {
             if( check_derivatives_for_naninf_ && !IsFiniteNumber(unscaled_c->Nrm2()) )
@@ -606,9 +622,9 @@ SmartPtr<const Vector> OrigIpoptNLP::d(
 
          DBG_PRINT_VECTOR(2, "scaled_x", x);
          SmartPtr<const Vector> unscaled_x = get_unscaled_x(x);
-         d_eval_time_.Start();
+         timing_statistics_.d_eval_time().Start();
          bool success = nlp_->Eval_d(*unscaled_x, *unscaled_d);
-         d_eval_time_.End();
+         timing_statistics_.d_eval_time().End();
          DBG_PRINT_VECTOR(2, "unscaled_d", *unscaled_d);
          if( !success || !IsFiniteNumber(unscaled_d->Nrm2()) )
          {
@@ -658,9 +674,9 @@ SmartPtr<const Matrix> OrigIpoptNLP::jac_c(
          SmartPtr<Matrix> unscaled_jac_c = jac_c_space_->MakeNew();
 
          SmartPtr<const Vector> unscaled_x = get_unscaled_x(x);
-         jac_c_eval_time_.Start();
+         timing_statistics_.jac_c_eval_time().Start();
          bool success = nlp_->Eval_jac_c(*unscaled_x, *unscaled_jac_c);
-         jac_c_eval_time_.End();
+         timing_statistics_.jac_c_eval_time().End();
          ASSERT_EXCEPTION(success, Eval_Error, "Error evaluating the jacobian of the equality constraints");
          if( check_derivatives_for_naninf_ )
          {
@@ -712,9 +728,9 @@ SmartPtr<const Matrix> OrigIpoptNLP::jac_d(
          SmartPtr<Matrix> unscaled_jac_d = jac_d_space_->MakeNew();
 
          SmartPtr<const Vector> unscaled_x = get_unscaled_x(x);
-         jac_d_eval_time_.Start();
+         timing_statistics_.jac_d_eval_time().Start();
          bool success = nlp_->Eval_jac_d(*unscaled_x, *unscaled_jac_d);
-         jac_d_eval_time_.End();
+         timing_statistics_.jac_d_eval_time().End();
          ASSERT_EXCEPTION(success, Eval_Error, "Error evaluating the jacobian of the inequality constraints");
          if( check_derivatives_for_naninf_ )
          {
@@ -776,9 +792,9 @@ SmartPtr<const SymMatrix> OrigIpoptNLP::h(
       SmartPtr<const Vector> unscaled_yc = NLP_scaling()->apply_vector_scaling_c(&yc);
       SmartPtr<const Vector> unscaled_yd = NLP_scaling()->apply_vector_scaling_d(&yd);
       Number scaled_obj_factor = NLP_scaling()->apply_obj_scaling(obj_factor);
-      h_eval_time_.Start();
+      timing_statistics_.h_eval_time().Start();
       bool success = nlp_->Eval_h(*unscaled_x, scaled_obj_factor, *unscaled_yc, *unscaled_yd, *unscaled_h);
-      h_eval_time_.End();
+      timing_statistics_.h_eval_time().End();
       ASSERT_EXCEPTION(success, Eval_Error, "Error evaluating the hessian of the lagrangian");
       if( check_derivatives_for_naninf_ )
       {
@@ -915,13 +931,14 @@ void OrigIpoptNLP::FinalizeSolution(
       unscaled_y_d = NLP_scaling()->apply_vector_scaling_d(&y_d);
    }
 
-   if( honor_original_bounds_ && (Px_L_->NCols() > 0 || Px_U_->NCols() > 0) )
+   if( honor_original_bounds_ && bound_relax_factor_ > 0.0 && (Px_L_->NCols() > 0 || Px_U_->NCols() > 0) )
    {
       // Make sure the user specified bounds are satisfied
       SmartPtr<Vector> tmp;
       SmartPtr<Vector> un_x = unscaled_x->MakeNewCopy();
       if( Px_L_->NCols() > 0 )
       {
+         DBG_ASSERT(IsValid(orig_x_L_));
          tmp = orig_x_L_->MakeNewCopy();
          Px_L_->TransMultVector(1., *un_x, 0., *tmp);
          Px_L_->MultVector(-1., *tmp, 1., *un_x);
@@ -930,6 +947,7 @@ void OrigIpoptNLP::FinalizeSolution(
       }
       if( Px_U_->NCols() > 0 )
       {
+         DBG_ASSERT(IsValid(orig_x_U_));
          tmp = orig_x_U_->MakeNewCopy();
          Px_U_->TransMultVector(1., *un_x, 0., *tmp);
          Px_U_->MultVector(-1., *tmp, 1., *un_x);
@@ -980,67 +998,6 @@ void OrigIpoptNLP::AdjustVariableBounds(
    x_U_ = new_x_U.MakeNewCopy();
    d_L_ = new_d_L.MakeNewCopy();
    d_U_ = new_d_U.MakeNewCopy();
-}
-
-void OrigIpoptNLP::PrintTimingStatistics(
-   Journalist&      jnlst,
-   EJournalLevel    level,
-   EJournalCategory category
-) const
-{
-   if( !jnlst.ProduceOutput(level, category) )
-   {
-      return;
-   }
-
-   jnlst.Printf(level, category,
-                "Function Evaluations................: %10.3f (sys: %10.3f wall: %10.3f)\n", TotalFunctionEvaluationCpuTime(), TotalFunctionEvaluationSysTime(), TotalFunctionEvaluationWallclockTime());
-   jnlst.Printf(level, category,
-                " Objective function.................: %10.3f (sys: %10.3f wall: %10.3f)\n", f_eval_time_.TotalCpuTime(), f_eval_time_.TotalSysTime(), f_eval_time_.TotalWallclockTime());
-   jnlst.Printf(level, category,
-                " Objective function gradient........: %10.3f (sys: %10.3f wall: %10.3f)\n", grad_f_eval_time_.TotalCpuTime(), grad_f_eval_time_.TotalSysTime(), grad_f_eval_time_.TotalWallclockTime());
-   jnlst.Printf(level, category,
-                " Equality constraints...............: %10.3f (sys: %10.3f wall: %10.3f)\n", c_eval_time_.TotalCpuTime(), c_eval_time_.TotalSysTime(), c_eval_time_.TotalWallclockTime());
-   jnlst.Printf(level, category,
-                " Inequality constraints.............: %10.3f (sys: %10.3f wall: %10.3f)\n", d_eval_time_.TotalCpuTime(), d_eval_time_.TotalSysTime(), d_eval_time_.TotalWallclockTime());
-   jnlst.Printf(level, category,
-                " Equality constraint Jacobian.......: %10.3f (sys: %10.3f wall: %10.3f)\n", jac_c_eval_time_.TotalCpuTime(), jac_c_eval_time_.TotalSysTime(), jac_c_eval_time_.TotalWallclockTime());
-   jnlst.Printf(level, category,
-                " Inequality constraint Jacobian.....: %10.3f (sys: %10.3f wall: %10.3f)\n", jac_d_eval_time_.TotalCpuTime(), jac_d_eval_time_.TotalSysTime(), jac_d_eval_time_.TotalWallclockTime());
-   jnlst.Printf(level, category,
-                " Lagrangian Hessian.................: %10.3f (sys: %10.3f wall: %10.3f)\n", h_eval_time_.TotalCpuTime(), h_eval_time_.TotalSysTime(), h_eval_time_.TotalWallclockTime());
-}
-
-Number OrigIpoptNLP::TotalFunctionEvaluationCpuTime() const
-{
-   return f_eval_time_.TotalCpuTime() + grad_f_eval_time_.TotalCpuTime() + c_eval_time_.TotalCpuTime()
-          + d_eval_time_.TotalCpuTime() + jac_c_eval_time_.TotalCpuTime() + jac_d_eval_time_.TotalCpuTime()
-          + h_eval_time_.TotalCpuTime();
-}
-
-Number OrigIpoptNLP::TotalFunctionEvaluationSysTime() const
-{
-   return f_eval_time_.TotalSysTime() + grad_f_eval_time_.TotalSysTime() + c_eval_time_.TotalSysTime()
-          + d_eval_time_.TotalSysTime() + jac_c_eval_time_.TotalSysTime() + jac_d_eval_time_.TotalSysTime()
-          + h_eval_time_.TotalSysTime();
-}
-
-Number OrigIpoptNLP::TotalFunctionEvaluationWallclockTime() const
-{
-   return f_eval_time_.TotalWallclockTime() + grad_f_eval_time_.TotalWallclockTime() + c_eval_time_.TotalWallclockTime()
-          + d_eval_time_.TotalWallclockTime() + jac_c_eval_time_.TotalWallclockTime()
-          + jac_d_eval_time_.TotalWallclockTime() + h_eval_time_.TotalWallclockTime();
-}
-
-void OrigIpoptNLP::ResetTimes()
-{
-   f_eval_time_.Reset();
-   grad_f_eval_time_.Reset();
-   c_eval_time_.Reset();
-   d_eval_time_.Reset();
-   jac_c_eval_time_.Reset();
-   jac_d_eval_time_.Reset();
-   h_eval_time_.Reset();
 }
 
 SmartPtr<const Vector> OrigIpoptNLP::get_unscaled_x(

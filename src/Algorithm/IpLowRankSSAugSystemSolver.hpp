@@ -28,7 +28,7 @@ class LowRankSSAugSystemSolver: public AugSystemSolver
 {
 public:
    /**@name Constructors / Destructors */
-   //@{
+   ///@{
    /** Constructor using an existing augmented system solver. */
    LowRankSSAugSystemSolver(
       AugSystemSolver& aug_system_solver,  /**< augmented system solver to copy */
@@ -37,7 +37,7 @@ public:
 
    /** Destructor */
    virtual ~LowRankSSAugSystemSolver();
-   //@}
+   ///@}
 
    bool InitializeImpl(
       const OptionsList& options,
@@ -47,17 +47,17 @@ public:
    /** Set up the augmented system and solve it for a given right hand side. */
    virtual ESymSolverStatus Solve(
       const SymMatrix* W,
-      double           W_factor,
+      Number           W_factor,
       const Vector*    D_x,
-      double           delta_x,
+      Number           delta_x,
       const Vector*    D_s,
-      double           delta_s,
+      Number           delta_s,
       const Matrix*    J_c,
       const Vector*    D_c,
-      double           delta_c,
+      Number           delta_c,
       const Matrix*    J_d,
       const Vector*    D_d,
-      double           delta_d,
+      Number           delta_d,
       const Vector&    rhs_x,
       const Vector&    rhs_s,
       const Vector&    rhs_c,
@@ -105,7 +105,7 @@ private:
     * and do not define them. This ensures that
     * they will not be implicitly created/called.
     */
-   //@{
+   ///@{
    /** Default constructor. */
    LowRankSSAugSystemSolver();
 
@@ -117,7 +117,7 @@ private:
    void operator=(
       const LowRankSSAugSystemSolver&
    );
-   //@}
+   ///@}
 
    /** The augmented system solver object that should be used for the
     *  factorization of the augmented system without the low-rank
@@ -132,7 +132,7 @@ private:
     matrix has to be updated compared to the most recent call of
     the Set method.
     */
-   //@{
+   ///@{
    /** Tag for W matrix.
     *
     *  If W has been given to Set as NULL, then this tag is set to 0.
@@ -140,7 +140,7 @@ private:
    TaggedObject::Tag w_tag_;
 
    /** Most recent value of W_factor */
-   double w_factor_;
+   Number w_factor_;
 
    /** Tag for D_x vector, representing the diagonal matrix D_x.
     *
@@ -149,7 +149,7 @@ private:
    TaggedObject::Tag d_x_tag_;
 
    /** Most recent value of delta_x from Set method */
-   double delta_x_;
+   Number delta_x_;
 
    /** Tag for D_s vector, representing the diagonal matrix D_s.
     *  If D_s has been given to Set as NULL, then this tag is set to 0.
@@ -157,7 +157,7 @@ private:
    TaggedObject::Tag d_s_tag_;
 
    /** Most recent value of delta_s from Set method */
-   double delta_s_;
+   Number delta_s_;
 
    /** Tag for J_c matrix.
     *
@@ -172,7 +172,7 @@ private:
    TaggedObject::Tag d_c_tag_;
 
    /** Most recent value of delta_c from Set method */
-   double delta_c_;
+   Number delta_c_;
 
    /** Tag for J_d matrix.
     *
@@ -187,15 +187,15 @@ private:
    TaggedObject::Tag d_d_tag_;
 
    /** Most recent value of delta_d from Set method */
-   double delta_d_;
-   //@}
+   Number delta_d_;
+   ///@}
 
    /** Flag indicating if this is the first call */
    bool first_call_;
 
    /** @name Information to be stored in order to resolve for the
     *  same matrix with a different right hand side. */
-   //@{
+   ///@{
    /** Hessian Matrix passed to the augmented system solver solving
     *  the matrix without the low-rank update.
     */
@@ -216,7 +216,7 @@ private:
    /** Number of components in V, so that it can be used to correct
     *  the inertia */
    Index negEvalsCorrection_;
-   //@}
+   ///@}
 
    /** Stores the number of negative eigenvalues detected during most
     *  recent factorization.
@@ -231,23 +231,23 @@ private:
    Index num_neg_evals_;
 
    /** @name Internal functions */
-   //@{
+   ///@{
    /** Method for updating the factorization, including J1_, J2_,
     *  Vtilde1_, Utilde2, Wdiag_, compound_sol_vecspace_.
     */
    ESymSolverStatus UpdateExtendedData(
       const SymMatrix* W,
-      double           W_factor,
+      Number           W_factor,
       const Vector*    D_x,
-      double           delta_x,
+      Number           delta_x,
       const Vector*    D_s,
-      double           delta_s,
+      Number           delta_s,
       const Matrix&    J_c,
       const Vector*    D_c,
-      double           delta_c,
+      Number           delta_c,
       const Matrix&    J_d,
       const Vector*    D_d,
-      double           delta_d,
+      Number           delta_d,
       const Vector&    proto_rhs_x,
       const Vector&    proto_rhs_s,
       const Vector&    proto_rhs_c,
@@ -261,19 +261,19 @@ private:
     */
    bool AugmentedSystemRequiresChange(
       const SymMatrix* W,
-      double           W_factor,
+      Number           W_factor,
       const Vector*    D_x,
-      double           delta_x,
+      Number           delta_x,
       const Vector*    D_s,
-      double           delta_s,
+      Number           delta_s,
       const Matrix&    J_c,
       const Vector*    D_c,
-      double           delta_c,
+      Number           delta_c,
       const Matrix&    J_d,
       const Vector*    D_d,
-      double           delta_d
+      Number           delta_d
    );
-   //@}
+   ///@}
 };
 
 } // namespace Ipopt

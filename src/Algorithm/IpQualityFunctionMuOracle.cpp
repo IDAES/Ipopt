@@ -11,7 +11,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -57,14 +57,16 @@ void QualityFunctionMuOracle::RegisterOptions(
       0., true,
       1e2,
       "This is the upper bound for the centering parameter chosen by the quality function based barrier parameter update. "
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".",
+      true);
    roptions->AddLowerBoundedNumberOption(
       "sigma_min",
       "Minimum value of the centering parameter.",
       0., false,
       1e-6,
       "This is the lower bound for the centering parameter chosen by the quality function based barrier parameter update. "
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".",
+      true);
    roptions->AddStringOption4(
       "quality_function_norm_type",
       "Norm used for components of the quality function.",
@@ -73,7 +75,8 @@ void QualityFunctionMuOracle::RegisterOptions(
       "2-norm-squared", "use the 2-norm squared (sum of squares)",
       "max-norm", "use the infinity norm (max)",
       "2-norm", "use 2-norm",
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".",
+      true);
    roptions->AddStringOption4(
       "quality_function_centrality",
       "The penalty term for centrality that is included in quality function.",
@@ -84,7 +87,8 @@ void QualityFunctionMuOracle::RegisterOptions(
       "cubed-reciprocal", "complementarity * the reciprocal of the centrality measure cubed",
       "This determines whether a term is added to the quality function to penalize deviation from centrality with respect to complementarity. "
       "The complementarity measure here is the xi in the Loqo update rule. "
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".",
+      true);
    roptions->AddStringOption2(
       "quality_function_balancing_term",
       "The balancing term included in the quality function for centrality.",
@@ -93,14 +97,15 @@ void QualityFunctionMuOracle::RegisterOptions(
       "cubic", "Max(0,Max(dual_inf,primal_inf)-compl)^3",
       "This determines whether a term is added to the quality function that penalizes situations "
       "where the complementarity is much smaller than dual and primal infeasibilities. "
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".",
+      true);
    roptions->AddLowerBoundedIntegerOption(
       "quality_function_max_section_steps",
       "Maximum number of search steps during direct search procedure determining the optimal centering parameter.",
       0,
       8,
       "The golden section search is performed for the quality function based mu oracle. "
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".");
    roptions->AddBoundedNumberOption(
       "quality_function_section_sigma_tol",
       "Tolerance for the section search procedure determining the optimal centering parameter (in sigma space).",
@@ -108,7 +113,8 @@ void QualityFunctionMuOracle::RegisterOptions(
       1., true,
       1e-2,
       "The golden section search is performed for the quality function based mu oracle. "
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".",
+      true);
    roptions->AddBoundedNumberOption(
       "quality_function_section_qf_tol",
       "Tolerance for the golden section search procedure determining the optimal centering parameter (in the function value space).",
@@ -116,7 +122,8 @@ void QualityFunctionMuOracle::RegisterOptions(
       1., true,
       0.,
       "The golden section search is performed for the quality function based mu oracle. "
-      "(Only used if option \"mu_oracle\" is set to \"quality-function\".)");
+      "Only used if option \"mu_oracle\" is set to \"quality-function\".",
+      true);
 }
 
 bool QualityFunctionMuOracle::InitializeImpl(
@@ -329,7 +336,7 @@ bool QualityFunctionMuOracle::CalculateMu(
                                           *step_cen_x_L, *step_cen_x_U, *step_cen_s_L, *step_cen_s_U, *step_cen->y_c(), *step_cen->y_d(), *step_cen->z_L(),
                                           *step_cen->z_U(), *step_cen->v_L(), *step_cen->v_U());
 
-   Number sigma_1minus = 1. - Max(1e-4, quality_function_section_sigma_tol_);
+   Number sigma_1minus = 1. - Max(Number(1e-4), quality_function_section_sigma_tol_);
    Number qf_1minus = CalculateQualityFunction(sigma_1minus, *step_aff_x_L, *step_aff_x_U, *step_aff_s_L, *step_aff_s_U,
                       *step_aff->y_c(), *step_aff->y_d(), *step_aff->z_L(), *step_aff->z_U(), *step_aff->v_L(), *step_aff->v_U(),
                       *step_cen_x_L, *step_cen_x_U, *step_cen_s_L, *step_cen_s_U, *step_cen->y_c(), *step_cen->y_d(), *step_cen->z_L(),
@@ -377,10 +384,9 @@ bool QualityFunctionMuOracle::CalculateMu(
       }
    }
 
-   //#define tracequalityfunction
-#ifdef tracequalityfunction
+#ifdef TRACEQUALITYFUNCTION
    char fname[100];
-   Snprintf(fname, 100, "qf_values_%d.dat", IpData().iter_count());
+   Snprintf(fname, 100, "qf_values_%" IPOPT_INDEX_FORMAT ".dat", IpData().iter_count());
    FILE* fid = fopen(fname, "w");
 
    Number sigma_1 = sigma_max_;
@@ -462,19 +468,17 @@ bool QualityFunctionMuOracle::CalculateMu(
    curr_slack_s_L_ = NULL;
    curr_slack_s_U_ = NULL;
 
-   // DELETEME
+   /*
    char ssigma[40];
    Snprintf(ssigma, 39, " sigma=%8.2e", sigma);
    IpData().Append_info_string(ssigma);
-   Snprintf(ssigma, 39, " qf=%d", count_qf_evals_);
+   Snprintf(ssigma, 39, " qf=%" IPOPT_INDEX_FORMAT "", count_qf_evals_);
    IpData().Append_info_string(ssigma);
-   /*
-    Snprintf(ssigma, 39, " xi=%8.2e ", IpCq().curr_centrality_measure());
-    IpData().Append_info_string(ssigma);
-    if (sigma>1.) {
-    IpData().Append_info_string("LARGESIGMA");
-    }
-    */
+   Snprintf(ssigma, 39, " xi=%8.2e ", IpCq().curr_centrality_measure());
+   IpData().Append_info_string(ssigma);
+   if( sigma > 1. )
+      IpData().Append_info_string("LARGESIGMA");
+   */
 
    new_mu = mu;
    return true;
@@ -578,11 +582,10 @@ Number QualityFunctionMuOracle::CalculateQualityFunction(
          compl_inf /= n_comp_;
          break;
       case NM_NORM_2_SQUARED:
-         dual_inf = pow(1. - alpha_dual, 2) * (pow(curr_grad_lag_x_nrm2_, 2) + pow(curr_grad_lag_s_nrm2_, 2));
-         primal_inf = pow(1. - alpha_primal, 2) * (pow(curr_c_nrm2_, 2) + pow(curr_d_minus_s_nrm2_, 2));
-         compl_inf = pow(tmp_slack_x_L_->Nrm2(), 2) + pow(tmp_slack_x_U_->Nrm2(), 2) + pow(tmp_slack_s_L_->Nrm2(), 2)
-                     + pow(tmp_slack_s_U_->Nrm2(), 2);
-
+         dual_inf = std::pow(1. - alpha_dual, 2) * (std::pow(curr_grad_lag_x_nrm2_, 2) + std::pow(curr_grad_lag_s_nrm2_, 2));
+         primal_inf = std::pow(1. - alpha_primal, 2) * (std::pow(curr_c_nrm2_, 2) + std::pow(curr_d_minus_s_nrm2_, 2));
+         compl_inf = std::pow(tmp_slack_x_L_->Nrm2(), 2) + std::pow(tmp_slack_x_U_->Nrm2(), 2) + std::pow(tmp_slack_s_L_->Nrm2(), 2)
+                     + std::pow(tmp_slack_s_U_->Nrm2(), 2);
          dual_inf /= n_dual_;
          if( n_pri_ > 0 )
          {
@@ -598,19 +601,18 @@ Number QualityFunctionMuOracle::CalculateQualityFunction(
                          tmp_slack_s_U_->Amax());
          break;
       case NM_NORM_2:
-         dual_inf = (1. - alpha_dual) * sqrt(pow(curr_grad_lag_x_nrm2_, 2) + pow(curr_grad_lag_s_nrm2_, 2));
-         primal_inf = (1. - alpha_primal) * sqrt(pow(curr_c_nrm2_, 2) + pow(curr_d_minus_s_nrm2_, 2));
-         compl_inf = sqrt(
-                        pow(tmp_slack_x_L_->Nrm2(), 2) + pow(tmp_slack_x_U_->Nrm2(), 2) + pow(tmp_slack_s_L_->Nrm2(), 2)
-                        + pow(tmp_slack_s_U_->Nrm2(), 2));
-
-         dual_inf /= sqrt((Number) n_dual_);
+         dual_inf = (1. - alpha_dual) * std::sqrt(std::pow(curr_grad_lag_x_nrm2_, 2) + std::pow(curr_grad_lag_s_nrm2_, 2));
+         primal_inf = (1. - alpha_primal) * std::sqrt(std::pow(curr_c_nrm2_, 2) + std::pow(curr_d_minus_s_nrm2_, 2));
+         compl_inf = std::sqrt(
+                        std::pow(tmp_slack_x_L_->Nrm2(), 2) + std::pow(tmp_slack_x_U_->Nrm2(), 2) + std::pow(tmp_slack_s_L_->Nrm2(), 2)
+                        + std::pow(tmp_slack_s_U_->Nrm2(), 2));
+         dual_inf /= std::sqrt((Number) n_dual_);
          if( n_pri_ > 0 )
          {
-            primal_inf /= sqrt((Number) n_pri_);
+            primal_inf /= std::sqrt((Number) n_pri_);
          }
          DBG_ASSERT(n_comp_ > 0);
-         compl_inf /= sqrt((Number) n_comp_);
+         compl_inf /= std::sqrt((Number) n_comp_);
          break;
       default:
          DBG_ASSERT(false && "Unknown value for quality_function_norm_");
@@ -631,13 +633,13 @@ Number QualityFunctionMuOracle::CalculateQualityFunction(
          //Nothing
          break;
       case CEN_LOG:
-         quality_function -= compl_inf * log(xi);
+         quality_function -= compl_inf * std::log(xi);
          break;
       case CEN_RECIPROCAL:
          quality_function += compl_inf / xi;
          break;
       case CEN_CUBED_RECIPROCAL:
-         quality_function += compl_inf / pow(xi, 3);
+         quality_function += compl_inf / std::pow(xi, 3);
          break;
       default:
          DBG_ASSERT(false && "Unknown value for quality_function_centrality_");
@@ -649,7 +651,7 @@ Number QualityFunctionMuOracle::CalculateQualityFunction(
          //Nothing
          break;
       case BT_CUBIC:
-         quality_function += pow(Max(0., Max(dual_inf, primal_inf) - compl_inf), 3);
+         quality_function += std::pow(Max(Number(0.), Max(dual_inf, primal_inf) - compl_inf), 3);
          break;
       default:
          DBG_ASSERT(false && "Unknown value for quality_function_balancing term_");
@@ -696,7 +698,7 @@ Number QualityFunctionMuOracle::PerformGoldenSection(
    Number sigma_lo = ScaleSigma(sigma_lo_in);
 
    Number sigma;
-   Number gfac = (3. - sqrt(5.)) / 2.;
+   Number gfac = (3. - std::sqrt(5.)) / 2.;
    Number sigma_mid1 = sigma_lo + gfac * (sigma_up - sigma_lo);
    Number sigma_mid2 = sigma_lo + (1. - gfac) * (sigma_up - sigma_lo);
 
@@ -798,7 +800,7 @@ Number QualityFunctionMuOracle::PerformGoldenSection(
          if( qtmp < q )
          {
             sigma = sigma_up;
-            q = qtmp;
+            // never used: q = qtmp;
          }
       }
       else if( sigma_lo == ScaleSigma(sigma_lo_in) )
@@ -818,7 +820,7 @@ Number QualityFunctionMuOracle::PerformGoldenSection(
          if( qtmp < q )
          {
             sigma = sigma_lo;
-            q = qtmp;
+            // never used: q = qtmp;
          }
       }
    }
@@ -827,8 +829,8 @@ Number QualityFunctionMuOracle::PerformGoldenSection(
 }
 
 /*
- Number QualityFunctionMuOracle::ScaleSigma(Number sigma) {return log(sigma);}
- Number QualityFunctionMuOracle::UnscaleSigma(Number scaled_sigma) {return exp(scaled_sigma);}
+ Number QualityFunctionMuOracle::ScaleSigma(Number sigma) {return std::log(sigma);}
+ Number QualityFunctionMuOracle::UnscaleSigma(Number scaled_sigma) {return std::exp(scaled_sigma);}
  */
 
 Number QualityFunctionMuOracle::ScaleSigma(
@@ -876,16 +878,16 @@ Number QualityFunctionMuOracle::UnscaleSigma(
  )
  {
  Number log_sigma;
- Number log_sigma_up = log(sigma_up);
- Number log_sigma_lo = log(sigma_lo);
+ Number log_sigma_up = std::log(sigma_up);
+ Number log_sigma_lo = std::log(sigma_lo);
 
  Number log_sigma_up_in = log_sigma_up;
  Number log_sigma_lo_in = log_sigma_lo;
- Number gfac = (3.-sqrt(5.))/2.;
+ Number gfac = (3.-std::sqrt(5.))/2.;
  Number log_sigma_mid1 = log_sigma_lo + gfac*(log_sigma_up-log_sigma_lo);
  Number log_sigma_mid2 = log_sigma_lo + (1.-gfac)*(log_sigma_up-log_sigma_lo);
 
- Number qmid1 = CalculateQualityFunction(exp(log_sigma_mid1),
+ Number qmid1 = CalculateQualityFunction(std::exp(log_sigma_mid1),
  step_aff_x_L,
  step_aff_x_U,
  step_aff_s_L,
@@ -906,7 +908,7 @@ Number QualityFunctionMuOracle::UnscaleSigma(
  step_cen_z_U,
  step_cen_v_L,
  step_cen_v_U);
- Number qmid2 = CalculateQualityFunction(exp(log_sigma_mid2),
+ Number qmid2 = CalculateQualityFunction(std::exp(log_sigma_mid2),
  step_aff_x_L,
  step_aff_x_U,
  step_aff_s_L,
@@ -936,7 +938,7 @@ Number QualityFunctionMuOracle::UnscaleSigma(
  log_sigma_mid1 = log_sigma_mid2;
  qmid1 = qmid2;
  log_sigma_mid2 = log_sigma_lo + (1.-gfac)*(log_sigma_up-log_sigma_lo);
- qmid2 = CalculateQualityFunction(exp(log_sigma_mid2),
+ qmid2 = CalculateQualityFunction(std::exp(log_sigma_mid2),
  step_aff_x_L,
  step_aff_x_U,
  step_aff_s_L,
@@ -963,7 +965,7 @@ Number QualityFunctionMuOracle::UnscaleSigma(
  log_sigma_mid2 = log_sigma_mid1;
  qmid2 = qmid1;
  log_sigma_mid1 = log_sigma_lo + gfac*(log_sigma_up-log_sigma_lo);
- qmid1 = CalculateQualityFunction(exp(log_sigma_mid1),
+ qmid1 = CalculateQualityFunction(std::exp(log_sigma_mid1),
  step_aff_x_L,
  step_aff_x_U,
  step_aff_s_L,
@@ -997,7 +999,7 @@ Number QualityFunctionMuOracle::UnscaleSigma(
  q = qmid2;
  }
  if (log_sigma_up == log_sigma_up_in) {
- Number qtmp = CalculateQualityFunction(exp(log_sigma_up),
+ Number qtmp = CalculateQualityFunction(std::exp(log_sigma_up),
  step_aff_x_L,
  step_aff_x_U,
  step_aff_s_L,
@@ -1024,7 +1026,7 @@ Number QualityFunctionMuOracle::UnscaleSigma(
  }
  }
  else if (log_sigma_lo == log_sigma_lo_in) {
- Number qtmp = CalculateQualityFunction(exp(log_sigma_lo),
+ Number qtmp = CalculateQualityFunction(std::exp(log_sigma_lo),
  step_aff_x_L,
  step_aff_x_U,
  step_aff_s_L,
@@ -1051,7 +1053,7 @@ Number QualityFunctionMuOracle::UnscaleSigma(
  }
  }
 
- return exp(log_sigma);
+ return std::exp(log_sigma);
  }
  */
 

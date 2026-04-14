@@ -9,7 +9,7 @@
 
 namespace Ipopt
 {
-#if COIN_IPOPT_VERBOSITY > 0
+#if IPOPT_VERBOSITY > 0
 static const Index dbg_verbosity = 0;
 #endif
 
@@ -55,7 +55,7 @@ void InexactCq::RegisterOptions(
 }
 
 bool InexactCq::Initialize(
-   const Journalist&  jnlst,
+   const Journalist&  /*jnlst*/,
    const OptionsList& options,
    const std::string& prefix
 )
