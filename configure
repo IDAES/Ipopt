@@ -677,7 +677,6 @@ BUILD_JAVA_TRUE
 JAVADOC
 JAVA
 JAR
-_ACJNI_JAVAC
 JAVAC
 BUILD_INEXACT_FALSE
 BUILD_INEXACT_TRUE
@@ -3823,7 +3822,7 @@ fi
 printf "%s\n" "$am_cv_make_support_nested_variables" >&6; }
 AM_BACKSLASH='\'
 
-am__api_version='1.17'
+am__api_version='1.18'
 
 
   # Find a good install program.  We prefer a C program (faster),
@@ -4092,10 +4091,14 @@ am_lf='
 '
 case `pwd` in
   *[\\\"\#\$\&\'\`$am_lf]*)
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+printf "%s\n" "no" >&6; }
     as_fn_error $? "unsafe absolute working directory name" "$LINENO" 5;;
 esac
 case $srcdir in
   *[\\\"\#\$\&\'\`$am_lf\ \	]*)
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+printf "%s\n" "no" >&6; }
     as_fn_error $? "unsafe srcdir value: '$srcdir'" "$LINENO" 5;;
 esac
 
@@ -4513,6 +4516,8 @@ printf "%s\n" "#define IPOPT_VERSION_RELEASE 20" >>confdefs.h
 AM_DEFAULT_VERBOSITY=0
 
 
+
+
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether to enable maintainer-specific portions of Makefiles" >&5
 printf %s "checking whether to enable maintainer-specific portions of Makefiles... " >&6; }
     # Check whether --enable-maintainer-mode was given.
@@ -4593,9 +4598,133 @@ AMTAR='$${TAR-tar}'
 
 
 # We'll loop over all known methods to create a tar archive until one works.
-_am_tools='gnutar  pax cpio none'
+_am_tools='gnutar plaintar pax cpio none'
 
-am__tar='$${TAR-tar} chof - "$$tardir"' am__untar='$${TAR-tar} xf -'
+# The POSIX 1988 'ustar' format is defined with fixed-size fields.
+      # There is notably a 21 bits limit for the UID and the GID.  In fact,
+      # the 'pax' utility can hang on bigger UID/GID (see automake bug#8343
+      # and bug#13588).
+      am_max_uid=2097151 # 2^21 - 1
+      am_max_gid=$am_max_uid
+      # The $UID and $GID variables are not portable, so we need to resort
+      # to the POSIX-mandated id(1) utility.  Errors in the 'id' calls
+      # below are definitely unexpected, so allow the users to see them
+      # (that is, avoid stderr redirection).
+      am_uid=`id -u || echo unknown`
+      am_gid=`id -g || echo unknown`
+      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether UID '$am_uid' is supported by ustar format" >&5
+printf %s "checking whether UID '$am_uid' is supported by ustar format... " >&6; }
+      if test x$am_uid = xunknown; then
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: ancient id detected; assuming current UID is ok, but dist-ustar might not work" >&5
+printf "%s\n" "$as_me: WARNING: ancient id detected; assuming current UID is ok, but dist-ustar might not work" >&2;}
+      elif test $am_uid -le $am_max_uid; then
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+printf "%s\n" "yes" >&6; }
+      else
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+printf "%s\n" "no" >&6; }
+        _am_tools=none
+      fi
+      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether GID '$am_gid' is supported by ustar format" >&5
+printf %s "checking whether GID '$am_gid' is supported by ustar format... " >&6; }
+      if test x$gm_gid = xunknown; then
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: ancient id detected; assuming current GID is ok, but dist-ustar might not work" >&5
+printf "%s\n" "$as_me: WARNING: ancient id detected; assuming current GID is ok, but dist-ustar might not work" >&2;}
+      elif test $am_gid -le $am_max_gid; then
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+printf "%s\n" "yes" >&6; }
+      else
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+printf "%s\n" "no" >&6; }
+        _am_tools=none
+      fi
+
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking how to create a ustar tar archive" >&5
+printf %s "checking how to create a ustar tar archive... " >&6; }
+
+  # Go ahead even if we have the value already cached.  We do so because we
+  # need to set the values for the 'am__tar' and 'am__untar' variables.
+  _am_tools=${am_cv_prog_tar_ustar-$_am_tools}
+
+  for _am_tool in $_am_tools; do
+    case $_am_tool in
+    gnutar)
+      for _am_tar in tar gnutar gtar; do
+        { echo "$as_me:$LINENO: $_am_tar --version" >&5
+   ($_am_tar --version) >&5 2>&5
+   ac_status=$?
+   echo "$as_me:$LINENO: \$? = $ac_status" >&5
+   (exit $ac_status); } && break
+      done
+      am__tar="$_am_tar --format=ustar -chf - "'"$$tardir"'
+      am__tar_="$_am_tar --format=ustar -chf - "'"$tardir"'
+      am__untar="$_am_tar -xf -"
+      ;;
+    plaintar)
+      # Must skip GNU tar: if it does not support --format= it doesn't create
+      # ustar tarball either.
+      (tar --version) >/dev/null 2>&1 && continue
+      am__tar='tar chf - "$$tardir"'
+      am__tar_='tar chf - "$tardir"'
+      am__untar='tar xf -'
+      ;;
+    pax)
+      am__tar='pax -L -x ustar -w "$$tardir"'
+      am__tar_='pax -L -x ustar -w "$tardir"'
+      am__untar='pax -r'
+      ;;
+    cpio)
+      am__tar='find "$$tardir" -print | cpio -o -H ustar -L'
+      am__tar_='find "$tardir" -print | cpio -o -H ustar -L'
+      am__untar='cpio -i -H ustar -d'
+      ;;
+    none)
+      am__tar=false
+      am__tar_=false
+      am__untar=false
+      ;;
+    esac
+
+    # If the value was cached, stop now.  We just wanted to have am__tar
+    # and am__untar set.
+    test -n "${am_cv_prog_tar_ustar}" && break
+
+    # tar/untar a dummy directory, and stop if the command works.
+    rm -rf conftest.dir
+    mkdir conftest.dir
+    echo GrepMe > conftest.dir/file
+    { echo "$as_me:$LINENO: tardir=conftest.dir && eval $am__tar_ >conftest.tar" >&5
+   (tardir=conftest.dir && eval $am__tar_ >conftest.tar) >&5 2>&5
+   ac_status=$?
+   echo "$as_me:$LINENO: \$? = $ac_status" >&5
+   (exit $ac_status); }
+    rm -rf conftest.dir
+    if test -s conftest.tar; then
+      { echo "$as_me:$LINENO: $am__untar <conftest.tar" >&5
+   ($am__untar <conftest.tar) >&5 2>&5
+   ac_status=$?
+   echo "$as_me:$LINENO: \$? = $ac_status" >&5
+   (exit $ac_status); }
+      { echo "$as_me:$LINENO: cat conftest.dir/file" >&5
+   (cat conftest.dir/file) >&5 2>&5
+   ac_status=$?
+   echo "$as_me:$LINENO: \$? = $ac_status" >&5
+   (exit $ac_status); }
+      grep GrepMe conftest.dir/file >/dev/null 2>&1 && break
+    fi
+  done
+  rm -rf conftest.dir
+
+  if test ${am_cv_prog_tar_ustar+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) am_cv_prog_tar_ustar=$_am_tool ;;
+esac
+fi
+
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $am_cv_prog_tar_ustar" >&5
+printf "%s\n" "$am_cv_prog_tar_ustar" >&6; }
 
 
 
@@ -5538,7 +5667,10 @@ _ACEOF
       break
     fi
   done
-  rm -f core conftest*
+  # aligned with autoconf, so not including core; see bug#72225.
+  rm -f -r a.out a.exe b.out conftest.$ac_ext conftest.$ac_objext \
+    conftest.dSYM conftest1.$ac_ext conftest1.$ac_objext conftest1.dSYM \
+    conftest2.$ac_ext conftest2.$ac_objext conftest2.dSYM
   unset am_i ;;
 esac
 fi
@@ -13835,12 +13967,12 @@ fi
 
     cygwin* | mingw* | windows* | pw32* | cegcc*)
       # When not using gcc, we currently assume that we are using
-      # Microsoft Visual C++ or Intel C++/Fortran Compiler.
+      # Microsoft Visual C++ or Intel C++ Compiler.
       # hardcode_libdir_flag_spec is actually meaningless, as there is
       # no search path for DLLs.
       case $cc_basename in
-      cl* | icl* | ifort* | icx* | ifx*)
-	# Native MSVC or classic or new Intel Compilers
+      cl* | icl*)
+	# Native MSVC or ICC
 	hardcode_libdir_flag_spec=' '
 	allow_undefined_flag=unsupported
 	always_export_symbols=yes
@@ -13881,7 +14013,7 @@ fi
           fi'
 	;;
       *)
-	# Assume MSVC and Intel compilers wrapper
+	# Assume MSVC and ICC wrapper
 	hardcode_libdir_flag_spec=' '
 	allow_undefined_flag=unsupported
 	# Tell ltmain to make .lib files, not .a files.
@@ -14942,8 +15074,8 @@ cygwin* | mingw* | windows* | pw32* | cegcc*)
     dynamic_linker='Win32 ld.exe'
     ;;
 
-  *,cl* | *,icl* | *,ifort* | *,icx* | *,ifx*)
-    # Native MSVC or classic or new Intel Compilers
+  *,cl* | *,icl*)
+    # Native MSVC or ICC
     libname_spec='$name'
     soname_spec='$libname`echo $release | $SED -e 's/[.]/-/g'`$versuffix$shared_ext'
     library_names_spec='$libname.dll.lib'
@@ -17660,8 +17792,8 @@ fi
 
       cygwin* | mingw* | windows* | pw32* | cegcc*)
 	case $GXX,$cc_basename in
-	,cl* | no,cl* | ,icl* | no,icl* | ,ifort* | no,ifort* | ,icx* | no,icx* | ,ifx* | no,ifx*)
-	  # Native MSVC or classic or new Intel compilers
+	,cl* | no,cl* | ,icl* | no,icl*)
+	  # Native MSVC or ICC
 	  # hardcode_libdir_flag_spec is actually meaningless, as there is
 	  # no search path for DLLs.
 	  hardcode_libdir_flag_spec_CXX=' '
@@ -19258,7 +19390,7 @@ printf %s "checking whether the $compiler linker ($LD) supports shared libraries
     ;;
   cygwin* | mingw* | windows* | cegcc*)
     case $cc_basename in
-    cl* | icl* | ifort* | icx* | ifx*)
+    cl* | icl*)
       exclude_expsyms_CXX='_NULL_IMPORT_DESCRIPTOR|_IMPORT_DESCRIPTOR_.*'
       ;;
     *)
@@ -19636,8 +19768,8 @@ cygwin* | mingw* | windows* | pw32* | cegcc*)
     dynamic_linker='Win32 ld.exe'
     ;;
 
-  *,cl* | *,icl* | *,ifort* | *,icx* | *,ifx*)
-    # Native MSVC or classic or new Intel Compilers
+  *,cl* | *,icl*)
+    # Native MSVC or ICC
     libname_spec='$name'
     soname_spec='$libname`echo $release | $SED -e 's/[.]/-/g'`$versuffix$shared_ext'
     library_names_spec='$libname.dll.lib'
@@ -22303,12 +22435,12 @@ fi
 
     cygwin* | mingw* | windows* | pw32* | cegcc*)
       # When not using gcc, we currently assume that we are using
-      # Microsoft Visual C++ or Intel C++/Fortran Compiler.
+      # Microsoft Visual C++ or Intel C++ Compiler.
       # hardcode_libdir_flag_spec is actually meaningless, as there is
       # no search path for DLLs.
       case $cc_basename in
-      cl* | icl* | ifort* | icx* | ifx*)
-	# Native MSVC or classic or new Intel Compilers
+      cl* | icl*)
+	# Native MSVC or ICC
 	hardcode_libdir_flag_spec_F77=' '
 	allow_undefined_flag_F77=unsupported
 	always_export_symbols_F77=yes
@@ -22349,7 +22481,7 @@ fi
           fi'
 	;;
       *)
-	# Assume MSVC and Intel compilers wrapper
+	# Assume MSVC and ICC wrapper
 	hardcode_libdir_flag_spec_F77=' '
 	allow_undefined_flag_F77=unsupported
 	# Tell ltmain to make .lib files, not .a files.
@@ -23199,8 +23331,8 @@ cygwin* | mingw* | windows* | pw32* | cegcc*)
     dynamic_linker='Win32 ld.exe'
     ;;
 
-  *,cl* | *,icl* | *,ifort* | *,icx* | *,ifx*)
-    # Native MSVC or classic or new Intel Compilers
+  *,cl* | *,icl*)
+    # Native MSVC or ICC
     libname_spec='$name'
     soname_spec='$libname`echo $release | $SED -e 's/[.]/-/g'`$versuffix$shared_ext'
     library_names_spec='$libname.dll.lib'
@@ -28430,218 +28562,13 @@ fi
 printf "%s\n" "$as_me: No JAVA compiler. Disabling build of Java interface." >&6;}
     enable_java=no
   else
-
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking if $JAVAC works" >&5
-printf %s "checking if $JAVAC works... " >&6; }
-if test ${ac_cv_prog_javac_works+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e)
-JAVA_TEST=Test.java
-CLASS_TEST=Test.class
-cat << \EOF > $JAVA_TEST
-/* #line 28444 "configure" */
-public class Test {
-}
-EOF
-if { ac_try='$JAVAC $JAVACFLAGS $JAVA_TEST'
-  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
-  (eval $ac_try) 2>&5
-  ac_status=$?
-  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; } >/dev/null 2>&1; then
-  ac_cv_prog_javac_works=yes
-else
-  as_fn_error $? "The Java compiler $JAVAC failed (see config.log, check the CLASSPATH?)" "$LINENO" 5
-  echo "configure: failed program was:" >&5
-  cat $JAVA_TEST >&5
-fi
-rm -f $JAVA_TEST $CLASS_TEST
- ;;
-esac
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_prog_javac_works" >&5
-printf "%s\n" "$ac_cv_prog_javac_works" >&6; }
-
-  fi
-fi
-
-if test "$enable_java" != no ; then
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking if javac supports -h" >&5
-printf %s "checking if javac supports -h... " >&6; }
-  echo "public abstract class conftest { private native boolean test(); }" > conftest.java
-  printf "%s\n" "$as_me:${as_lineno-$LINENO}: $JAVAC conftest.java -h conftest.header" >&5
-  "$JAVAC" conftest.java -h conftest.header >&5
-  if test -e conftest.header/conftest.h ; then
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-printf "%s\n" "yes" >&6; }
-  else
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
-    echo "configure: failed program was:" >&5
-    cat conftest.java >&5
-    enable_java=no
+    AX_PROG_JAVAC_WORKS
   fi
 fi
 
 if test "$enable_java" != no ; then
   # look for jni header: required to compile C++ part of Java interface
-
-
-
-
-JNI_INCLUDE_DIRS=""
-
-if test "x$JAVA_HOME" != x; then
-	_JTOPDIR="$JAVA_HOME"
-else
-	if test "x$JAVAC" = x; then
-		JAVAC=javac
-	fi
-	# Extract the first word of "$JAVAC", so it can be a program name with args.
-set dummy $JAVAC; ac_word=$2
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-printf %s "checking for $ac_word... " >&6; }
-if test ${ac_cv_path__ACJNI_JAVAC+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) case $_ACJNI_JAVAC in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path__ACJNI_JAVAC="$_ACJNI_JAVAC" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  case $as_dir in #(((
-    '') as_dir=./ ;;
-    */) ;;
-    *) as_dir=$as_dir/ ;;
-  esac
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir$ac_word$ac_exec_ext"; then
-    ac_cv_path__ACJNI_JAVAC="$as_dir$ac_word$ac_exec_ext"
-    printf "%s\n" "$as_me:${as_lineno-$LINENO}: found $as_dir$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-  test -z "$ac_cv_path__ACJNI_JAVAC" && ac_cv_path__ACJNI_JAVAC="no"
-  ;;
-esac ;;
-esac
-fi
-_ACJNI_JAVAC=$ac_cv_path__ACJNI_JAVAC
-if test -n "$_ACJNI_JAVAC"; then
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $_ACJNI_JAVAC" >&5
-printf "%s\n" "$_ACJNI_JAVAC" >&6; }
-else
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
-fi
-
-
-	if test "x$_ACJNI_JAVAC" = xno; then
-		as_fn_error $? "cannot find JDK; try setting \$JAVAC or \$JAVA_HOME" "$LINENO" 5
-	fi
-
-# find the include directory relative to the javac executable
-_cur=""$_ACJNI_JAVAC""
-while ls -ld "$_cur" 2>/dev/null | grep " -> " >/dev/null; do
-        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking symlink for $_cur" >&5
-printf %s "checking symlink for $_cur... " >&6; }
-        _slink=`ls -ld "$_cur" | sed 's/.* -> //'`
-        case "$_slink" in
-        /*) _cur="$_slink";;
-        # 'X' avoids triggering unwanted echo options.
-        *) _cur=`echo "X$_cur" | sed -e 's/^X//' -e 's:[^/]*$::'`"$_slink";;
-        esac
-        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $_cur" >&5
-printf "%s\n" "$_cur" >&6; }
-done
-_ACJNI_FOLLOWED="$_cur"
-
-	_JTOPDIR=`echo "$_ACJNI_FOLLOWED" | sed -e 's://*:/:g' -e 's:/[^/]*$::'`
-fi
-
-case "$host_os" in
-        darwin*)        # Apple Java headers are inside the Xcode bundle.
-            major_macos_version=$(sw_vers -productVersion | sed -n -e 's/^\([0-9]*\).[0-9]*.[0-9]*/\1/p')
-            if [ "$major_macos_version" -gt "10" ]; then
-                _JTOPDIR="$(/usr/libexec/java_home)"
-                _JINC="$_JTOPDIR/include"
-            else
-                macos_version=$(sw_vers -productVersion | sed -n -e 's/^[0-9]*.\([0-9]*\).[0-9]*/\1/p')
-                if [ "$macos_version" -gt "7" ]; then
-                    _JTOPDIR="$(xcrun --show-sdk-path)/System/Library/Frameworks/JavaVM.framework"
-                    _JINC="$_JTOPDIR/Headers"
-                else
-                    _JTOPDIR="/System/Library/Frameworks/JavaVM.framework"
-                    _JINC="$_JTOPDIR/Headers"
-                fi
-            fi
-            ;;
-        *) _JINC="$_JTOPDIR/include";;
-esac
-printf "%s\n" "$as_me:${as_lineno-$LINENO}: _JTOPDIR=$_JTOPDIR" >&5
-printf "%s\n" "$as_me:${as_lineno-$LINENO}: _JINC=$_JINC" >&5
-
-# On Mac OS X 10.6.4, jni.h is a symlink:
-# /System/Library/Frameworks/JavaVM.framework/Versions/Current/Headers/jni.h
-# -> ../../CurrentJDK/Headers/jni.h.
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking jni headers" >&5
-printf %s "checking jni headers... " >&6; }
-if test ${ac_cv_jni_header_path+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e)
-  if test -f "$_JINC/jni.h"; then
-    ac_cv_jni_header_path="$_JINC"
-    JNI_INCLUDE_DIRS="$JNI_INCLUDE_DIRS $ac_cv_jni_header_path"
-  else
-    _JTOPDIR=`echo "$_JTOPDIR" | sed -e 's:/[^/]*$::'`
-    if test -f "$_JTOPDIR/include/jni.h"; then
-      ac_cv_jni_header_path="$_JTOPDIR/include"
-      JNI_INCLUDE_DIRS="$JNI_INCLUDE_DIRS $ac_cv_jni_header_path"
-    else
-      ac_cv_jni_header_path=none
-    fi
-  fi
- ;;
-esac
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_jni_header_path" >&5
-printf "%s\n" "$ac_cv_jni_header_path" >&6; }
-
-# get the likely subdirectories for system specific java includes
-case "$host_os" in
-bsdi*)          _JNI_INC_SUBDIRS="bsdos";;
-freebsd*)       _JNI_INC_SUBDIRS="freebsd";;
-darwin*)        _JNI_INC_SUBDIRS="darwin";;
-linux*)         _JNI_INC_SUBDIRS="linux genunix";;
-osf*)           _JNI_INC_SUBDIRS="alpha";;
-solaris*)       _JNI_INC_SUBDIRS="solaris";;
-mingw*)		_JNI_INC_SUBDIRS="win32";;
-cygwin*)	_JNI_INC_SUBDIRS="win32";;
-*)              _JNI_INC_SUBDIRS="genunix";;
-esac
-
-if test "x$ac_cv_jni_header_path" != "xnone"; then
-  # add any subdirectories that are present
-  for JINCSUBDIR in $_JNI_INC_SUBDIRS
-  do
-    if test -d "$_JTOPDIR/include/$JINCSUBDIR"; then
-         JNI_INCLUDE_DIRS="$JNI_INCLUDE_DIRS $_JTOPDIR/include/$JINCSUBDIR"
-    fi
-  done
-fi
-
+  AX_JNI_INCLUDE_DIR
   if test -z "$JNI_INCLUDE_DIRS" ; then
     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: No JNI header directory. Disabling build of Java interface." >&5
 printf "%s\n" "$as_me: No JNI header directory. Disabling build of Java interface." >&6;}
@@ -29092,6 +29019,13 @@ if test "x$ac_cv_header_windows_h" = xyes
 then :
 
 printf "%s\n" "#define HAVE_WINDOWS_H 1" >>confdefs.h
+
+fi
+
+
+ac_fn_c_check_header_compile "$LINENO" "dlfcn.h" "ac_cv_header_dlfcn_h" "$ac_includes_default"
+if test "x$ac_cv_header_dlfcn_h" = xyes
+then :
 
 fi
 
@@ -29636,7 +29570,7 @@ printf "%s\n" "$as_me: SIPOPTAMPLINTERFACELIB_CFLAGS: \"${SIPOPTAMPLINTERFACELIB
 
 
 
-ac_config_files="$ac_config_files Makefile src/ipopt.pc src/Makefile src/Apps/AmplSolver/Makefile src/Apps/AmplSolver/ipoptamplinterface.pc test/Makefile test/run_unitTests doc/Doxyfile examples/Cpp_example/Makefile examples/recursive_nlp/Makefile examples/hs071_cpp/Makefile examples/hs071_c/Makefile examples/ScalableProblems/Makefile tutorial/CodingExercise/C/1-skeleton/Makefile tutorial/CodingExercise/C/2-mistake/Makefile tutorial/CodingExercise/C/3-solution/Makefile tutorial/CodingExercise/Cpp/1-skeleton/Makefile tutorial/CodingExercise/Cpp/2-mistake/Makefile tutorial/CodingExercise/Cpp/3-solution/Makefile tutorial/CodingExercise/Matlab/1-skeleton/startup.m tutorial/CodingExercise/Matlab/2-mistake/startup.m tutorial/CodingExercise/Matlab/3-solution/startup.m"
+ac_config_files="$ac_config_files Makefile src/ipopt.pc src/Makefile src/Apps/AmplSolver/Makefile src/Apps/AmplSolver/ipoptamplinterface.pc test/Makefile test/run_unitTests doc/Doxyfile examples/Cpp_example/Makefile examples/hs071_cpp/Makefile examples/hs071_c/Makefile examples/ScalableProblems/Makefile tutorial/CodingExercise/C/1-skeleton/Makefile tutorial/CodingExercise/C/2-mistake/Makefile tutorial/CodingExercise/C/3-solution/Makefile tutorial/CodingExercise/Cpp/1-skeleton/Makefile tutorial/CodingExercise/Cpp/2-mistake/Makefile tutorial/CodingExercise/Cpp/3-solution/Makefile tutorial/CodingExercise/Matlab/1-skeleton/startup.m tutorial/CodingExercise/Matlab/2-mistake/startup.m tutorial/CodingExercise/Matlab/3-solution/startup.m"
 
 
 if test -n "$F77" ; then
@@ -31080,7 +31014,6 @@ do
     "test/run_unitTests") CONFIG_FILES="$CONFIG_FILES test/run_unitTests" ;;
     "doc/Doxyfile") CONFIG_FILES="$CONFIG_FILES doc/Doxyfile" ;;
     "examples/Cpp_example/Makefile") CONFIG_FILES="$CONFIG_FILES examples/Cpp_example/Makefile" ;;
-    "examples/recursive_nlp/Makefile") CONFIG_FILES="$CONFIG_FILES examples/recursive_nlp/Makefile" ;;
     "examples/hs071_cpp/Makefile") CONFIG_FILES="$CONFIG_FILES examples/hs071_cpp/Makefile" ;;
     "examples/hs071_c/Makefile") CONFIG_FILES="$CONFIG_FILES examples/hs071_c/Makefile" ;;
     "examples/ScalableProblems/Makefile") CONFIG_FILES="$CONFIG_FILES examples/ScalableProblems/Makefile" ;;
