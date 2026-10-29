@@ -349,8 +349,8 @@ bool PardisoSolverInterface::InitializeImpl(
       Index N = dim_;
       Index NRHS = 0;
       Index ERROR;
-      Index idmy;
-      Number ddmy;
+      Index idmy = 0;
+      Number ddmy = 0.0;
       pardiso(PT_, &MAXFCT_, &MNUM_, &MTYPE_, &PHASE, &N, &ddmy, &idmy, &idmy, &idmy, &NRHS, IPARM_, &MSGLVL_, &ddmy,
               &ddmy, &ERROR, DPARM_);
       DBG_ASSERT(ERROR == 0);
@@ -716,7 +716,7 @@ ESymSolverStatus PardisoSolverInterface::Factorization(
    // Call Pardiso to do the factorization
    Index PHASE;
    Index N = dim_;
-   Index PERM;   // This should not be accessed by Pardiso
+   Index PERM = 0; // This should not be accessed by Pardiso
    Index NRHS = 0;
    Number B;  // This should not be accessed by Pardiso in factorization
    // phase
@@ -949,7 +949,7 @@ ESymSolverStatus PardisoSolverInterface::Solve(
    // Call Pardiso to do the solve for the given right-hand sides
    Index PHASE = 33;
    Index N = dim_;
-   Index PERM;   // This should not be accessed by Pardiso
+   Index PERM = 0;   // This should not be accessed by Pardiso
    Index NRHS = nrhs;
    Number* X = new Number[nrhs * dim_];
 

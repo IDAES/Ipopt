@@ -7,7 +7,13 @@ More detailed information about incremental changes can be found in the
 
 ## 3.14
 
-### 3.14.20 (2025-xx-yy)
+### 3.14.21
+
+- Fix segmentation fault when trying to check function values for non-finite values
+  when evaluation failed and check_derivatives_for_naninf has been enabled
+  [#866, by Steven R. Hall].
+
+### 3.14.20 (2026-08-27)
 
 - Fixed issue where Ipopt exceptions could not been caught from other libraries
   on macOS with clang when Ipopt or the other library was build with `-fvisibility=hidden`.
@@ -16,6 +22,13 @@ More detailed information about incremental changes can be found in the
 - Fixed a use-after-free in Spral interface where attempting to solve a second system with
   the same structurally singular matrix would end up trying to use an old numeric factorization
   using data from an already freed symbolic factorization [#848, by Kevin Kofler].
+- Fixed that the limit on filter resets was not effective [#860, #862, by Lander Vanroye and
+  Julien Schueller]. To restore previous behavior, set option max_filter_resets to a high value.
+- Removed unnecessary include of iostream header [#856 by Jeremy Nimmer, #863].
+- Removed global variable `Wallclock_firstCall_` (for #857); WallclockTime() now returns time
+  since the Epoch instead of the first call
+- Global variable `copyright_message_printed` is now thread-local (for #857).
+  The copyright message will be printed once per thread now.
 
 ### 3.14.19 (2025-07-30)
 
